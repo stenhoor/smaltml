@@ -48,6 +48,8 @@ try {
   twins. `predict` and `predictProba` take `{ device: 'auto' | 'cpu' | 'gpu' }`: the GPU computes in 32-bit floats, and
   `'cpu'` gives exactly the synchronous result. `startWorker()` (from `@smaltworks/smaltml/worker`) fits and predicts in
   a Web Worker and returns ordinary fitted models.
+- **Models by name:** `registry.save('churn', model)` keeps a version; `predict('churn', X, { registry })` predicts with
+  the latest (`version` picks one). `new ModelRegistry(new TableStore(db))` keeps them in a smaltdb table.
 - **Errors are `SmaltmlError`s with a `code`:** `ML_SHAPE`, `ML_VALUE`, `ML_PARAM`, `ML_NOT_FITTED`, `ML_SINGULAR`,
   `ML_FORMAT`, `ML_LABELS` ([Errors](../reference/errors)).
 - **What isn't supported fails with an error, never a wrong answer.** [Where smaltml

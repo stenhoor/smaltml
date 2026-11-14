@@ -16,6 +16,7 @@ const ALLOWED: Record<string, string[]> = {
   pipeline: ['core', 'pipeline'],
   io: ['core', 'io', 'preprocessing', 'linear', 'pipeline', 'gpu'],
   gpu: ['core', 'gpu'],
+  registry: ['core', 'registry', 'io', 'preprocessing', 'linear', 'pipeline', 'gpu'],
   worker: ['core', 'worker', 'io', 'preprocessing', 'linear', 'pipeline', 'gpu'],
 };
 

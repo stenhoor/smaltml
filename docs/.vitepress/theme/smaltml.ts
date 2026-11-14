@@ -58,10 +58,15 @@ export async function runExample(code: string, setup: readonly SetupStep[]): Pro
   return fn(smaltml)
 }
 
-/** A number as the examples print it: whole numbers as they are, others to 6 significant digits. */
+/**
+ * A number as the examples print it: whole numbers as they are, others to 6 significant digits. A value within
+ * rounding error (1e-9, relative) of a whole number prints as that number: 2.2e-16 is 0, 0.9999999999999998 is 1.
+ */
 export function printedNumber(v: number): string {
   if (Number.isNaN(v)) return 'NaN'
   if (Number.isInteger(v)) return String(v)
+  const whole = Math.round(v)
+  if (Math.abs(v - whole) <= 1e-9 * Math.max(1, Math.abs(v))) return String(Object.is(whole, -0) ? 0 : whole)
   const s = Number(v.toPrecision(6))
   return Object.is(s, -0) ? '0' : String(s)
 }

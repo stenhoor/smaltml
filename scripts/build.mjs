@@ -18,6 +18,7 @@ export const entries = {
   pipeline: 'src/pipeline/index.ts',
   io: 'src/io/index.ts',
   gpu: 'src/gpu/index.ts',
+  registry: 'src/registry/index.ts',
   worker: 'src/worker/index.ts',
   'smaltml-worker': 'src/worker/worker.ts',
 };

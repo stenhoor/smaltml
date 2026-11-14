@@ -42,6 +42,13 @@ it raises, and examples with their tested results.
 
 - [`saveModel`](./io/save-model) and [`loadModel`](./io/load-model): models as JSON. `@smaltworks/smaltml/io`
 
+## Hardware
+
+- [`matMul`](./gpu/mat-mul): the matrix product, on the CPU or the GPU. `@smaltworks/smaltml/gpu`
+- [`gpuAvailable`](./gpu/gpu-available): whether WebGPU is there. `@smaltworks/smaltml/gpu`
+- [`startWorker`](./worker/start-worker) and [`connect`](./worker/connect): smaltml in a Web Worker.
+  `@smaltworks/smaltml/worker`
+
 ## Rules
 
 - [Errors](./errors): every error code.

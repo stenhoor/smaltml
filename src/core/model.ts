@@ -52,7 +52,7 @@ export interface Transformer extends Model {
 export interface Predictor extends Model {
   fit(X: MatrixInput, y: Labels): Promise<this>;
   fitSync(X: MatrixInput, y: Labels): this;
-  predict(X: MatrixInput): Promise<Float64Array | Label[]>;
+  predict(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Float64Array | Label[]>;
   predictSync(X: MatrixInput): Float64Array | Label[];
 }
 
@@ -60,9 +60,9 @@ export interface Predictor extends Model {
 export interface Classifier extends Predictor {
   /** The labels seen in fit(), sorted: the order of predictProba()'s columns. */
   readonly classes: readonly Label[];
-  predict(X: MatrixInput): Promise<Label[]>;
+  predict(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Label[]>;
   predictSync(X: MatrixInput): Label[];
-  predictProba(X: MatrixInput): Promise<Matrix>;
+  predictProba(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Matrix>;
   predictProbaSync(X: MatrixInput): Matrix;
 }
 

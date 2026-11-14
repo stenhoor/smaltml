@@ -29,7 +29,7 @@ Settings → Pages → Source must be **GitHub Actions**.
 | --- | --- |
 | `npm ci` | Installs dependencies |
 | `npm run check` | Typecheck, then the tests (vitest): the compare cases, every docs example, the entry points. Before every commit |
-| `npm run test:browser` | Builds the site and presses Run on every playground in headless Chromium. CI runs it |
+| `npm run test:browser` | In headless Chromium: Run on every playground of the site (`test/browser/docs.mjs`), then WebGPU and the worker against the CPU (`test/browser/hardware.mjs`, WebGPU on SwiftShader). CI runs it |
 | `npm run compare` | Reruns compare/run.py through scikit-learn and rewrites fixtures/compare.json |
 | `npm run docs:dev` / `docs:build` | The site |
 | `npm run build` | `dist/` and type declarations |
@@ -48,7 +48,8 @@ Playwright is installed globally in the cloud containers; don't run `playwright 
   `SmaltmlError` and a code; list it in `docs/reference/divergences.md`. A deliberate difference is a `DIVERGES` entry
   in `test/compare.test.ts` too.
 - **The CPU path is the product** (section 3): 64-bit floats, every browser, Node. WebGPU is an accelerator, checked
-  against the CPU within a stated tolerance.
+  against the CPU within a stated tolerance (`test/browser/hardware.mjs`). On the CPU, an asynchronous call gives
+  exactly its `*Sync` twin's result.
 - **Asynchronous API over a synchronous core** (section 5): every `fit`, `predict`, `predictProba` and `transform` has
   a `*Sync` twin; the core touches neither the DOM nor Node.
 - **Entry points** (section 9): each area of `src/` is one, listed in `package.json` `exports`, `scripts/build.mjs`

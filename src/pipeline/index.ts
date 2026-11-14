@@ -83,8 +83,11 @@ export class Pipeline implements Model {
     return this;
   }
 
-  async predict(X: MatrixInput): Promise<Float64Array | Label[]> {
-    return this.predictSync(X);
+  /** X through the steps, then the last step's predict(); `device` reaches the last step. */
+  async predict(X: MatrixInput, options: { device?: 'auto' | 'cpu' | 'gpu' } = {}): Promise<Float64Array | Label[]> {
+    const last = this.last;
+    if (!isPredictor(last)) fail('ML_PARAM', `the last step, ${last.kind}, doesn't predict`);
+    return last.predict(this.#through(X), options);
   }
 
   predictSync(X: MatrixInput): Float64Array | Label[] {
@@ -93,8 +96,10 @@ export class Pipeline implements Model {
     return last.predictSync(this.#through(X));
   }
 
-  async predictProba(X: MatrixInput): Promise<Matrix> {
-    return this.predictProbaSync(X);
+  async predictProba(X: MatrixInput, options: { device?: 'auto' | 'cpu' | 'gpu' } = {}): Promise<Matrix> {
+    const last = this.last;
+    if (!isClassifier(last)) fail('ML_PARAM', `the last step, ${last.kind}, doesn't give probabilities`);
+    return last.predictProba(this.#through(X), options);
   }
 
   predictProbaSync(X: MatrixInput): Matrix {

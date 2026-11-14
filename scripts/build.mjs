@@ -17,6 +17,9 @@ export const entries = {
   selection: 'src/selection/index.ts',
   pipeline: 'src/pipeline/index.ts',
   io: 'src/io/index.ts',
+  gpu: 'src/gpu/index.ts',
+  worker: 'src/worker/index.ts',
+  'smaltml-worker': 'src/worker/worker.ts',
 };
 
 await esbuild.build({

@@ -27,6 +27,9 @@ uses:
 | `@smaltworks/smaltml/selection` | `trainTestSplit` |
 | `@smaltworks/smaltml/pipeline` | `pipeline`, `Pipeline` |
 | `@smaltworks/smaltml/io` | `saveModel`, `loadModel` |
+| `@smaltworks/smaltml/gpu` | `matMul`, `matMulSync`, `gpuAvailable`, `gpuDevice`, `GPU_MIN_WORK` |
+| `@smaltworks/smaltml/worker` | `startWorker`, `connect`, `serve` (not in the main entry point) |
+| `@smaltworks/smaltml/worker-script` | The worker script `startWorker` runs |
 
 ## Data in
 
@@ -53,7 +56,7 @@ smaltml holds data as a [`Matrix`](../reference/matrix): numbers in 64-bit float
 ## Asynchronous and synchronous calls
 
 `fit`, `predict`, `predictProba` and `transform` return promises, so that work can move to WebGPU or a worker without
-changing your code. Each has a synchronous twin (`fitSync`, `predictSync` …) that runs on the calling thread, for
+changing your code ([The CPU, WebGPU and workers](./hardware)). Each has a synchronous twin (`fitSync`, `predictSync` …) that runs on the calling thread, for
 code that is already off the page's main thread, such as a notebook kernel or a test:
 
 ```ts

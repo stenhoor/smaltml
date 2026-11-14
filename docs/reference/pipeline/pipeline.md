@@ -11,8 +11,8 @@ type Step = Model | readonly [name: string, model: Model];
 class Pipeline implements Model {
   constructor(steps: readonly Step[]);
   fit(X: MatrixInput, y?: Labels): Promise<this>;
-  predict(X: MatrixInput): Promise<Float64Array | Label[]>;
-  predictProba(X: MatrixInput): Promise<Matrix>;
+  predict(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Float64Array | Label[]>;
+  predictProba(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Matrix>;
   transform(X: MatrixInput): Promise<Matrix>;
   step(name: string): Model;
   readonly steps: readonly (readonly [string, Model])[];
@@ -33,7 +33,7 @@ transforms. scikit-learn's
 ## Returns
 
 A `Pipeline`. `fit` fits each step on what the steps before it give. `predict`, `predictProba` and `transform` run `X`
-through the steps and call the last step's method. `step(name)` is the step with that name; `classes` is the last
+through the steps and call the last step's method; `device` reaches the last step. `step(name)` is the step with that name; `classes` is the last
 step's, when it is a classifier.
 
 ## Errors

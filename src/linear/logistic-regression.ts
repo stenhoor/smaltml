@@ -1,6 +1,7 @@
 import { fail } from '../core/errors.js';
 import { minimize } from '../core/linalg.js';
 import { assertFinite, Matrix, type MatrixInput } from '../core/matrix.js';
+import { matMul, useGpu, type DeviceOptions } from '../gpu/index.js';
 import {
   checkColumns,
   checkDocument,
@@ -131,14 +132,18 @@ export class LogisticRegression implements Classifier {
     return this;
   }
 
-  async predict(X: MatrixInput): Promise<Label[]> {
-    return this.predictSync(X);
+  /** The most probable class for each row; the scores on the GPU when `device` chooses it. */
+  async predict(X: MatrixInput, options: DeviceOptions = {}): Promise<Label[]> {
+    return this.#labels(await this.decisionFunction(X, options));
   }
 
   /** The most probable class for each row. */
   predictSync(X: MatrixInput): Label[] {
+    return this.#labels(this.decisionFunctionSync(X));
+  }
+
+  #labels(scores: Matrix): Label[] {
     const s = this.#fitted();
-    const scores = this.decisionFunctionSync(X);
     const n = scores.rows;
     const out: Label[] = new Array(n);
     if (scores.cols === 1) {
@@ -153,14 +158,18 @@ export class LogisticRegression implements Classifier {
     return out;
   }
 
-  async predictProba(X: MatrixInput): Promise<Matrix> {
-    return this.predictProbaSync(X);
+  /** Each class's probability; the scores on the GPU when `device` chooses it. */
+  async predictProba(X: MatrixInput, options: DeviceOptions = {}): Promise<Matrix> {
+    return this.#proba(await this.decisionFunction(X, options));
   }
 
   /** Each class's probability, one column per class in the order of `classes`. */
   predictProbaSync(X: MatrixInput): Matrix {
+    return this.#proba(this.decisionFunctionSync(X));
+  }
+
+  #proba(scores: Matrix): Matrix {
     const s = this.#fitted();
-    const scores = this.decisionFunctionSync(X);
     const n = scores.rows;
     const K = s.classes.length;
     const out = new Float64Array(n * K);
@@ -180,6 +189,26 @@ export class LogisticRegression implements Classifier {
       }
     }
     return new Matrix(n, K, out, s.classes.map(String));
+  }
+
+  /** Each row's score, X·wᵀ + b, as decisionFunctionSync(); the product on the GPU when `device` chooses it. */
+  async decisionFunction(X: MatrixInput, options: DeviceOptions = {}): Promise<Matrix> {
+    const s = this.#fitted();
+    const m = Matrix.from(X);
+    checkColumns(m, s.nFeaturesIn, this.kind);
+    const k = s.coef.rows;
+    // On the CPU, exactly decisionFunctionSync()'s result.
+    if (!(await useGpu(options.device, m.rows * m.cols * k))) return this.decisionFunctionSync(m);
+    const p = s.coef.cols;
+    // coefᵀ, p × k: column c is coef's row c.
+    const wT = new Float64Array(p * k);
+    for (let c = 0; c < k; c++) for (let j = 0; j < p; j++) wT[c * p + j] = s.coef.data[j * k + c]!;
+    const scores = await matMul(m, new Matrix(p, k, wT), { device: 'gpu' });
+    for (let c = 0; c < k; c++) {
+      const b = s.intercept[c]!;
+      for (let i = 0; i < m.rows; i++) scores.data[c * m.rows + i]! += b;
+    }
+    return scores;
   }
 
   /** Each row's score: X·wᵀ + b, one column for two classes (the second class's log-odds), else one per class. */

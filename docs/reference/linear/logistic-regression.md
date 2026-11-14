@@ -9,8 +9,9 @@ description: 'LogisticRegression: classes and their probabilities from a linear 
 class LogisticRegression implements Classifier {
   constructor(params?: { C?: number; l1Ratio?: number; tol?: number; fitIntercept?: boolean; maxIter?: number });
   fit(X: MatrixInput, y: Labels): Promise<this>;
-  predict(X: MatrixInput): Promise<Label[]>;
-  predictProba(X: MatrixInput): Promise<Matrix>;
+  predict(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Label[]>;
+  predictProba(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Matrix>;
+  decisionFunction(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Matrix>;
   decisionFunctionSync(X: MatrixInput): Matrix;
   readonly classes: readonly Label[];
   readonly coef: Matrix;
@@ -37,7 +38,8 @@ with its default solver, `lbfgs`.
 
 - `predict`: the most probable class for each row.
 - `predictProba`: a Matrix with a column per class, in the order of `classes`; each row sums to 1.
-- `decisionFunctionSync`: each row's score, `X·wᵀ + b`.
+- `decisionFunction` and `decisionFunctionSync`: each row's score, `X·wᵀ + b`. The asynchronous calls take `device`,
+  which chooses where the product runs ([The CPU, WebGPU and workers](../../guide/hardware)).
 - `classes`: the labels seen in `fit`, sorted.
 - `coef`: one row for two classes (the log-odds of the second class), else one row per class; one column per feature.
 - `intercept`: one value per row of `coef`. `nIter`: the iterations the fit took.

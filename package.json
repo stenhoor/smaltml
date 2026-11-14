@@ -1,0 +1,83 @@
+{
+  "name": "@smaltworks/smaltml",
+  "version": "0.1.0",
+  "description": "Machine learning for smaltdb, on the hardware you have.",
+  "keywords": [
+    "machine-learning",
+    "regression",
+    "classification",
+    "browser",
+    "webgpu",
+    "typescript"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stenhoor/smaltml.git"
+  },
+  "homepage": "https://stenhoor.github.io/smaltml/",
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test",
+    "build": "node scripts/build.mjs",
+    "test:browser": "node test/browser/docs.mjs",
+    "compare": "python3 compare/run.py",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "default": "./dist/smaltml.js"
+    },
+    "./core": {
+      "types": "./dist/types/core/index.d.ts",
+      "default": "./dist/core.js"
+    },
+    "./preprocessing": {
+      "types": "./dist/types/preprocessing/index.d.ts",
+      "default": "./dist/preprocessing.js"
+    },
+    "./linear": {
+      "types": "./dist/types/linear/index.d.ts",
+      "default": "./dist/linear.js"
+    },
+    "./metrics": {
+      "types": "./dist/types/metrics/index.d.ts",
+      "default": "./dist/metrics.js"
+    },
+    "./selection": {
+      "types": "./dist/types/selection/index.d.ts",
+      "default": "./dist/selection.js"
+    },
+    "./pipeline": {
+      "types": "./dist/types/pipeline/index.d.ts",
+      "default": "./dist/pipeline.js"
+    },
+    "./io": {
+      "types": "./dist/types/io/index.d.ts",
+      "default": "./dist/io.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "LICENSE",
+    "README.md"
+  ],
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "esbuild": "^0.28.2",
+    "smaltkit": "github:stenhoor/smaltkit#9966247958fa7a1f560977b007f9704877b3f55d",
+    "typescript": "7.0",
+    "vitepress": "1.6.4",
+    "vitest": "^5.1.0"
+  }
+}

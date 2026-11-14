@@ -1,0 +1,152 @@
+import { defineConfig } from 'vitepress'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { smaltLight, smaltDark } from './theme/shiki'
+import { smaltworksMenu, smaltworksFooter } from './theme/smaltworks'
+import { playgroundPlugin } from './theme/playground'
+import { agentDocs, packageVersion } from './theme/agents'
+
+const here = path.dirname(fileURLToPath(import.meta.url))
+const REPO = 'https://github.com/stenhoor/smaltml'
+// GitHub Pages serves the site under the repository's name.
+const BASE = process.env.SMALTML_BASE ?? '/smaltml/'
+
+export default defineConfig({
+  title: 'smaltml',
+  description: 'Machine learning for smaltdb, on the hardware you have.',
+  base: BASE,
+  cleanUrls: true,
+  rewrites: { 'adr/README.md': 'adr/index.md' },
+  lastUpdated: false,
+  // Markdown for AI agents beside the pages: a twin of each page, /llms.txt and /agents.md (BRAND.md, Documentation).
+  buildEnd: (config) => {
+    agentDocs(config, {
+      product: 'smaltml',
+      version: packageVersion(path.resolve(here, '../../package.json')),
+      url: `https://stenhoor.github.io${BASE}`,
+      intro: 'guide/agents.md',
+      guide: ['reference/'],
+    })
+  },
+  head: [
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: `${BASE}favicon-32.svg` }],
+    ['meta', { property: 'og:title', content: 'smaltml' }],
+    ['meta', { property: 'og:description', content: 'Small. Alternative. Predict. Machine learning for smaltdb, on the hardware you have.' }],
+    ['meta', { property: 'og:image', content: 'https://raw.githubusercontent.com/stenhoor/smalt-brand/main/social/smaltml.png' }],
+    ['link', { rel: 'preconnect', href: 'https://fonts.googleapis.com' }],
+    ['link', { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' }],
+    ['link', { rel: 'stylesheet', href: 'https://fonts.googleapis.com/css2?family=Geist:wght@400;500;700&family=Geist+Mono:wght@400;500&family=Martian+Mono:wght@400;600&display=swap' }],
+  ],
+  vite: {
+    resolve: {
+      alias: [
+        { find: /^@smaltworks\/smaltml$/, replacement: path.resolve(here, '../../src/index.ts') },
+        { find: /^@smaltworks\/smaltml\/(.*)$/, replacement: path.resolve(here, '../../src/$1/index.ts') },
+      ],
+    },
+    worker: { format: 'es' },
+  },
+  markdown: {
+    theme: { light: smaltLight, dark: smaltDark },
+    config(md) {
+      // Every ts example runs where it stands (BRAND.md, Documentation, rule 7; theme/smaltml.ts).
+      md.use(playgroundPlugin, { languages: ['ts'] })
+      // Links that leave docs/ point at the file on GitHub.
+      const fallback = md.renderer.rules.link_open ?? ((t, i, o, _e, s) => s.renderToken(t, i, o))
+      md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+        const href = tokens[idx].attrGet('href')
+        if (href && !/^[a-z]+:|^#|^\//i.test(href) && env?.relativePath) {
+          const target = path.posix.normalize(path.posix.join(path.posix.dirname(env.relativePath), href))
+          if (target.startsWith('../')) {
+            tokens[idx].attrSet('href', `${REPO}/blob/HEAD/${target.slice(3)}`)
+            tokens[idx].attrSet('target', '_blank')
+            tokens[idx].attrSet('rel', 'noreferrer')
+          }
+        }
+        return fallback(tokens, idx, options, env, self)
+      }
+    },
+  },
+  themeConfig: {
+    logo: { light: '/lockup.svg', dark: '/lockup-on-dark.svg', alt: 'smaltml' },
+    siteTitle: false,
+    // The four sections of every smalt site (BRAND.md, Documentation, rule 1).
+    nav: [
+      { text: 'Quick start', link: '/guide/quick-start' },
+      { text: 'Guide', link: '/guide/getting-started' },
+      { text: 'Reference', link: '/reference/' },
+      { text: 'Playground', link: '/playground' },
+      smaltworksMenu(),
+    ],
+    sidebar: [
+      { text: 'Quick start', items: [{ text: 'Quick start', link: '/guide/quick-start' }] },
+      {
+        text: 'Getting started',
+        items: [
+          { text: 'Installation', link: '/guide/getting-started' },
+          { text: 'For AI agents', link: '/guide/agents' },
+        ],
+      },
+      {
+        text: 'User guide',
+        items: [
+          { text: 'Preparing data', link: '/guide/preparing-data' },
+          { text: 'Training models', link: '/guide/training' },
+          { text: 'Evaluating models', link: '/guide/evaluating' },
+          { text: 'Saving and loading', link: '/guide/saving' },
+        ],
+      },
+      {
+        text: 'Reference',
+        items: [
+          { text: 'Overview', link: '/reference/' },
+          { text: 'Matrix', link: '/reference/matrix' },
+          { text: 'Preprocessing', collapsed: false, items: [{ text: 'StandardScaler', link: '/reference/preprocessing/standard-scaler' }] },
+          {
+            text: 'Linear models',
+            collapsed: false,
+            items: [
+              { text: 'LinearRegression', link: '/reference/linear/linear-regression' },
+              { text: 'LogisticRegression', link: '/reference/linear/logistic-regression' },
+            ],
+          },
+          { text: 'Model selection', collapsed: false, items: [{ text: 'trainTestSplit', link: '/reference/selection/train-test-split' }] },
+          { text: 'Pipelines', collapsed: false, items: [{ text: 'pipeline', link: '/reference/pipeline/pipeline' }] },
+          {
+            text: 'Metrics',
+            collapsed: false,
+            link: '/reference/metrics/',
+            items: [
+              { text: 'meanSquaredError', link: '/reference/metrics/mean-squared-error' },
+              { text: 'r2Score', link: '/reference/metrics/r2-score' },
+              { text: 'accuracyScore', link: '/reference/metrics/accuracy-score' },
+              { text: 'logLoss', link: '/reference/metrics/log-loss' },
+            ],
+          },
+          {
+            text: 'Saving and loading',
+            collapsed: false,
+            items: [
+              { text: 'saveModel', link: '/reference/io/save-model' },
+              { text: 'loadModel', link: '/reference/io/load-model' },
+            ],
+          },
+          { text: 'Errors', link: '/reference/errors' },
+          { text: 'Where smaltml differs', link: '/reference/divergences' },
+          {
+            text: 'Internals',
+            collapsed: true,
+            items: [
+              { text: 'Decisions', link: '/adr/' },
+              { text: '0024 Scope and architecture', link: '/adr/0024-smaltml-scope-and-architecture' },
+            ],
+          },
+        ],
+      },
+    ],
+    socialLinks: [{ icon: 'github', link: REPO }],
+    search: { provider: 'local' },
+    outline: { level: [2, 3] },
+    footer: smaltworksFooter(BASE),
+  },
+})

@@ -20,12 +20,12 @@ uses:
 | Entry point | What it holds |
 | --- | --- |
 | `@smaltworks/smaltml` | Everything below |
-| `@smaltworks/smaltml/core` | `Matrix`, `SmaltmlError`, `Random`, the model types, `VERSION` |
-| `@smaltworks/smaltml/preprocessing` | `StandardScaler` |
+| `@smaltworks/smaltml/core` | `Matrix`, `SmaltmlError`, `Random`, the model and table types, `VERSION` |
+| `@smaltworks/smaltml/preprocessing` | `StandardScaler`, `MinMaxScaler`, `RobustScaler`, `SimpleImputer`, `OneHotEncoder`, `OrdinalEncoder` |
 | `@smaltworks/smaltml/linear` | `LinearRegression`, `LogisticRegression` |
 | `@smaltworks/smaltml/metrics` | `meanSquaredError`, `r2Score`, `accuracyScore`, `logLoss` |
 | `@smaltworks/smaltml/selection` | `trainTestSplit` |
-| `@smaltworks/smaltml/pipeline` | `pipeline`, `Pipeline` |
+| `@smaltworks/smaltml/pipeline` | `pipeline`, `Pipeline`, `ColumnTransformer` |
 | `@smaltworks/smaltml/io` | `saveModel`, `loadModel` |
 | `@smaltworks/smaltml/registry` | `predict`, `predictProba`, `ModelRegistry`, `MemoryStore`, `TableStore`, `useRegistry` |
 | `@smaltworks/smaltml/gpu` | `matMul`, `matMulSync`, `gpuAvailable`, `gpuDevice`, `GPU_MIN_WORK` |
@@ -49,7 +49,8 @@ const X = Matrix.from(columns);
 | --- | --- | --- |
 | 3 | 2 | [age, spend] |
 
-Named columns keep their names: errors name the column, and a saved model records them. `NaN` (or `null` in a column)
+Named columns keep their names: errors name the column, and a saved model records them. Columns of text are for the
+encoders and `ColumnTransformer` ([Preparing data](./preparing-data#text-columns)); every other model takes numbers. `NaN` (or `null` in a column)
 means a missing value. Labels for a classifier are numbers or strings.
 
 smaltml holds data as a [`Matrix`](../reference/matrix): numbers in 64-bit floats, stored column by column.

@@ -4,6 +4,7 @@
  */
 import { fail } from '../core/errors.js';
 import { Matrix, type MatrixInput } from '../core/matrix.js';
+import type { TableInput } from '../core/table.js';
 import {
   checkDocument,
   document,
@@ -69,56 +70,57 @@ export class Pipeline implements Model {
     return Object.fromEntries(this.steps.map(([n, m]) => [n, m.getParams()]));
   }
 
-  async fit(X: MatrixInput, y?: Labels): Promise<this> {
+  async fit(X: TableInput, y?: Labels): Promise<this> {
     return this.fitSync(X, y);
   }
 
-  fitSync(X: MatrixInput, y?: Labels): this {
-    let data = Matrix.from(X);
+  fitSync(X: TableInput, y?: Labels): this {
+    // The first step gets X as it came, so it may hold text for an encoder or a ColumnTransformer.
+    let data = X as MatrixInput;
     const last = this.steps.length - 1;
     this.steps.forEach(([, model], k) => {
       if (k < last) data = (model as Transformer).fitSync(data, y).transformSync(data);
-      else (model as unknown as { fitSync(X: Matrix, y?: Labels): unknown }).fitSync(data, y);
+      else (model as unknown as { fitSync(X: MatrixInput, y?: Labels): unknown }).fitSync(data, y);
     });
     return this;
   }
 
   /** X through the steps, then the last step's predict(); `device` reaches the last step. */
-  async predict(X: MatrixInput, options: { device?: 'auto' | 'cpu' | 'gpu' } = {}): Promise<Float64Array | Label[]> {
+  async predict(X: TableInput, options: { device?: 'auto' | 'cpu' | 'gpu' } = {}): Promise<Float64Array | Label[]> {
     const last = this.last;
     if (!isPredictor(last)) fail('ML_PARAM', `the last step, ${last.kind}, doesn't predict`);
     return last.predict(this.#through(X), options);
   }
 
-  predictSync(X: MatrixInput): Float64Array | Label[] {
+  predictSync(X: TableInput): Float64Array | Label[] {
     const last = this.last;
     if (!isPredictor(last)) fail('ML_PARAM', `the last step, ${last.kind}, doesn't predict`);
     return last.predictSync(this.#through(X));
   }
 
-  async predictProba(X: MatrixInput, options: { device?: 'auto' | 'cpu' | 'gpu' } = {}): Promise<Matrix> {
+  async predictProba(X: TableInput, options: { device?: 'auto' | 'cpu' | 'gpu' } = {}): Promise<Matrix> {
     const last = this.last;
     if (!isClassifier(last)) fail('ML_PARAM', `the last step, ${last.kind}, doesn't give probabilities`);
     return last.predictProba(this.#through(X), options);
   }
 
-  predictProbaSync(X: MatrixInput): Matrix {
+  predictProbaSync(X: TableInput): Matrix {
     const last = this.last;
     if (!isClassifier(last)) fail('ML_PARAM', `the last step, ${last.kind}, doesn't give probabilities`);
     return last.predictProbaSync(this.#through(X));
   }
 
-  async transform(X: MatrixInput): Promise<Matrix> {
+  async transform(X: TableInput): Promise<Matrix> {
     return this.transformSync(X);
   }
 
-  transformSync(X: MatrixInput): Matrix {
+  transformSync(X: TableInput): Matrix {
     const last = this.last;
     if (!isTransformer(last)) fail('ML_PARAM', `the last step, ${last.kind}, doesn't transform`);
     return last.transformSync(this.#through(X));
   }
 
-  async fitTransform(X: MatrixInput, y?: Labels): Promise<Matrix> {
+  async fitTransform(X: TableInput, y?: Labels): Promise<Matrix> {
     return this.fitSync(X, y).transformSync(X);
   }
 
@@ -139,8 +141,8 @@ export class Pipeline implements Model {
   }
 
   /** X through every step but the last. */
-  #through(X: MatrixInput): Matrix {
-    let data = Matrix.from(X);
+  #through(X: TableInput): MatrixInput {
+    let data = X as MatrixInput;
     for (const [, model] of this.steps.slice(0, -1)) data = (model as Transformer).transformSync(data);
     return data;
   }
@@ -150,3 +152,5 @@ export class Pipeline implements Model {
 export function pipeline(...steps: Step[]): Pipeline {
   return new Pipeline(steps);
 }
+
+export { ColumnTransformer, type ColumnPart, type ColumnSelection, type ColumnTransformerParams } from './column-transformer.js';

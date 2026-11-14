@@ -1,7 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import {
+  ColumnTransformer,
   LinearRegression,
+  MinMaxScaler,
+  OneHotEncoder,
+  OrdinalEncoder,
+  RobustScaler,
+  SimpleImputer,
   LogisticRegression,
   Matrix,
   StandardScaler,
@@ -133,6 +139,60 @@ function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol:
       expect(split.XTest.rows).toBe(exp.nTest);
       expect(split.XTrain.toRows()).toEqual(exp.XTrain);
       expect(split.XTest.toRows()).toEqual(exp.XTest);
+      return;
+    }
+    case 'MinMaxScaler': {
+      const s = new MinMaxScaler(camel(inp.params) as never).fitSync(nan(inp.X));
+      close(s.dataMin, exp.dataMin, tol, 'dataMin');
+      close(s.dataMax, exp.dataMax, tol, 'dataMax');
+      close(s.scale, exp.scale, tol, 'scale');
+      close(s.min, exp.min, tol, 'min');
+      close(rowsOf(s.transformSync(nan(inp.Xnew))), exp.transform, tol, 'transform');
+      return;
+    }
+    case 'RobustScaler': {
+      const s = new RobustScaler(camel(inp.params) as never).fitSync(nan(inp.X));
+      if (exp.center) close(s.center!, exp.center, tol, 'center');
+      else expect(s.center).toBeNull();
+      if (exp.scale) close(s.scale!, exp.scale, tol, 'scale');
+      else expect(s.scale).toBeNull();
+      close(rowsOf(s.transformSync(nan(inp.Xnew))), exp.transform, tol, 'transform');
+      return;
+    }
+    case 'SimpleImputer': {
+      const s = new SimpleImputer(camel(inp.params) as never).fitSync(nan(inp.X));
+      close(s.statistics, exp.statistics, tol, 'statistics');
+      close(rowsOf(s.transformSync(nan(inp.X))), exp.transform, tol, 'transform');
+      return;
+    }
+    case 'OrdinalEncoder': {
+      const e = new OrdinalEncoder(camel(inp.params) as never).fitSync(inp.X);
+      close(rowsOf(e.transformSync(inp.Xnew)), exp.transform, tol, 'transform');
+      return;
+    }
+    case 'OneHotEncoder': {
+      const e = new OneHotEncoder(camel(inp.params) as never).fitSync(inp.X);
+      close(rowsOf(e.transformSync(inp.Xnew)), exp.transform, tol, 'transform');
+      // Names of text categories; numbers are written by JavaScript (3, not 3.0).
+      const text = new OneHotEncoder(camel(inp.params) as never).fitSync((inp.X as unknown[][]).map((r) => [r[0]]) as never);
+      expect(text.getFeatureNamesOut()).toEqual(exp.textNames);
+      return;
+    }
+    case 'ColumnTransformer': {
+      const ct = new ColumnTransformer(
+        [['scale', new StandardScaler(), [0, 2]], ['onehot', new OneHotEncoder(), [1]]],
+        camel(inp.params) as never,
+      ).fitSync(inp.X);
+      close(rowsOf(ct.transformSync(inp.X)), exp.transform, tol, 'transform');
+      expect(ct.getFeatureNamesOut()).toEqual(exp.names);
+      return;
+    }
+    case 'ColumnPipeline': {
+      const p = pipeline(
+        new ColumnTransformer([['scale', new StandardScaler(), [0, 2]], ['onehot', new OneHotEncoder({ handleUnknown: 'ignore' }), [1]]]),
+        new LogisticRegression({ tol: 1e-10, maxIter: 10000 }),
+      ).fitSync(inp.X, inp.y);
+      close(rowsOf(p.predictProbaSync(inp.X)), exp.predictProba, tol, 'predictProba');
       return;
     }
     default:

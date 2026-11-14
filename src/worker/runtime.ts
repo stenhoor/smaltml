@@ -4,6 +4,7 @@
  * @module
  */
 import { SmaltmlError } from '../core/errors.js';
+import type { MatrixInput } from '../core/matrix.js';
 import { isClassifier, isPredictor, isTransformer, type Model } from '../core/model.js';
 import { loadModel } from '../io/index.js';
 import { fromWire, toWire, type Port, type Request, type Response, type Result } from './protocol.js';
@@ -31,7 +32,8 @@ export function serve(port: Port): void {
 
 async function handle(req: Request, transfer: Transferable[]): Promise<Result> {
   const model: Model = loadModel(req.model);
-  const X = fromWire(req.X);
+  // A table with text reaches the model as named columns; models that need numbers say so with ML_VALUE.
+  const X = ('table' in req.X ? req.X.table : fromWire(req.X)) as MatrixInput;
   const options = req.device ? { device: req.device } : {};
   switch (req.op) {
     case 'fit':

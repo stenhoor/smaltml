@@ -11,10 +11,11 @@ scikit-learn: the same models, parameters, defaults and results, checked against
 model runs on the CPU in 64-bit floats; WebGPU will speed up the heavy steps where the browser has it. Fitted models
 save to JSON and load back the same.
 
-> **Status: 0.1.0, work in progress.** The first slice ([ADR 0024](docs/adr/0024-smaltml-scope-and-architecture.md),
-> phase 1a): `StandardScaler`, `LinearRegression`, `LogisticRegression`, `trainTestSplit`, `pipeline`, four metrics,
-> saving and loading models, predictions on WebGPU, a Web Worker for fits, and `predict()` by model name from a model
-> registry, in memory or in a smaltdb table.
+> **Status: 0.1.0, work in progress.** [ADR 0024](docs/adr/0024-smaltml-scope-and-architecture.md)'s phase 1a and
+> part of 1b: scalers (standard, min–max, robust), `SimpleImputer`, `OneHotEncoder`, `OrdinalEncoder`,
+> `ColumnTransformer`, `LinearRegression`, `LogisticRegression`, `trainTestSplit`, `pipeline`, four metrics, saving and
+> loading models, predictions on WebGPU, a Web Worker for fits, and `predict()` by model name from a model registry,
+> in memory or in a smaltdb table.
 
 ## Install
 

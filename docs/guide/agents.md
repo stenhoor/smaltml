@@ -42,7 +42,9 @@ try {
   `meanSquaredError`, `trainTestSplit`. Fitted attributes drop the trailing underscore: `coef_` is `coef`.
   `random_state` is `seed`.
 - **Defaults are scikit-learn's,** and results agree with it within each model's stated tolerance.
-- **`X` is rows of numbers, an object of named columns, or a `Matrix`.** `y` is numbers (regression) or labels,
+- **`X` is rows of numbers, an object of named columns, or a `Matrix`.** Text columns are for `OneHotEncoder`,
+  `OrdinalEncoder` and `ColumnTransformer` (`[['num', new StandardScaler(), ['age']], ['cat', new OneHotEncoder(), ['city']]]`),
+  which give numbers. `y` is numbers (regression) or labels,
   numbers or strings (classification). `NaN` is a missing value; most models reject it with `ML_VALUE`.
 - **Calls are asynchronous** (`await model.fit(X, y)`); `fitSync`, `predictSync` and the others are the synchronous
   twins. `predict` and `predictProba` take `{ device: 'auto' | 'cpu' | 'gpu' }`: the GPU computes in 32-bit floats, and

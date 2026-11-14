@@ -2,6 +2,9 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import {
   ColumnTransformer,
+  ElasticNet,
+  Lasso,
+  Ridge,
   LinearRegression,
   MinMaxScaler,
   OneHotEncoder,
@@ -154,6 +157,28 @@ describe('saving and loading', () => {
     expect(sc2.withMean).toBe(false);
     expect(sc2.featureNamesIn).toEqual(['a', 'b']);
     expect(sc2.transformSync([[1, 1]]).data).toEqual(sc.transformSync([[1, 1]]).data);
+  });
+
+  test('the penalized linear models load back and predict the same', () => {
+    const X = [[1, 2, 0], [2, 1, 1], [3, 4, 0], [4, 3, 1], [5, 6, 1], [6, 5, 0], [7, 8, 1]];
+    const y = [3, 4, 8, 8, 13, 12, 17];
+    for (const m of [new Ridge({ alpha: 0.5 }), new Lasso({ alpha: 0.1 }), new ElasticNet({ alpha: 0.1, l1Ratio: 0.3 })]) {
+      m.fitSync(X, y);
+      const back = loadModel(saveModel(m)) as typeof m;
+      expect(back.kind).toBe(m.kind);
+      expect(back.getParams()).toEqual(m.getParams());
+      expect(Array.from(back.predictSync(X))).toEqual(Array.from(m.predictSync(X)));
+    }
+    expect('l1Ratio' in new Lasso().getParams()).toBe(false);
+  });
+
+  test('the penalized linear models check their parameters', () => {
+    expect(code(() => new Ridge({ alpha: -1 }))).toBe('ML_PARAM');
+    expect(code(() => new ElasticNet({ l1Ratio: 1.5 }))).toBe('ML_PARAM');
+    expect(code(() => new Lasso({ maxIter: 0 }))).toBe('ML_PARAM');
+    expect(code(() => new Ridge({ alpha: 0 }).fitSync([[1, 2], [2, 4], [3, 6]], [1, 2, 3]))).toBe('ML_SINGULAR');
+    // A penalty on repeated columns has one answer.
+    expect(new Ridge({ alpha: 1 }).fitSync([[1, 2], [2, 4], [3, 6]], [1, 2, 3]).coef.length).toBe(2);
   });
 
   test('the data preparation models load back and transform the same', () => {

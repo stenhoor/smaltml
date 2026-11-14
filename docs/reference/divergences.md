@@ -16,6 +16,9 @@ have something yet, it fails with an error rather than give a different answer. 
 | `logLoss` with rows that don't sum to 1 | Warns | Uses them as given |
 | Names | snake_case, fitted attributes end in `_` | camelCase, no underscore; `random_state` is `seed` |
 | Labels | Any comparable values | Numbers or strings, not mixed |
+| Encoders: `None` and `NaN` in a column of numbers | Two different values | Both missing, one category |
+| `OneHotEncoder` names for numbers | Python's (`size_3.0` for floats) | JavaScript's (`size_3`) |
+| Encoders and `ColumnTransformer` output | Sparse by default | Dense always |
 
 ## Not yet supported
 
@@ -26,4 +29,8 @@ Each of these fails with `ML_PARAM` or isn't a parameter yet:
   `class_weight`, `sample_weight`, `warm_start`.
 - `trainTestSplit`: `stratify`.
 - `StandardScaler`: `partial_fit`, `sample_weight`.
+- `SimpleImputer`: text columns, `missing_values` other than `NaN`, `add_indicator`.
+- `OneHotEncoder` and `OrdinalEncoder`: categories given in advance (`categories`), infrequent categories
+  (`min_frequency`, `max_categories`), `handle_unknown='infrequent_if_exist'`, sparse output.
+- `ColumnTransformer`: columns chosen by a function or a type, `transformer_weights`, sparse output.
 - The other scalers, encoders, imputers, models and metrics of ADR 0024's later phases.

@@ -13,8 +13,14 @@ it raises, and examples with their tested results.
 
 ## Preprocessing
 
+From `@smaltworks/smaltml/preprocessing`:
+
 - [`StandardScaler`](./preprocessing/standard-scaler): scales each column to mean 0 and standard deviation 1.
-  `@smaltworks/smaltml/preprocessing`
+- [`MinMaxScaler`](./preprocessing/min-max-scaler): scales each column to a range.
+- [`RobustScaler`](./preprocessing/robust-scaler): centres on the median, scales by the interquartile range.
+- [`SimpleImputer`](./preprocessing/simple-imputer): fills missing values.
+- [`OneHotEncoder`](./preprocessing/one-hot-encoder): one 0/1 column per category.
+- [`OrdinalEncoder`](./preprocessing/ordinal-encoder): categories as numbers 0, 1, 2 …
 
 ## Linear models
 
@@ -30,6 +36,8 @@ it raises, and examples with their tested results.
 ## Pipelines
 
 - [`pipeline`](./pipeline/pipeline): steps that run in order as one model. `@smaltworks/smaltml/pipeline`
+- [`ColumnTransformer`](./pipeline/column-transformer): different steps on different columns, side by side.
+  `@smaltworks/smaltml/pipeline`
 
 ## Metrics
 

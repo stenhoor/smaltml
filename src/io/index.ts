@@ -6,16 +6,22 @@ import { fail } from '../core/errors.js';
 import { checkDocument, type Model, type ModelDocument } from '../core/model.js';
 import { LinearRegression } from '../linear/linear-regression.js';
 import { LogisticRegression } from '../linear/logistic-regression.js';
-import { Pipeline } from '../pipeline/index.js';
-import { StandardScaler } from '../preprocessing/standard-scaler.js';
+import { ColumnTransformer, Pipeline } from '../pipeline/index.js';
+import { MinMaxScaler, OneHotEncoder, OrdinalEncoder, RobustScaler, SimpleImputer, StandardScaler } from '../preprocessing/index.js';
 
 export { MODEL_FORMAT, MODEL_FORMAT_VERSION, type ModelDocument } from '../core/model.js';
 
 const LOADERS: Record<string, (doc: ModelDocument) => Model> = {
   StandardScaler: (d) => StandardScaler.fromJSON(d),
+  MinMaxScaler: (d) => MinMaxScaler.fromJSON(d),
+  RobustScaler: (d) => RobustScaler.fromJSON(d),
+  SimpleImputer: (d) => SimpleImputer.fromJSON(d),
+  OneHotEncoder: (d) => OneHotEncoder.fromJSON(d),
+  OrdinalEncoder: (d) => OrdinalEncoder.fromJSON(d),
   LinearRegression: (d) => LinearRegression.fromJSON(d),
   LogisticRegression: (d) => LogisticRegression.fromJSON(d),
   Pipeline: (d) => Pipeline.fromJSON(d, loadDocument),
+  ColumnTransformer: (d) => ColumnTransformer.fromJSON(d, loadDocument),
 };
 
 /** The model as JSON text: its parameters and, once fitted, what it learned. */

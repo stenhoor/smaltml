@@ -23,7 +23,8 @@ export interface Request {
   id: number;
   op: Operation;
   model: ModelDocument;
-  X: WireMatrix;
+  /** X as numbers, or, when it holds text, as named columns. */
+  X: WireMatrix | { table: Record<string, Float64Array | (string | null)[]> };
   y?: Labels;
   device?: 'auto' | 'cpu' | 'gpu';
 }

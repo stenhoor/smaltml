@@ -140,6 +140,76 @@ for n, opts in [(10, {}), (7, {}), (100, {"test_size": 0.2}), (9, {"test_size": 
     case(f"split: {n} rows {opts or ''}".strip(), "trainTestSplit", {"n": n, "params": opts},
          {"nTrain": len(Xtr), "nTest": len(Xte), "XTrain": tolist(Xtr), "XTest": tolist(Xte)}, {"rtol": 0, "atol": 0})
 
+# MinMaxScaler, RobustScaler, SimpleImputer ---------------------------------------------------------------------
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import MinMaxScaler, OneHotEncoder, OrdinalEncoder, RobustScaler
+from sklearn.compose import ColumnTransformer
+
+Xs = features(50, 3, [1, 100, 0.1], [0, 50, -2])
+Xs = np.column_stack([Xs, np.full(50, 4.0)])  # a constant column
+Xm = np.where(rng.random((50, 4)) < 0.1, np.nan, Xs)
+Xnew = features(8, 4, [3, 300, 0.3, 1], [0, 50, -2, 4])
+for params in [{}, {"feature_range": (-1, 1)}, {"feature_range": (0, 10), "clip": True}]:
+    for name, X in [("minmax", Xs), ("minmax: missing values", Xm)]:
+        s = MinMaxScaler(**params).fit(X)
+        case(f"{name} {params or ''}".strip(), "MinMaxScaler", {"X": tolist(X), "Xnew": tolist(Xnew), "params": {k: list(v) if isinstance(v, tuple) else v for k, v in params.items()}},
+             {"dataMin": tolist(s.data_min_), "dataMax": tolist(s.data_max_), "scale": tolist(s.scale_), "min": tolist(s.min_),
+              "transform": tolist(s.transform(Xnew))}, {"rtol": 1e-12, "atol": 1e-12})
+for params in [{}, {"unit_variance": True}, {"quantile_range": (10.0, 90.0)}, {"with_centering": False}, {"with_scaling": False}]:
+    for name, X in [("robust", Xs), ("robust: missing values", Xm)]:
+        s = RobustScaler(**params).fit(X)
+        case(f"{name} {params or ''}".strip(), "RobustScaler", {"X": tolist(X), "Xnew": tolist(Xnew), "params": {k: list(v) if isinstance(v, tuple) else v for k, v in params.items()}},
+             {"center": tolist(s.center_) if s.center_ is not None else None, "scale": tolist(s.scale_) if s.scale_ is not None else None,
+              "transform": tolist(s.transform(Xnew))}, {"rtol": 1e-12, "atol": 1e-12})
+Xi = np.round(features(30, 4, [2, 10, 1, 1], [5, 0, 1, 0]), 0)
+Xi[rng.random((30, 4)) < 0.2] = np.nan
+Xi[:, 3] = np.nan  # a column with no values
+for params in [{}, {"strategy": "median"}, {"strategy": "most_frequent"}, {"strategy": "constant", "fill_value": -1},
+               {"keep_empty_features": True}, {"strategy": "median", "keep_empty_features": True}]:
+    s = SimpleImputer(**params).fit(Xi)
+    case(f"imputer {params or ''}".strip(), "SimpleImputer", {"X": tolist(Xi), "params": params},
+         {"statistics": tolist(s.statistics_), "transform": tolist(s.transform(Xi))}, {"rtol": 1e-12, "atol": 1e-12})
+
+# Encoders --------------------------------------------------------------------------------------------------------
+colours = rng.choice(["red", "green", "blue", None], size=40, p=[0.4, 0.3, 0.2, 0.1])
+sizes = rng.choice([1.0, 3.0, 5.0, np.nan], size=40, p=[0.3, 0.3, 0.3, 0.1])
+Xe = np.empty((40, 2), dtype=object)
+Xe[:, 0] = colours
+Xe[:, 1] = sizes
+Xc = Xe[:, :1]  # text only, for comparing names
+for params in [{}, {"handle_unknown": "use_encoded_value", "unknown_value": -1}]:
+    e = OrdinalEncoder(**params).fit(Xe)
+    unseen = np.array([["purple", 3.0], ["red", 7.0]], dtype=object) if params else Xe[:5]
+    case(f"ordinal {params or ''}".strip(), "OrdinalEncoder", {"X": tolist(Xe), "Xnew": tolist(unseen), "params": params},
+         {"transform": tolist(e.transform(unseen).astype(float))}, {"rtol": 0, "atol": 0})
+for params in [{}, {"drop": "first"}, {"drop": "if_binary"}, {"handle_unknown": "ignore"}]:
+    e = OneHotEncoder(sparse_output=False, **params).fit(Xe)
+    unseen = np.array([["purple", 3.0], ["red", np.nan]], dtype=object) if params.get("handle_unknown") else Xe[:6]
+    ec = OneHotEncoder(sparse_output=False, **params).fit(Xc)
+    case(f"one-hot {params or ''}".strip(), "OneHotEncoder", {"X": tolist(Xe), "Xnew": tolist(unseen), "params": params},
+         {"transform": tolist(e.transform(unseen)), "textNames": ec.get_feature_names_out().tolist()}, {"rtol": 0, "atol": 0})
+binary = np.array([["yes"], ["no"], ["yes"]], dtype=object)
+e = OneHotEncoder(sparse_output=False, drop="if_binary").fit(binary)
+case("one-hot: drop if binary on two categories", "OneHotEncoder", {"X": tolist(binary), "Xnew": tolist(binary), "params": {"drop": "if_binary"}},
+     {"transform": tolist(e.transform(binary)), "textNames": e.get_feature_names_out().tolist()}, {"rtol": 0, "atol": 0})
+
+# ColumnTransformer, and a pipeline that starts with one --------------------------------------------------------------
+num = features(40, 2, [10, 2], [50, 0])
+Xt = np.empty((40, 4), dtype=object)
+Xt[:, 0] = num[:, 0]
+Xt[:, 1] = colours
+Xt[:, 2] = num[:, 1]
+Xt[:, 3] = rng.integers(0, 5, 40).astype(float)
+for remainder in ["drop", "passthrough"]:
+    ct = ColumnTransformer([("scale", StandardScaler(), [0, 2]), ("onehot", OneHotEncoder(sparse_output=False), [1])], remainder=remainder).fit(Xt)
+    case(f"column transformer, remainder {remainder}", "ColumnTransformer", {"X": tolist(Xt), "params": {"remainder": remainder}},
+         {"transform": tolist(ct.transform(Xt).astype(float)), "names": ct.get_feature_names_out().tolist()}, {"rtol": 1e-12, "atol": 1e-12})
+yt = (num[:, 0] > 50).astype(int) ^ (colours == "red").astype(int)
+pipe = make_pipeline(ColumnTransformer([("scale", StandardScaler(), [0, 2]), ("onehot", OneHotEncoder(sparse_output=False, handle_unknown="ignore"), [1])]),
+                     LogisticRegression(tol=1e-10, max_iter=10000)).fit(Xt, yt)
+case("pipeline: column transformer then logistic", "ColumnPipeline", {"X": tolist(Xt), "y": tolist(yt), "params": {}},
+     {"predictProba": tolist(pipe.predict_proba(Xt))}, {"rtol": 1e-5, "atol": 1e-6})
+
 out = {
     "comment": "Written by compare/run.py (npm run compare); don't edit by hand.",
     "reference": {"scikit-learn": sklearn.__version__, "numpy": np.__version__},

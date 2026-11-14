@@ -1,7 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import {
+  ColumnTransformer,
   LinearRegression,
+  MinMaxScaler,
+  OneHotEncoder,
+  OrdinalEncoder,
+  RobustScaler,
+  SimpleImputer,
   LogisticRegression,
   Matrix,
   Random,
@@ -150,7 +156,28 @@ describe('saving and loading', () => {
     expect(sc2.transformSync([[1, 1]]).data).toEqual(sc.transformSync([[1, 1]]).data);
   });
 
-  test('a pipeline saves its steps', () => {
+  test('the data preparation models load back and transform the same', () => {
+    const table = { city: ['Leeds', 'York', null, 'Bath', 'Leeds', 'York'], size: [3, NaN, 5, 3, 1, 5], age: [31, 45, 27, 52, 38, 29] };
+    const nums = [[1, NaN, 3], [4, 5, NaN], [7, 8, 9], [NaN, 2, 1]];
+    const models = [
+      [new MinMaxScaler({ featureRange: [-1, 1], clip: true }), nums],
+      [new RobustScaler({ unitVariance: true }), nums],
+      [new SimpleImputer({ strategy: 'median' }), nums],
+      [new OrdinalEncoder({ handleUnknown: 'use_encoded_value', unknownValue: NaN }), table],
+      [new OneHotEncoder({ drop: 'if_binary', handleUnknown: 'ignore' }), table],
+      [new ColumnTransformer([['scale', new StandardScaler(), ['age']], ['enc', new OneHotEncoder(), ['city', 'size']]]), table],
+    ] as const;
+    for (const [model, data] of models) {
+      (model as { fitSync(x: unknown): unknown }).fitSync(data);
+      const back = loadModel(saveModel(model)) as typeof model;
+      const a = (model as { transformSync(x: unknown): Matrix }).transformSync(data);
+      const b = (back as { transformSync(x: unknown): Matrix }).transformSync(data);
+      expect(b.names, model.kind).toEqual(a.names);
+      expect(Array.from(b.data), model.kind).toEqual(Array.from(a.data));
+    }
+  });
+
+    test('a pipeline saves its steps', () => {
     const p = pipeline(new StandardScaler(), ['model', new LogisticRegression()]).fitSync(X, labels);
     const doc = p.toJSON();
     expect(doc.params).toEqual({ steps: ['standardscaler', 'model'] });

@@ -5,6 +5,7 @@
  * @module
  */
 import { fail } from '../core/errors.js';
+import { isText, numericMatrix, toTable, type TableInput } from '../core/table.js';
 import { Matrix, type MatrixInput } from '../core/matrix.js';
 import type { Label, Labels, Model } from '../core/model.js';
 import type { Device } from '../gpu/index.js';
@@ -21,13 +22,13 @@ export interface PredictOptions {
 /** smaltml in a worker: the same models, run off the calling thread. */
 export interface MlWorker {
   /** Fits a copy of `model` in the worker and returns the fitted copy, of the same class. `model` itself is unchanged. */
-  fit<M extends Model>(model: M, X: MatrixInput, y?: Labels): Promise<M>;
+  fit<M extends Model>(model: M, X: TableInput, y?: Labels): Promise<M>;
   /** The fitted model's predictions, computed in the worker. */
-  predict(model: Model, X: MatrixInput, options?: PredictOptions): Promise<Float64Array | Label[]>;
+  predict(model: Model, X: TableInput, options?: PredictOptions): Promise<Float64Array | Label[]>;
   /** The fitted classifier's probabilities, computed in the worker. */
-  predictProba(model: Model, X: MatrixInput, options?: PredictOptions): Promise<Matrix>;
+  predictProba(model: Model, X: TableInput, options?: PredictOptions): Promise<Matrix>;
   /** The fitted transformer's output, computed in the worker. */
-  transform(model: Model, X: MatrixInput): Promise<Matrix>;
+  transform(model: Model, X: TableInput): Promise<Matrix>;
   /** Stops the worker (when it is one this call started), and fails the requests still waiting. */
   terminate(): void;
 }
@@ -45,17 +46,21 @@ export function connect(port: Port & { terminate?(): void }): MlWorker {
     else w.reject(toError(res.error));
   });
   port.start?.();
-  const call = (op: Operation, model: Model, X: MatrixInput, extra: Partial<Request> = {}): Promise<Result> => {
-    const [wire, buffer] = toWire(Matrix.from(X));
+  const call = (op: Operation, model: Model, X: TableInput, extra: Partial<Request> = {}): Promise<Result> => {
+    const t = toTable(X as TableInput);
+    // Numbers travel as a transferred buffer; a table with text as named columns.
+    const [wire, transfer] = t.columns.some(isText)
+      ? [{ table: Object.fromEntries(t.columns.map((c, j) => [t.named ? t.names[j]! : `x${j}`, c])) }, [] as ArrayBuffer[]]
+      : ((([w, b]) => [w, [b]])(toWire(numericMatrix(X as TableInput))) as [Request['X'], ArrayBuffer[]]);
     const id = next++;
     const req: Request = { id, op, model: model.toJSON(), X: wire, ...extra };
     return new Promise((resolve, reject) => {
       waiting.set(id, { resolve, reject });
-      port.postMessage(req, [buffer]);
+      port.postMessage(req, transfer);
     });
   };
   return {
-    async fit<M extends Model>(model: M, X: MatrixInput, y?: Labels): Promise<M> {
+    async fit<M extends Model>(model: M, X: TableInput, y?: Labels): Promise<M> {
       const r = await call('fit', model, X, y === undefined ? {} : { y: Array.from(y as ArrayLike<number | string>) as Labels });
       if (r.kind !== 'model') fail('ML_FORMAT', 'the worker sent no model back');
       return loadModel(r.model) as M;

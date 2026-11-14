@@ -3,6 +3,7 @@
  * @module
  */
 export { Matrix, type MatrixInput, type VectorInput } from './matrix.js';
+export { type Category, type TableInput } from './table.js';
 export { SmaltmlError, type ErrorCode } from './errors.js';
 export { Random } from './random.js';
 export {

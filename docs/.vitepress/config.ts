@@ -103,7 +103,18 @@ export default defineConfig({
         items: [
           { text: 'Overview', link: '/reference/' },
           { text: 'Matrix', link: '/reference/matrix' },
-          { text: 'Preprocessing', collapsed: false, items: [{ text: 'StandardScaler', link: '/reference/preprocessing/standard-scaler' }] },
+          {
+            text: 'Preprocessing',
+            collapsed: false,
+            items: [
+              { text: 'StandardScaler', link: '/reference/preprocessing/standard-scaler' },
+              { text: 'MinMaxScaler', link: '/reference/preprocessing/min-max-scaler' },
+              { text: 'RobustScaler', link: '/reference/preprocessing/robust-scaler' },
+              { text: 'SimpleImputer', link: '/reference/preprocessing/simple-imputer' },
+              { text: 'OneHotEncoder', link: '/reference/preprocessing/one-hot-encoder' },
+              { text: 'OrdinalEncoder', link: '/reference/preprocessing/ordinal-encoder' },
+            ],
+          },
           {
             text: 'Linear models',
             collapsed: false,
@@ -113,7 +124,14 @@ export default defineConfig({
             ],
           },
           { text: 'Model selection', collapsed: false, items: [{ text: 'trainTestSplit', link: '/reference/selection/train-test-split' }] },
-          { text: 'Pipelines', collapsed: false, items: [{ text: 'pipeline', link: '/reference/pipeline/pipeline' }] },
+          {
+            text: 'Pipelines',
+            collapsed: false,
+            items: [
+              { text: 'pipeline', link: '/reference/pipeline/pipeline' },
+              { text: 'ColumnTransformer', link: '/reference/pipeline/column-transformer' },
+            ],
+          },
           {
             text: 'Metrics',
             collapsed: false,

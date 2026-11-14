@@ -1,7 +1,9 @@
 import { MessageChannel } from 'node:worker_threads';
 import { describe, expect, test } from 'vitest';
 import {
+  ColumnTransformer,
   LinearRegression,
+  OneHotEncoder,
   LogisticRegression,
   Matrix,
   SmaltmlError,
@@ -86,7 +88,22 @@ describe('the worker protocol', () => {
     }
   });
 
-  test('errors come back as SmaltmlErrors with their codes; the caller\'s data stays usable', async () => {
+  test('tables with text reach the worker as columns', async () => {
+    const { ml, close } = setup();
+    try {
+      const people = { city: ['Leeds', 'York', 'Leeds', 'Bath'], age: [31, 45, 27, 52] };
+      const ct = new ColumnTransformer([['city', new OneHotEncoder(), ['city']]], { remainder: 'passthrough' });
+      const fitted = await ml.fit(ct, people);
+      const local = new ColumnTransformer([['city', new OneHotEncoder(), ['city']]], { remainder: 'passthrough' }).fitSync(people);
+      const out = await ml.transform(fitted, people);
+      expect(out.names).toEqual(local.getFeatureNamesOut());
+      expect(Array.from(out.data)).toEqual(Array.from(local.transformSync(people).data));
+    } finally {
+      close();
+    }
+  });
+
+    test('errors come back as SmaltmlErrors with their codes; the caller\'s data stays usable', async () => {
     const { ml, close } = setup();
     try {
       const data = Matrix.from(X);

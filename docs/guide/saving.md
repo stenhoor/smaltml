@@ -43,4 +43,5 @@ await loaded.predict([[80, 3]])
 
 ## See also
 
+- [Predicting by name](./predicting): a registry that keeps saved models by name and version, in memory or a table.
 - [`saveModel`](../reference/io/save-model), [`loadModel`](../reference/io/load-model)

@@ -94,6 +94,7 @@ export default defineConfig({
           { text: 'Training models', link: '/guide/training' },
           { text: 'Evaluating models', link: '/guide/evaluating' },
           { text: 'Saving and loading', link: '/guide/saving' },
+          { text: 'Predicting by name', link: '/guide/predicting' },
           { text: 'The CPU, WebGPU and workers', link: '/guide/hardware' },
         ],
       },
@@ -130,6 +131,16 @@ export default defineConfig({
             items: [
               { text: 'saveModel', link: '/reference/io/save-model' },
               { text: 'loadModel', link: '/reference/io/load-model' },
+            ],
+          },
+          {
+            text: 'Model registry',
+            collapsed: false,
+            items: [
+              { text: 'predict', link: '/reference/registry/predict' },
+              { text: 'ModelRegistry', link: '/reference/registry/model-registry' },
+              { text: 'MemoryStore', link: '/reference/registry/memory-store' },
+              { text: 'TableStore', link: '/reference/registry/table-store' },
             ],
           },
           {

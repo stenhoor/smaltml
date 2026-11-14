@@ -73,6 +73,10 @@
       "default": "./dist/worker.js"
     },
     "./worker-script": "./dist/smaltml-worker.js",
+    "./registry": {
+      "types": "./dist/types/registry/index.d.ts",
+      "default": "./dist/registry.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

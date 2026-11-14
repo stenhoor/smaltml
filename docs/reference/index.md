@@ -42,6 +42,13 @@ it raises, and examples with their tested results.
 
 - [`saveModel`](./io/save-model) and [`loadModel`](./io/load-model): models as JSON. `@smaltworks/smaltml/io`
 
+## Model registry
+
+- [`predict`](./registry/predict): predictions from a model, or from the model saved under a name.
+  `@smaltworks/smaltml/registry`
+- [`ModelRegistry`](./registry/model-registry): fitted models by name and version, in a
+  [`MemoryStore`](./registry/memory-store) or a [`TableStore`](./registry/table-store).
+
 ## Hardware
 
 - [`matMul`](./gpu/mat-mul): the matrix product, on the CPU or the GPU. `@smaltworks/smaltml/gpu`

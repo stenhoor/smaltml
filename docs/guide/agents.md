@@ -45,7 +45,9 @@ try {
 - **`X` is rows of numbers, an object of named columns, or a `Matrix`.** `y` is numbers (regression) or labels,
   numbers or strings (classification). `NaN` is a missing value; most models reject it with `ML_VALUE`.
 - **Calls are asynchronous** (`await model.fit(X, y)`); `fitSync`, `predictSync` and the others are the synchronous
-  twins.
+  twins. `predict` and `predictProba` take `{ device: 'auto' | 'cpu' | 'gpu' }`: the GPU computes in 32-bit floats, and
+  `'cpu'` gives exactly the synchronous result. `startWorker()` (from `@smaltworks/smaltml/worker`) fits and predicts in
+  a Web Worker and returns ordinary fitted models.
 - **Errors are `SmaltmlError`s with a `code`:** `ML_SHAPE`, `ML_VALUE`, `ML_PARAM`, `ML_NOT_FITTED`, `ML_SINGULAR`,
   `ML_FORMAT`, `ML_LABELS` ([Errors](../reference/errors)).
 - **What isn't supported fails with an error, never a wrong answer.** [Where smaltml

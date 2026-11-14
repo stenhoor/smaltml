@@ -25,7 +25,7 @@
     "test": "vitest run",
     "check": "npm run typecheck && npm test",
     "build": "node scripts/build.mjs",
-    "test:browser": "node test/browser/docs.mjs",
+    "test:browser": "node test/browser/docs.mjs && node test/browser/hardware.mjs",
     "compare": "python3 compare/run.py",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
@@ -64,6 +64,15 @@
       "types": "./dist/types/io/index.d.ts",
       "default": "./dist/io.js"
     },
+    "./gpu": {
+      "types": "./dist/types/gpu/index.d.ts",
+      "default": "./dist/gpu.js"
+    },
+    "./worker": {
+      "types": "./dist/types/worker/index.d.ts",
+      "default": "./dist/worker.js"
+    },
+    "./worker-script": "./dist/smaltml-worker.js",
     "./package.json": "./package.json"
   },
   "files": [

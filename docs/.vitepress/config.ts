@@ -94,6 +94,7 @@ export default defineConfig({
           { text: 'Training models', link: '/guide/training' },
           { text: 'Evaluating models', link: '/guide/evaluating' },
           { text: 'Saving and loading', link: '/guide/saving' },
+          { text: 'The CPU, WebGPU and workers', link: '/guide/hardware' },
         ],
       },
       {
@@ -129,6 +130,16 @@ export default defineConfig({
             items: [
               { text: 'saveModel', link: '/reference/io/save-model' },
               { text: 'loadModel', link: '/reference/io/load-model' },
+            ],
+          },
+          {
+            text: 'Hardware',
+            collapsed: false,
+            items: [
+              { text: 'matMul', link: '/reference/gpu/mat-mul' },
+              { text: 'gpuAvailable', link: '/reference/gpu/gpu-available' },
+              { text: 'startWorker', link: '/reference/worker/start-worker' },
+              { text: 'connect', link: '/reference/worker/connect' },
             ],
           },
           { text: 'Errors', link: '/reference/errors' },

@@ -10,18 +10,21 @@ import { describe, expect, test } from 'vitest';
 const ALLOWED: Record<string, string[]> = {
   core: ['core'],
   preprocessing: ['core', 'preprocessing'],
-  linear: ['core', 'linear'],
+  linear: ['core', 'linear', 'gpu'],
   metrics: ['core', 'metrics'],
   selection: ['core', 'selection'],
   pipeline: ['core', 'pipeline'],
-  io: ['core', 'io', 'preprocessing', 'linear', 'pipeline'],
+  io: ['core', 'io', 'preprocessing', 'linear', 'pipeline', 'gpu'],
+  gpu: ['core', 'gpu'],
+  worker: ['core', 'worker', 'io', 'preprocessing', 'linear', 'pipeline', 'gpu'],
 };
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { exports: Record<string, unknown> };
 
 describe('entry points', () => {
   test('package.json exports every area, and only those', () => {
-    const areas = Object.keys(pkg.exports).filter((k) => k !== '.' && k !== './package.json').map((k) => k.slice(2));
+    // ./worker-script is the worker's script, not an area.
+    const areas = Object.keys(pkg.exports).filter((k) => !['.', './package.json', './worker-script'].includes(k)).map((k) => k.slice(2));
     expect(areas.sort()).toEqual(Object.keys(ALLOWED).sort());
   });
 

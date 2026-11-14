@@ -13,7 +13,7 @@ save to JSON and load back the same.
 
 > **Status: 0.1.0, work in progress.** The first slice ([ADR 0024](docs/adr/0024-smaltml-scope-and-architecture.md),
 > phase 1a): `StandardScaler`, `LinearRegression`, `LogisticRegression`, `trainTestSplit`, `pipeline`, four metrics,
-> and saving and loading models. WebGPU, a worker entry and `predict()` by model name come next.
+> saving and loading models, predictions on WebGPU, and a Web Worker for fits. `predict()` by model name comes next.
 
 ## Install
 
@@ -36,7 +36,7 @@ const json = saveModel(model); // loadModel(json) gives it back
 | --- | --- |
 | `npm ci` | Installs dependencies |
 | `npm run check` | Typecheck, then the tests: the compare cases, every docs example, and the entry points |
-| `npm run test:browser` | Builds the site and runs every playground in headless Chromium |
+| `npm run test:browser` | In headless Chromium: every playground of the site, then WebGPU and the worker against the CPU |
 | `npm run compare` | Reruns the compare cases through scikit-learn (`pip install -r compare/requirements.txt`) |
 | `npm run docs:dev` / `docs:build` | The documentation site |
 | `npm run build` | `dist/` and type declarations |

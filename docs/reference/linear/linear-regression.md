@@ -9,7 +9,7 @@ description: 'LinearRegression: ordinary least squares for one target. scikit-le
 class LinearRegression implements Predictor {
   constructor(params?: { fitIntercept?: boolean });
   fit(X: MatrixInput, y: ArrayLike<number>): Promise<this>;
-  predict(X: MatrixInput): Promise<Float64Array>;
+  predict(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Float64Array>;
   readonly coef: Float64Array;
   readonly intercept: number;
   readonly nFeaturesIn: number;
@@ -27,7 +27,8 @@ for one target.
 
 ## Returns
 
-`predict` returns `X·w + b`, one value per row. After `fit`, `coef` holds one coefficient per column and `intercept`
+`predict` returns `X·w + b`, one value per row; `device` chooses where the product runs
+([The CPU, WebGPU and workers](../../guide/hardware)). After `fit`, `coef` holds one coefficient per column and `intercept`
 the intercept (0 without `fitIntercept`).
 
 ## Errors

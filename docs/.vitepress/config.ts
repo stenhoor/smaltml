@@ -120,6 +120,9 @@ export default defineConfig({
             collapsed: false,
             items: [
               { text: 'LinearRegression', link: '/reference/linear/linear-regression' },
+              { text: 'Ridge', link: '/reference/linear/ridge' },
+              { text: 'Lasso', link: '/reference/linear/lasso' },
+              { text: 'ElasticNet', link: '/reference/linear/elastic-net' },
               { text: 'LogisticRegression', link: '/reference/linear/logistic-regression' },
             ],
           },

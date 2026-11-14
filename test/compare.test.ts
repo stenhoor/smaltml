@@ -2,6 +2,9 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import {
   ColumnTransformer,
+  ElasticNet,
+  Lasso,
+  Ridge,
   LinearRegression,
   MinMaxScaler,
   OneHotEncoder,
@@ -139,6 +142,18 @@ function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol:
       expect(split.XTest.rows).toBe(exp.nTest);
       expect(split.XTrain.toRows()).toEqual(exp.XTrain);
       expect(split.XTest.toRows()).toEqual(exp.XTest);
+      return;
+    }
+    case 'Ridge':
+    case 'Lasso':
+    case 'ElasticNet': {
+      const make = { Ridge: (p: object) => new Ridge(p), Lasso: (p: object) => new Lasso(p), ElasticNet: (p: object) => new ElasticNet(p) }[c.kind]!;
+      const m = make(camel(inp.params)).fitSync(inp.X, inp.y);
+      close(m.coef, exp.coef, tol, 'coef');
+      close(m.intercept, exp.intercept, tol, 'intercept');
+      close(m.predictSync(inp.Xnew), exp.predict, tol, 'predict');
+      // The L1 penalty sets coefficients to exactly 0: the same ones.
+      if (exp.zero) expect(Array.from(m.coef, (v) => v === 0), 'which coefficients are 0').toEqual(exp.zero);
       return;
     }
     case 'MinMaxScaler': {

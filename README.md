@@ -13,8 +13,8 @@ save to JSON and load back the same.
 
 > **Status: 0.1.0, work in progress.** [ADR 0024](docs/adr/0024-smaltml-scope-and-architecture.md)'s phase 1a and
 > part of 1b: scalers (standard, min–max, robust), `SimpleImputer`, `OneHotEncoder`, `OrdinalEncoder`,
-> `ColumnTransformer`, `LinearRegression`, `LogisticRegression`, `trainTestSplit`, `pipeline`, four metrics, saving and
-> loading models, predictions on WebGPU, a Web Worker for fits, and `predict()` by model name from a model registry,
+> `ColumnTransformer`, `LinearRegression`, `Ridge`, `Lasso`, `ElasticNet`, `LogisticRegression`, `trainTestSplit`,
+> `pipeline`, four metrics, saving and loading models, predictions on WebGPU, a Web Worker for fits, and `predict()` by model name from a model registry,
 > in memory or in a smaltdb table.
 
 ## Install

@@ -25,6 +25,8 @@ From `@smaltworks/smaltml/preprocessing`:
 ## Linear models
 
 - [`LinearRegression`](./linear/linear-regression): ordinary least squares. `@smaltworks/smaltml/linear`
+- [`Ridge`](./linear/ridge), [`Lasso`](./linear/lasso), [`ElasticNet`](./linear/elastic-net): least squares with an L2,
+  L1 or mixed penalty. `@smaltworks/smaltml/linear`
 - [`LogisticRegression`](./linear/logistic-regression): classes and their probabilities from a linear model.
   `@smaltworks/smaltml/linear`
 

@@ -210,6 +210,40 @@ pipe = make_pipeline(ColumnTransformer([("scale", StandardScaler(), [0, 2]), ("o
 case("pipeline: column transformer then logistic", "ColumnPipeline", {"X": tolist(Xt), "y": tolist(yt), "params": {}},
      {"predictProba": tolist(pipe.predict_proba(Xt))}, {"rtol": 1e-5, "atol": 1e-6})
 
+# Ridge, Lasso, ElasticNet ----------------------------------------------------------------------------------------
+from sklearn.linear_model import ElasticNet, Lasso, Ridge
+
+def regression_data(n, p, informative):
+    X = features(n, p, rng.uniform(0.5, 20, p), rng.uniform(-10, 10, p))
+    w = np.zeros(p)
+    w[:informative] = rng.normal(size=informative) * 3
+    return X, X @ w + 7 + rng.normal(scale=1.0, size=n)
+
+Xr, yr = regression_data(120, 8, 3)
+Xrn = features(10, 8, rng.uniform(0.5, 20, 8), rng.uniform(-10, 10, 8))
+for params in [{}, {"alpha": 0.01}, {"alpha": 50.0}, {"fit_intercept": False}]:
+    m = Ridge(**params).fit(Xr, yr)
+    case(f"ridge {params or ''}".strip(), "Ridge", {"X": tolist(Xr), "y": tolist(yr), "Xnew": tolist(Xrn), "params": params},
+         {"coef": tolist(m.coef_), "intercept": float(m.intercept_), "predict": tolist(m.predict(Xrn))}, {"rtol": 1e-9, "atol": 1e-9})
+for cls, kind, grid in [(Lasso, "Lasso", [{"alpha": 0.1}, {"alpha": 1.0}, {"alpha": 5.0}, {"alpha": 0.5, "fit_intercept": False}]),
+                        (ElasticNet, "ElasticNet", [{"alpha": 0.1}, {"alpha": 1.0, "l1_ratio": 0.2}, {"alpha": 0.3, "l1_ratio": 0.9}, {"alpha": 2.0, "l1_ratio": 0.0}])]:
+    for params in grid:
+        # Converged tightly, both find the one optimum.
+        tight = {**params, "tol": 1e-12, "max_iter": 100000}
+        m = cls(**tight).fit(Xr, yr)
+        case(f"{kind.lower()} {params}", kind, {"X": tolist(Xr), "y": tolist(yr), "Xnew": tolist(Xrn), "params": tight},
+             {"coef": tolist(m.coef_), "intercept": float(m.intercept_), "predict": tolist(m.predict(Xrn)),
+              "zero": [bool(v == 0) for v in m.coef_]}, {"rtol": 1e-7, "atol": 1e-7})
+    # The defaults: each stops by its own iterations, close to the optimum.
+    m = cls().fit(Xr, yr)
+    case(f"{kind.lower()}: defaults", kind, {"X": tolist(Xr), "y": tolist(yr), "Xnew": tolist(Xrn), "params": {}},
+         {"coef": tolist(m.coef_), "intercept": float(m.intercept_), "predict": tolist(m.predict(Xrn)),
+          "zero": [bool(v == 0) for v in m.coef_]}, {"rtol": 1e-3, "atol": 1e-3})
+big = Lasso(alpha=1000.0).fit(Xr, yr)
+case("lasso: a penalty that zeroes every coefficient", "Lasso", {"X": tolist(Xr), "y": tolist(yr), "Xnew": tolist(Xrn), "params": {"alpha": 1000.0}},
+     {"coef": tolist(big.coef_), "intercept": float(big.intercept_), "predict": tolist(big.predict(Xrn)), "zero": [bool(v == 0) for v in big.coef_]},
+     {"rtol": 1e-12, "atol": 1e-12})
+
 out = {
     "comment": "Written by compare/run.py (npm run compare); don't edit by hand.",
     "reference": {"scikit-learn": sklearn.__version__, "numpy": np.__version__},

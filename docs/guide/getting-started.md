@@ -22,7 +22,7 @@ uses:
 | `@smaltworks/smaltml` | Everything below |
 | `@smaltworks/smaltml/core` | `Matrix`, `SmaltmlError`, `Random`, the model and table types, `VERSION` |
 | `@smaltworks/smaltml/preprocessing` | `StandardScaler`, `MinMaxScaler`, `RobustScaler`, `SimpleImputer`, `OneHotEncoder`, `OrdinalEncoder` |
-| `@smaltworks/smaltml/linear` | `LinearRegression`, `LogisticRegression` |
+| `@smaltworks/smaltml/linear` | `LinearRegression`, `Ridge`, `Lasso`, `ElasticNet`, `LogisticRegression` |
 | `@smaltworks/smaltml/metrics` | `meanSquaredError`, `r2Score`, `accuracyScore`, `logLoss` |
 | `@smaltworks/smaltml/selection` | `trainTestSplit` |
 | `@smaltworks/smaltml/pipeline` | `pipeline`, `Pipeline`, `ColumnTransformer` |

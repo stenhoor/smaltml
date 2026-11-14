@@ -1,5 +1,5 @@
 ---
-description: 'Train regression and classification models: LinearRegression, LogisticRegression, and pipelines that scale data first.'
+description: 'Train regression and classification models: linear, ridge, lasso, elastic-net and logistic regression, and pipelines that scale data first.'
 ---
 
 # Training models
@@ -35,6 +35,30 @@ await linear.predict([[3.0, 2], [10.0, 4]])
 | --- |
 | 23.1528 |
 | 57.0608 |
+
+## Penalized linear regression
+
+With many columns, or columns that move together, a penalty keeps the coefficients in check. `Ridge` shrinks them all
+towards zero; `Lasso` sets the least useful to exactly zero, so it also chooses columns; `ElasticNet` mixes the two.
+`alpha` sets the penalty's strength:
+
+```ts
+import { Ridge, Lasso } from '@smaltworks/smaltml';
+
+// The delivery data again, with a column that is pure noise: the lasso drops it.
+const withNoise = X.map((row, i) => [...row, [0.3, -1.2, 0.8, 0.1, -0.5, 1.1, -0.9, 0.4][i]]);
+const ridge = await new Ridge({ alpha: 1 }).fit(withNoise, minutes);
+const lasso = await new Lasso({ alpha: 0.5 }).fit(withNoise, minutes);
+({ ridge: ridge.coef, lasso: lasso.coef })
+```
+
+| ridge | lasso |
+| --- | --- |
+| 4.22961 | 4.26576 |
+| 1.77154 | 1.67598 |
+| 0.0653734 | 0 |
+
+Scale the columns first (a `StandardScaler` in a pipeline), so the penalty weighs them alike.
 
 ## Predicting a label: logistic regression
 
@@ -92,6 +116,7 @@ it.
 
 ## See also
 
-- [`LinearRegression`](../reference/linear/linear-regression), [`LogisticRegression`](../reference/linear/logistic-regression),
+- [`LinearRegression`](../reference/linear/linear-regression), [`Ridge`](../reference/linear/ridge), [`Lasso`](../reference/linear/lasso),
+  [`ElasticNet`](../reference/linear/elastic-net), [`LogisticRegression`](../reference/linear/logistic-regression),
   [`pipeline`](../reference/pipeline/pipeline)
 - [Evaluating models](./evaluating)

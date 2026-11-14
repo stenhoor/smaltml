@@ -6,6 +6,7 @@ import { fail } from '../core/errors.js';
 import { checkDocument, type Model, type ModelDocument } from '../core/model.js';
 import { LinearRegression } from '../linear/linear-regression.js';
 import { LogisticRegression } from '../linear/logistic-regression.js';
+import { ElasticNet, Lasso, Ridge } from '../linear/penalized.js';
 import { ColumnTransformer, Pipeline } from '../pipeline/index.js';
 import { MinMaxScaler, OneHotEncoder, OrdinalEncoder, RobustScaler, SimpleImputer, StandardScaler } from '../preprocessing/index.js';
 
@@ -20,6 +21,9 @@ const LOADERS: Record<string, (doc: ModelDocument) => Model> = {
   OrdinalEncoder: (d) => OrdinalEncoder.fromJSON(d),
   LinearRegression: (d) => LinearRegression.fromJSON(d),
   LogisticRegression: (d) => LogisticRegression.fromJSON(d),
+  Ridge: (d) => Ridge.fromJSON(d),
+  Lasso: (d) => Lasso.fromJSON(d),
+  ElasticNet: (d) => ElasticNet.fromJSON(d),
   Pipeline: (d) => Pipeline.fromJSON(d, loadDocument),
   ColumnTransformer: (d) => ColumnTransformer.fromJSON(d, loadDocument),
 };

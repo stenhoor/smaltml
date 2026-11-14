@@ -25,6 +25,10 @@ have something yet, it fails with an error rather than give a different answer. 
 Each of these fails with `ML_PARAM` or isn't a parameter yet:
 
 - `LinearRegression`: several targets at once, `positive`, `sample_weight`.
+- `Ridge`: several targets, solvers other than Cholesky (`solver`), `positive`, `sample_weight`.
+- `Lasso` and `ElasticNet`: several targets, `positive`, `selection='random'`, `warm_start`, `precompute`,
+  `sample_weight`. Where they don't converge in `maxIter`, scikit-learn warns; smaltml stops without a warning, and
+  `nIter` equals `maxIter`.
 - `LogisticRegression`: L1 and elastic-net penalties (`l1Ratio` other than 0), solvers other than `lbfgs`,
   `class_weight`, `sample_weight`, `warm_start`.
 - `trainTestSplit`: `stratify`.

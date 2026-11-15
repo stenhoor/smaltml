@@ -65,6 +65,8 @@ Playwright is a dev dependency, pinned to CI's version (1.64.1). Its Chromium is
   examples, working demo, see also).
 - **Every ```` ```ts ```` block in `docs/` runs where it stands**, in the kit's playground with smaltml's runner
   (`docs/.vitepress/theme/smaltml.ts`). A page's examples share one scope, in order; the last line's value is the result.
+  Each is also type-checked by smaltty (through `smaltkit/typechecker`, as the smalt apps check code) against smaltml's
+  source, so a misspelt method or option fails with tsc's message.
   The table under an example is its tested result: `test/docs-examples.test.ts` runs each as the playground does
   (`UPDATE_DOCS=1 npx vitest run test/docs-examples.test.ts` writes them). `<!-- docs:error CODE -->` marks one that
   must fail; `<!-- docs:skip -->` marks a block that isn't run and isn't setup for those below (signatures, sketches).

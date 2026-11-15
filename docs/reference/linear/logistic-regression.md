@@ -63,9 +63,13 @@ GPU](../../guide/hardware#fits-on-the-gpu)); `'auto'` (the default) and `'cpu'` 
 
 Two classes fit one row of coefficients; more classes fit the multinomial (softmax) model, as scikit-learn does. Run
 to convergence, the coefficients agree with scikit-learn's within 1e-5 (relative) in the compare tests; with the
-default `tol` both stop early, and agree within about 2e-3. `newton-cholesky` stops as scikit-learn's does, when the
-largest gradient component and half the Newton decrement are both at most `tol`: it takes the same number of
-iterations and agrees within 1e-6, at the default `tol` as well.
+default `tol` both stop early, and agree within about 2e-3 there. `newton-cholesky` stops as scikit-learn's does, when
+the largest gradient component and half the Newton decrement are both at most `tol`: it takes the same number of
+iterations and agrees within 1e-6, at the default `tol` as well. With `lbfgs` on data with unscaled columns, the
+default `tol` stops further from the minimum, and fits differ more: by up to 1.5e-2 in probability from
+scikit-learn, and up to 2.0e-2 between JavaScript engines, on the benchmark data
+([Where smaltml differs](../divergences#between-javascript-engines)). Scale the columns first (`StandardScaler`), or
+lower `tol`.
 
 ## Examples
 

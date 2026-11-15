@@ -10,3 +10,4 @@ bench/results/*.local.json
 .vitest/
 bench/data/
 __pycache__/
+.venv/

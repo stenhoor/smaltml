@@ -411,6 +411,31 @@ for name, X_, y_, params, weights in [
          {"classes": tolist(m.classes_), "coef": tolist(m.coef_), "intercept": tolist(m.intercept_),
           "predict": tolist(m.predict(Xn_)), "predictProba": tolist(m.predict_proba(Xn_))}, {"rtol": 1e-5, "atol": 1e-6})
 
+# train_test_split with stratify: the classes' counts in each set (appended) -------------------------------------
+from sklearn.model_selection import train_test_split
+for name, counts, kw in [
+    ("split: stratify, three classes", [53, 31, 16], {"test_size": 0.3}),
+    ("split: stratify, a rare class", [90, 7, 3], {"test_size": 0.2}),
+    ("split: stratify, train_size given", [40, 25, 20, 15], {"train_size": 0.6}),
+    ("split: stratify, sizes in rows", [33, 21, 11], {"train_size": 40, "test_size": 17}),
+    ("split: stratify, text labels", [12, 9, 6], {"test_size": 0.34}),
+]:
+    labels = np.repeat(np.arange(len(counts)), counts)
+    if "text" in name:
+        labels = np.array(["cat", "dog", "eel"])[labels]
+    order = rng.permutation(len(labels))
+    labels = labels[order]
+    X_ = np.arange(len(labels), dtype=float).reshape(-1, 1)
+    per = []
+    for seed in (0, 1, 2):  # the counts must not depend on the seed: no ties, so smaltml's rule gives the same
+        _, _, ytr, yte = train_test_split(X_, labels, stratify=labels, random_state=seed, **kw)
+        classes = np.unique(labels)
+        per.append(([int((ytr == c).sum()) for c in classes], [int((yte == c).sum()) for c in classes]))
+    assert per[0] == per[1] == per[2], name
+    params = {("testSize" if k == "test_size" else "trainSize"): v for k, v in kw.items()}
+    case(name, "split-stratify", {"y": tolist(labels), "params": params},
+         {"classes": tolist(np.unique(labels)), "train": per[0][0], "test": per[0][1]}, {"rtol": 0, "atol": 0})
+
 out = {
     "comment": "Written by compare/run.py (npm run compare); don't edit by hand.",
     "reference": {"scikit-learn": sklearn.__version__, "numpy": np.__version__},

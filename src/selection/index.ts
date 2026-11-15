@@ -5,7 +5,7 @@
  */
 import { fail } from '../core/errors.js';
 import { Matrix, type MatrixInput } from '../core/matrix.js';
-import type { Labels } from '../core/model.js';
+import { toLabels, uniqueLabels, type Labels } from '../core/model.js';
 import { Random } from '../core/random.js';
 
 export interface TrainTestSplitOptions {
@@ -17,6 +17,11 @@ export interface TrainTestSplitOptions {
   shuffle?: boolean;
   /** The seed for the shuffle: the same seed gives the same split. */
   seed?: number;
+  /**
+   * Labels to keep in proportion: each class has the same share of the training and the test set as of all the rows,
+   * as near as whole rows allow. Usually y. scikit-learn's `stratify`. Needs `shuffle`.
+   */
+  stratify?: Labels;
 }
 
 export interface TrainTestSplit<Y> {
@@ -39,13 +44,69 @@ export function trainTestSplit(X: MatrixInput, y?: Labels, options: TrainTestSpl
   if (y !== undefined && y.length !== n) fail('ML_SHAPE', `y has ${y.length} values; X has ${n} rows`);
   const [nTrain, nTest] = sizes(n, options.testSize, options.trainSize);
   const shuffle = options.shuffle ?? true;
-  const order = shuffle ? new Random(options.seed ?? Date.now()).permutation(n) : Uint32Array.from({ length: n }, (_, i) => i);
-  const train = order.subarray(0, nTrain);
-  const test = order.subarray(nTrain, nTrain + nTest);
+  let train: Uint32Array;
+  let test: Uint32Array;
+  if (options.stratify !== undefined) {
+    if (!shuffle) fail('ML_PARAM', 'stratify needs shuffle: a split in order can\'t keep the classes in proportion');
+    [train, test] = stratifiedSplit(toLabels(options.stratify, n), nTrain, nTest, new Random(options.seed ?? Date.now()));
+  } else {
+    const order = shuffle ? new Random(options.seed ?? Date.now()).permutation(n) : Uint32Array.from({ length: n }, (_, i) => i);
+    train = order.subarray(0, nTrain);
+    test = order.subarray(nTrain, nTrain + nTest);
+  }
   const out: Partial<TrainTestSplit<unknown>> = { XTrain: m.take(train), XTest: m.take(test) };
   if (y !== undefined) {
     out.yTrain = pick(y, train);
     out.yTest = pick(y, test);
+  }
+  return out;
+}
+
+/**
+ * Rows for each set, class by class: the training set's count of each class first, then the test set's from the rows
+ * left, both by scikit-learn's rule (StratifiedShuffleSplit, `_approximate_mode`). Which rows, and the ties in the
+ * counts, come from smaltml's own shuffle.
+ */
+function stratifiedSplit(labels: readonly (string | number)[], nTrain: number, nTest: number, rng: Random): [Uint32Array, Uint32Array] {
+  const classes = uniqueLabels(labels);
+  const index = new Map(classes.map((c, k) => [c, k]));
+  const rows: number[][] = classes.map(() => []);
+  labels.forEach((l, i) => rows[index.get(l)!]!.push(i));
+  const counts = rows.map((r) => r.length);
+  const few = classes.filter((_, k) => counts[k]! < 2);
+  if (few.length) fail('ML_LABELS', `stratify: each class needs at least 2 rows; ${few.map(String).join(', ')} ha${few.length === 1 ? 's' : 've'} 1`);
+  if (nTrain < classes.length) fail('ML_PARAM', `stratify: a training set of ${nTrain} rows can't hold ${classes.length} classes`);
+  if (nTest < classes.length) fail('ML_PARAM', `stratify: a test set of ${nTest} rows can't hold ${classes.length} classes`);
+  const inTrain = approximateMode(counts, nTrain, rng);
+  const inTest = approximateMode(counts.map((c, k) => c - inTrain[k]!), nTest, rng);
+  const train: number[] = [];
+  const test: number[] = [];
+  rows.forEach((r, k) => {
+    const order = rng.permutation(r.length);
+    for (let i = 0; i < inTrain[k]!; i++) train.push(r[order[i]!]!);
+    for (let i = inTrain[k]!; i < inTrain[k]! + inTest[k]!; i++) test.push(r[order[i]!]!);
+  });
+  const shuffled = (a: number[]) => Uint32Array.from(rng.permutation(a.length), (i) => a[i]!);
+  return [shuffled(train), shuffled(test)];
+}
+
+/**
+ * How many of `draws` rows to take from each class: each class's share, floored, then one more for the classes with
+ * the largest remainders until the total is reached, ties broken at random. scikit-learn's rule.
+ */
+function approximateMode(counts: readonly number[], draws: number, rng: Random): number[] {
+  const total = counts.reduce((a, b) => a + b, 0);
+  const continuous = counts.map((c) => (c / total) * draws);
+  const out = continuous.map(Math.floor);
+  let need = draws - out.reduce((a, b) => a + b, 0);
+  const remainder = continuous.map((v, k) => v - out[k]!);
+  for (const value of [...new Set(remainder)].sort((a, b) => b - a)) {
+    if (need <= 0) break;
+    const tied = remainder.flatMap((v, k) => (v === value ? [k] : []));
+    const take = Math.min(tied.length, need);
+    const order = rng.permutation(tied.length);
+    for (let i = 0; i < take; i++) out[tied[order[i]!]!]!++;
+    need -= take;
   }
   return out;
 }

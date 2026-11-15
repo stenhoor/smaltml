@@ -40,6 +40,7 @@ for s in json.loads((data / "meta.json").read_text()):
         "Ridge fit": median(lambda: Ridge(alpha=1.0).fit(X, y), reps),
         "Lasso fit (alpha 0.1)": median(lambda: Lasso(alpha=0.1).fit(X, y), reps),
         "LogisticRegression fit, 2 classes": median(lambda: LogisticRegression().fit(X, y2), reps),
+        "LogisticRegression fit, 2 classes, newton-cholesky": median(lambda: LogisticRegression(solver="newton-cholesky").fit(X, y2), reps),
         "LogisticRegression fit, 3 classes": median(lambda: LogisticRegression().fit(X, y3), reps),
         "LogisticRegression predictProba, 3 classes": median(lambda: l3.predict_proba(X), reps),
     }

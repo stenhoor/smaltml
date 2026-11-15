@@ -241,3 +241,20 @@ test('VERSION is package.json\'s version', () => {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
   expect(VERSION).toBe(pkg.version);
 });
+
+describe("LogisticRegression's newton-cholesky solver", () => {
+  const X = [[0, 1], [1, 0], [2, 1], [3, 3], [4, 2], [5, 4], [1, 2], [4, 4]];
+  test('lands where lbfgs does, in fewer iterations', () => {
+    const y = [0, 0, 0, 1, 1, 1, 0, 1];
+    const nc = new LogisticRegression({ solver: 'newton-cholesky', tol: 1e-10 }).fitSync(X, y);
+    const lb = new LogisticRegression({ tol: 1e-10, maxIter: 10000 }).fitSync(X, y);
+    nc.coef.data.forEach((v, i) => expect(v).toBeCloseTo(lb.coef.data[i]!, 6));
+    expect(nc.nIter).toBeLessThan(lb.nIter);
+    expect(LogisticRegression.fromJSON(nc.toJSON()).getParams().solver).toBe('newton-cholesky');
+  });
+  test('two classes only so far; not on the GPU; a solver it knows', async () => {
+    expect(() => new LogisticRegression({ solver: 'newton-cholesky' }).fitSync(X, [0, 1, 2, 0, 1, 2, 0, 1])).toThrow(expect.objectContaining({ code: 'ML_PARAM' }));
+    await expect(new LogisticRegression({ solver: 'newton-cholesky' }).fit(X, [0, 0, 0, 1, 1, 1, 0, 1], { device: 'gpu' })).rejects.toMatchObject({ code: 'ML_PARAM' });
+    expect(() => new LogisticRegression({ solver: 'sag' as 'lbfgs' })).toThrow(expect.objectContaining({ code: 'ML_PARAM' }));
+  });
+});

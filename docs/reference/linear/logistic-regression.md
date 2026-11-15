@@ -1,5 +1,5 @@
 ---
-description: 'LogisticRegression: classes and their probabilities from a linear model, fitted by L-BFGS. scikit-learn LogisticRegression.'
+description: 'LogisticRegression: classes and their probabilities from a linear model, fitted by L-BFGS or Newton–Cholesky. scikit-learn LogisticRegression.'
 ---
 
 # LogisticRegression
@@ -7,7 +7,7 @@ description: 'LogisticRegression: classes and their probabilities from a linear 
 <!-- docs:skip -->
 ```ts
 class LogisticRegression implements Classifier {
-  constructor(params?: { C?: number; l1Ratio?: number; tol?: number; fitIntercept?: boolean; maxIter?: number });
+  constructor(params?: { C?: number; l1Ratio?: number; tol?: number; fitIntercept?: boolean; maxIter?: number; solver?: 'lbfgs' | 'newton-cholesky' });
   fit(X: MatrixInput, y: Labels, options?: { threads?: number | 'auto'; device?: 'auto' | 'cpu' | 'gpu' }): Promise<this>;
   predict(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Label[]>;
   predictProba(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Matrix>;
@@ -21,9 +21,9 @@ class LogisticRegression implements Classifier {
 type Label = number | string;
 ```
 
-A linear model of each class's log-odds, fitted by L-BFGS to minimize the log loss plus an L2 penalty. scikit-learn's
+A linear model of each class's log-odds, fitted to minimize the log loss plus an L2 penalty. scikit-learn's
 [`LogisticRegression`](https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.LogisticRegression.html)
-with its default solver, `lbfgs`.
+with the solvers `lbfgs` (the default) and `newton-cholesky`.
 
 ## Parameters
 
@@ -32,7 +32,11 @@ with its default solver, `lbfgs`.
 - `l1Ratio` (default `0`): the mix of L1 in the penalty. Only `0` is supported so far.
 - `tol` (default `1e-4`): stop when the largest component of the objective's gradient is at most this.
 - `fitIntercept` (default `true`): fit an intercept, which is never penalized.
-- `maxIter` (default `100`): the most L-BFGS iterations.
+- `maxIter` (default `100`): the most iterations of the solver.
+- `solver` (default `'lbfgs'`): how the fit is solved. `'lbfgs'` works from the gradient alone: many cheap
+  iterations. `'newton-cholesky'` takes Newton steps with the exact Hessian, solved by Cholesky: a few costly ones,
+  usually the faster fit with many rows and up to a few hundred columns. It takes two classes so far, and runs on the
+  CPU (on several threads, as `lbfgs` does).
 
 `fit` takes `threads` ([On several cores](../../guide/hardware#on-several-cores)) and `device`: `'gpu'` runs the loss
 and its gradient on the GPU in 32-bit floats, for a fit close to the CPU's ([Fits on the
@@ -51,15 +55,17 @@ GPU](../../guide/hardware#fits-on-the-gpu)); `'auto'` (the default) and `'cpu'` 
 ## Errors
 
 - `ML_LABELS`: one class only, or labels that mix numbers and strings.
-- `ML_PARAM`: `C` ≤ 0, `l1Ratio` other than 0, `tol` ≤ 0, `maxIter` below 1, or `device: 'gpu'` where there is no
-  WebGPU.
+- `ML_PARAM`: `C` ≤ 0, `l1Ratio` other than 0, `tol` ≤ 0, `maxIter` below 1, a `solver` it doesn't know,
+  `device: 'gpu'` where there is no WebGPU, or `'newton-cholesky'` with more than two classes or with `device: 'gpu'`.
 - `ML_VALUE`, `ML_SHAPE`, `ML_NOT_FITTED`: as for every model.
 
 ## Notes
 
 Two classes fit one row of coefficients; more classes fit the multinomial (softmax) model, as scikit-learn does. Run
 to convergence, the coefficients agree with scikit-learn's within 1e-5 (relative) in the compare tests; with the
-default `tol` both stop early, and agree within about 2e-3.
+default `tol` both stop early, and agree within about 2e-3. `newton-cholesky` stops as scikit-learn's does, when the
+largest gradient component and half the Newton decrement are both at most `tol`: it takes the same number of
+iterations and agrees within 1e-6, at the default `tol` as well.
 
 ## Examples
 
@@ -75,6 +81,17 @@ await clf.predictProba([[1], [2.5], [4]])
 | 0.842976 | 0.157024 |
 | 0.499938 | 0.500062 |
 | 0.156959 | 0.843041 |
+
+The same fit by Newton–Cholesky, in a few iterations:
+
+```ts
+const newton = await new LogisticRegression({ solver: 'newton-cholesky' }).fit([[0], [1], [2], [3], [4], [5]], [0, 0, 0, 1, 1, 1]);
+newton.nIter
+```
+
+| value |
+| --- |
+| 4 |
 
 <!-- docs:error ML_LABELS -->
 ```ts

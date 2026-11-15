@@ -9,24 +9,33 @@ import type { Matrix } from './matrix.js';
 export const BLOCK = 512;
 
 /**
- * (X − mean)ᵀ (X − mean): the p × p Gram matrix, row-major, both triangles filled. `mean` (one per column) is
+ * (X − mean)ᵀ (X − mean): the p × p Gram matrix, row-major, the lower triangle filled. `mean` (one per column) is
  * subtracted as each block is read; leave it out for X as it is. `from` and `to` limit it to those rows, so parts
- * computed in parallel add up to the whole.
+ * computed in parallel add up to the whole. With `weights` (one per row, 0 or more), it is the weighted Gram matrix
+ * Xᵀ diag(weights) X, and with `ones`, X gains a last column of ones: (p + 1) × (p + 1), as a Newton step needs.
  */
-export function gramPart(X: Matrix, mean: ArrayLike<number> | undefined, from: number, to: number): Float64Array {
+export function gramPart(X: Matrix, mean: ArrayLike<number> | undefined, from: number, to: number, weights?: ArrayLike<number>, ones = false): Float64Array {
   const n = X.rows;
-  const p = X.cols;
+  const cols = X.cols;
+  const p = cols + (ones ? 1 : 0);
   const d = X.data;
   const A = new Float64Array(p * p);
   const B = BLOCK;
   const buf = new Float64Array(B * p);
   for (let r0 = from; r0 < to; r0 += B) {
     const m = Math.min(B, to - r0);
-    for (let j = 0; j < p; j++) {
+    // Each row times √weight, so the plain sums of products below are the weighted ones.
+    for (let j = 0; j < cols; j++) {
       const off = j * n + r0;
       const mu = mean ? mean[j]! : 0;
       const bj = j * B;
-      for (let i = 0; i < m; i++) buf[bj + i] = d[off + i]! - mu;
+      if (weights) for (let i = 0; i < m; i++) buf[bj + i] = (d[off + i]! - mu) * Math.sqrt(weights[r0 + i]!);
+      else for (let i = 0; i < m; i++) buf[bj + i] = d[off + i]! - mu;
+    }
+    if (ones) {
+      const bj = cols * B;
+      if (weights) for (let i = 0; i < m; i++) buf[bj + i] = Math.sqrt(weights[r0 + i]!);
+      else buf.fill(1, bj, bj + m);
     }
     let j = 0;
     // Two rows of A against four of its columns at a time: eight sums in registers per pass over the block.
@@ -102,6 +111,14 @@ export function addInto(total: Float64Array, part: ArrayLike<number>): void {
 export function symmetrize(A: Float64Array, p: number): Float64Array {
   for (let j = 0; j < p; j++) for (let k = 0; k < j; k++) A[k * p + j] = A[j * p + k]!;
   return A;
+}
+
+/** Xᵀ diag(weights) X over every row, with a last column of ones when `ones`: gramPart() summed over the chunks, both triangles filled. */
+export function weightedGram(X: Matrix, weights: ArrayLike<number>, ones: boolean): Float64Array {
+  const q = X.cols + (ones ? 1 : 0);
+  const A = new Float64Array(q * q);
+  for (const [a, b] of chunks(X.rows)) addInto(A, gramPart(X, undefined, a, b, weights, ones));
+  return symmetrize(A, q);
 }
 
 /** (X − mean)ᵀ (X − mean) over every row: gramPart() summed over the chunks, both triangles filled. */

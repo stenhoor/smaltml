@@ -385,6 +385,32 @@ for name, kind, cls, params, weights, tol in [
         expected["zero"] = [bool(v == 0) for v in m.coef_]
     case(name, kind, {"X": tolist(Xw), "y": tolist(yw), "Xnew": tolist(Xwn), "params": params, "sampleWeight": tolist(weights)}, expected, tol)
 
+# LogisticRegression with sample and class weights (appended) ---------------------------------------------------
+Xl2, yl2 = classification(240, 3, 2)
+Xl3, yl3 = classification(300, 4, 3)
+Xln = rng.normal(size=(12, 4))
+yl2[:180] = np.where(rng.random(180) < 0.8, 0, yl2[:180])  # imbalanced, so class weights matter
+swl2 = rng.uniform(0.0, 3.0, size=240)
+swl3 = rng.uniform(0.0, 3.0, size=300)
+tight = {"tol": 1e-10, "max_iter": 10000}
+for name, X_, y_, params, weights in [
+    ("logistic: sample weights, 2 classes", Xl2, yl2, tight, swl2),
+    ("logistic: sample weights, 3 classes", Xl3, yl3, tight, swl3),
+    ("logistic: class_weight balanced, 2 classes", Xl2, yl2, {**tight, "class_weight": "balanced"}, None),
+    ("logistic: class_weight balanced, 3 classes", Xl3, yl3, {**tight, "class_weight": "balanced"}, None),
+    ("logistic: class_weight by class, 2 classes", Xl2, yl2, {**tight, "class_weight": {1: 4.0}}, None),
+    ("logistic: sample and class weights, 3 classes", Xl3, yl3, {**tight, "C": 0.3, "class_weight": "balanced"}, swl3),
+    ("logistic newton-cholesky: sample and class weights", Xl2, yl2, {"solver": "newton-cholesky", "tol": 1e-10, "class_weight": "balanced"}, swl2),
+]:
+    m = LogisticRegression(**params).fit(X_, y_, sample_weight=weights)
+    Xn_ = Xln[:, : X_.shape[1]]
+    inputs = {"X": tolist(X_), "y": tolist(y_), "Xnew": tolist(Xn_), "params": params}
+    if weights is not None:
+        inputs["sampleWeight"] = tolist(weights)
+    case(name, "LogisticRegression", inputs,
+         {"classes": tolist(m.classes_), "coef": tolist(m.coef_), "intercept": tolist(m.intercept_),
+          "predict": tolist(m.predict(Xn_)), "predictProba": tolist(m.predict_proba(Xn_))}, {"rtol": 1e-5, "atol": 1e-6})
+
 out = {
     "comment": "Written by compare/run.py (npm run compare); don't edit by hand.",
     "reference": {"scikit-learn": sklearn.__version__, "numpy": np.__version__},

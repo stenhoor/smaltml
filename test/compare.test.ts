@@ -123,7 +123,7 @@ function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol:
       return;
     }
     case 'LogisticRegression': {
-      const m = new LogisticRegression(camel(inp.params)).fitSync(inp.X, inp.y);
+      const m = new LogisticRegression(camel(inp.params)).fitSync(inp.X, inp.y, inp.sampleWeight ? { sampleWeight: inp.sampleWeight } : {});
       expect(m.classes).toEqual(exp.classes);
       close(rowsOf(m.coef), exp.coef, tol, 'coef');
       close(m.intercept, exp.intercept, tol, 'intercept');

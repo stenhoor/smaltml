@@ -237,16 +237,17 @@ export async function xwParallel(pool: ThreadPool, X: Matrix, w: ArrayLike<numbe
  * The logistic objective in parallel, for minimizeAsync(): the per-chunk losses and gradients summed in chunk order,
  * then finished as the single-threaded one is. `y` holds the class indexes; K is 1 for two classes.
  */
-export function logisticParallel(pool: ThreadPool, X: Matrix, y: Int32Array, K: number, l2: number, intercept: boolean) {
+export function logisticParallel(pool: ThreadPool, X: Matrix, y: Int32Array, K: number, l2: number, intercept: boolean, weights?: Float64Array, total = X.rows) {
   const S = share(X);
   const Y = sharedCopy(y, 'i32');
+  const W = weights ? sharedCopy(weights, 'f64') : null;
   return async (x: Float64Array, grad: Float64Array): Promise<number> => {
     grad.fill(0);
     let loss = 0;
-    for (const part of await parts(pool, X.rows, (c) => ({ op: 'logistic', X: S, y: Y, K, intercept, x: x.slice(), chunks: c }))) {
+    for (const part of await parts(pool, X.rows, (c) => ({ op: 'logistic', X: S, y: Y, K, intercept, x: x.slice(), weights: W, chunks: c }))) {
       loss += part.loss!;
       addInto(grad, part.values);
     }
-    return finishLogistic(loss, X, l2, intercept, x, grad, K);
+    return finishLogistic(loss, X, l2, intercept, x, grad, K, total);
   };
 }

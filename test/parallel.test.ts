@@ -93,4 +93,14 @@ describe('weighted fits on several threads equal fitSync, bit for bit', () => {
       expect(many.toJSON()).toEqual(one.toJSON());
     });
   }
+  for (const [name, make, target] of [
+    ['LogisticRegression, 3 classes, balanced', () => new LogisticRegression({ maxIter: 30, classWeight: 'balanced' }), y3],
+    ['LogisticRegression, newton-cholesky', () => new LogisticRegression({ solver: 'newton-cholesky' }), y2],
+  ] as const) {
+    test(name, async () => {
+      const one = make().fitSync(X, target, { sampleWeight: w });
+      const many = await make().fit(X, target, { threads: 4, sampleWeight: w });
+      expect(many.toJSON()).toEqual(one.toJSON());
+    });
+  }
 });

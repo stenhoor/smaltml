@@ -81,6 +81,11 @@ window.results = (async () => {
     check(worstP < 2e-3, 'LogisticRegression fit on the GPU, ' + what + ': probabilities within ' + worstP.toExponential(2) + ' of the CPU fit');
   }
 
+  // Weights aren't on the GPU yet: a weighted fit there fails rather than fit without them.
+  let weightCode = null;
+  try { await new ml.LogisticRegression().fit(X, labels, { device: 'gpu', sampleWeight: labels.map(() => 1) }); } catch (e) { weightCode = e.code; }
+  check(weightCode === 'ML_PARAM', 'a weighted fit on the GPU fails with ML_PARAM (' + weightCode + ')');
+
   // Threads: the page is cross-origin isolated, so fits run on a pool of workers sharing X, and equal fitSync.
   const par = await import('/dist/parallel.js');
   check(ml.sharedMemoryAvailable(), 'shared memory on a cross-origin isolated page');

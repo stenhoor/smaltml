@@ -4,6 +4,7 @@ import { logisticOnGpu } from '../gpu/logistic.js';
 import { minimize, minimizeAsync, type MinimizeResult } from '../core/linalg.js';
 import { logisticParallel, threadPool, weightedGramParallel, xwParallel, type ThreadOptions } from '../parallel/index.js';
 import { assertFinite, Matrix, type MatrixInput } from '../core/matrix.js';
+import { checkedWeights, type SampleWeightOptions } from './weights.js';
 import { gpuAvailable, matMul, predictOnGpu, type DeviceOptions } from '../gpu/index.js';
 import {
   checkColumns,
@@ -37,13 +38,12 @@ export interface LogisticRegressionParams {
    * not many columns (up to a few hundred). It takes two classes so far, and runs on this thread, on the CPU.
    */
   solver?: 'lbfgs' | 'newton-cholesky';
-}
-
-/** Weights aren't supported yet: fail rather than fit without them. */
-function noWeights(options: object): void {
-  if ((options as { sampleWeight?: unknown }).sampleWeight !== undefined) {
-    fail('ML_PARAM', "LogisticRegression doesn't take sampleWeight yet: leave it out");
-  }
+  /**
+   * Weights for the classes, multiplying each row's weight by its class's: `'balanced'` gives each class
+   * n / (classes × its rows), its rows counted by their sample weights, so every class counts as much in all; an object gives a class's weight by its label
+   * (`{ yes: 5 }`); classes it leaves out weigh 1. scikit-learn's `class_weight`. Default: every class 1.
+   */
+  classWeight?: 'balanced' | Readonly<Record<string, number>>;
 }
 
 const SOLVERS = ['lbfgs', 'newton-cholesky'] as const;
@@ -59,6 +59,10 @@ interface Job {
   classes: Label[];
   target: Int32Array;
   l2: number;
+  /** Each row's weight (sample and class weights together), or undefined when every row weighs 1. */
+  weights: Float64Array | undefined;
+  /** The rows' total weight: n when unweighted. */
+  total: number;
   k: number;
   width: number;
   x0: Float64Array;
@@ -89,7 +93,7 @@ type NewtonCall =
  * scikit-learn's newton-cholesky does, when the largest gradient component and half the Newton decrement dᵀHd are
  * both at most tol. A generator, like the linear solvers, so fitSync() and fit() (the kernels on a thread pool) share it.
  */
-function* newtonBinary(n: number, p: number, l2: number, intercept: boolean, tol: number, maxIter: number): Generator<NewtonCall, MinimizeResult, Float64Array | number> {
+function* newtonBinary(n: number, p: number, l2: number, intercept: boolean, tol: number, maxIter: number, rowWeights?: Float64Array, total = n): Generator<NewtonCall, MinimizeResult, Float64Array | number> {
   const q = p + (intercept ? 1 : 0);
   let x = new Float64Array(q);
   let g = new Float64Array(q);
@@ -105,11 +109,12 @@ function* newtonBinary(n: number, p: number, l2: number, intercept: boolean, tol
       converged = true;
       break;
     }
-    // The Hessian at x: each row's weight is p(1 − p) / n, with p the probability of the second class.
+    // The Hessian at x: each row's weight is w·p(1 − p) / Σw, with p the probability of the second class and w the
+    // row's own weight (1 without weights, when Σw is n).
     const z = (yield { k: 'scores', w: x.slice(0, p), b: intercept ? x[p]! : 0 }) as Float64Array;
     for (let i = 0; i < n; i++) {
       const pi = 1 / (1 + Math.exp(-z[i]!));
-      weights[i] = (pi * (1 - pi)) / n;
+      weights[i] = ((rowWeights ? rowWeights[i]! : 1) * pi * (1 - pi)) / total;
     }
     const H = (yield { k: 'hessian', weights }) as Float64Array;
     for (let j = 0; j < p; j++) H[j * q + j]! += l2;
@@ -152,6 +157,7 @@ export class LogisticRegression implements Classifier {
   readonly fitIntercept: boolean;
   readonly maxIter: number;
   readonly solver: 'lbfgs' | 'newton-cholesky';
+  readonly classWeight: 'balanced' | Readonly<Record<string, number>> | undefined;
   #state: State | null = null;
 
   constructor(params: LogisticRegressionParams = {}) {
@@ -162,6 +168,14 @@ export class LogisticRegression implements Classifier {
     this.maxIter = params.maxIter ?? 100;
     this.solver = params.solver ?? 'lbfgs';
     if (!SOLVERS.includes(this.solver)) fail('ML_PARAM', `solver is 'lbfgs' or 'newton-cholesky', not ${String(this.solver)}`);
+    this.classWeight = params.classWeight;
+    const cw = this.classWeight;
+    if (cw !== undefined && cw !== 'balanced') {
+      if (typeof cw !== 'object' || cw === null || Array.isArray(cw)) fail('ML_PARAM', "classWeight is 'balanced' or an object of a weight per class");
+      for (const [label, w] of Object.entries(cw)) {
+        if (typeof w !== 'number' || !Number.isFinite(w) || w < 0) fail('ML_PARAM', `classWeight for ${label} must be a finite number, 0 or more, not ${String(w)}`);
+      }
+    }
     if (!(this.C > 0)) fail('ML_PARAM', `C must be greater than 0, not ${this.C}`);
     if (this.l1Ratio !== 0) fail('ML_PARAM', `l1Ratio ${this.l1Ratio} isn't supported yet: only 0 (an L2 penalty)`);
     if (!(this.tol > 0)) fail('ML_PARAM', `tol must be greater than 0, not ${this.tol}`);
@@ -208,8 +222,16 @@ export class LogisticRegression implements Classifier {
     return this.#fitted().featureNamesIn;
   }
 
-  getParams(): Required<LogisticRegressionParams> {
-    return { C: this.C, l1Ratio: this.l1Ratio, tol: this.tol, fitIntercept: this.fitIntercept, maxIter: this.maxIter, solver: this.solver };
+  getParams(): LogisticRegressionParams {
+    return {
+      C: this.C,
+      l1Ratio: this.l1Ratio,
+      tol: this.tol,
+      fitIntercept: this.fitIntercept,
+      maxIter: this.maxIter,
+      solver: this.solver,
+      ...(this.classWeight === undefined ? {} : { classWeight: this.classWeight === 'balanced' ? 'balanced' : { ...this.classWeight } }),
+    };
   }
 
   /**
@@ -217,17 +239,17 @@ export class LogisticRegression implements Classifier {
    * and X is large enough, with the same result as fitSync() to the last bit. With `device: 'gpu'`, it runs on the GPU
    * instead, in 32-bit floats; `'auto'` (the default) keeps fits on the CPU.
    */
-  async fit(X: MatrixInput, y: Labels, options: ThreadOptions & FitDeviceOptions = {}): Promise<this> {
-    noWeights(options);
+  async fit(X: MatrixInput, y: Labels, options: ThreadOptions & FitDeviceOptions & SampleWeightOptions = {}): Promise<this> {
     const m = Matrix.from(X);
+    const sync = { sampleWeight: options.sampleWeight };
     if (this.solver === 'newton-cholesky') {
       if (options.device === 'gpu') fail('ML_PARAM', "solver 'newton-cholesky' runs on the CPU: use solver 'lbfgs' on the GPU");
       const pool = await threadPool(options.threads, m.rows * m.cols);
-      if (!pool) return this.fitSync(m, y);
-      const job = this.#prepare(m, y);
-      if (job.k !== 1) return this.fitSync(m, y);
-      const objective = logisticParallel(pool, m, job.target, 1, job.l2, this.fitIntercept);
-      const solver = newtonBinary(m.rows, m.cols, job.l2, this.fitIntercept, this.tol, this.maxIter);
+      if (!pool) return this.fitSync(m, y, sync);
+      const job = this.#prepare(m, y, options.sampleWeight);
+      if (job.k !== 1) return this.fitSync(m, y, sync);
+      const objective = logisticParallel(pool, m, job.target, 1, job.l2, this.fitIntercept, job.weights, job.total);
+      const solver = newtonBinary(m.rows, m.cols, job.l2, this.fitIntercept, this.tol, this.maxIter, job.weights, job.total);
       let r = solver.next();
       while (!r.done) {
         const c = r.value;
@@ -244,7 +266,8 @@ export class LogisticRegression implements Classifier {
     if (options.device === 'gpu') {
       // The objective on the GPU, in 32-bit floats: the result is close to the CPU's, not equal to it.
       if (!(await gpuAvailable())) fail('ML_PARAM', "device 'gpu' needs WebGPU, which isn't available here: leave device out, or use 'cpu'");
-      const job = this.#prepare(m, y);
+      const job = this.#prepare(m, y, options.sampleWeight);
+      if (job.weights) fail('ML_PARAM', "a fit on the GPU doesn't take weights yet (sampleWeight, classWeight): leave device out, or use 'cpu'");
       const gpu = await logisticOnGpu(m, job.target, job.k, this.fitIntercept);
       if (gpu) {
         try {
@@ -260,27 +283,27 @@ export class LogisticRegression implements Classifier {
       fail('ML_PARAM', `device is 'auto', 'cpu' or 'gpu', not ${String(options.device)}`);
     }
     const pool = await threadPool(options.threads, m.rows * m.cols);
-    if (!pool) return this.fitSync(m, y);
-    const job = this.#prepare(m, y);
-    const objective = logisticParallel(pool, m, job.target, job.k, job.l2, this.fitIntercept);
+    if (!pool) return this.fitSync(m, y, sync);
+    const job = this.#prepare(m, y, options.sampleWeight);
+    const objective = logisticParallel(pool, m, job.target, job.k, job.l2, this.fitIntercept, job.weights, job.total);
     return this.#finish(job, await minimizeAsync(objective, job.x0, job.options));
   }
 
-  fitSync(X: MatrixInput, y: Labels, options: object = {}): this {
-    noWeights(options);
+  /** fit() on this thread; with `sampleWeight`, each row's loss counts that many times. */
+  fitSync(X: MatrixInput, y: Labels, options: SampleWeightOptions = {}): this {
     const m = Matrix.from(X);
-    const job = this.#prepare(m, y);
-    const { target, k, l2 } = job;
+    const job = this.#prepare(m, y, options.sampleWeight);
+    const { target, k, l2, weights, total } = job;
     const withIntercept = this.fitIntercept;
     if (this.solver === 'newton-cholesky') {
       if (k !== 1) fail('ML_PARAM', `solver 'newton-cholesky' takes two classes so far, not ${job.classes.length}: use solver 'lbfgs'`);
-      const solver = newtonBinary(m.rows, m.cols, l2, withIntercept, this.tol, this.maxIter);
+      const solver = newtonBinary(m.rows, m.cols, l2, withIntercept, this.tol, this.maxIter, weights, total);
       let r = solver.next();
       while (!r.done) {
         const c = r.value;
         r = solver.next(
           c.k === 'objective'
-            ? binaryLogistic(m, target, l2, withIntercept, c.x, c.grad)
+            ? binaryLogistic(m, target, l2, withIntercept, c.x, c.grad, weights, total)
             : c.k === 'scores'
               ? xw(m, c.w, c.b)
               : weightedGram(m, c.weights, withIntercept),
@@ -290,13 +313,13 @@ export class LogisticRegression implements Classifier {
     }
     const objective =
       k === 1
-        ? (x: Float64Array, g: Float64Array) => binaryLogistic(m, target, l2, withIntercept, x, g)
-        : (x: Float64Array, g: Float64Array) => multinomialLogistic(m, target, k, l2, withIntercept, x, g);
+        ? (x: Float64Array, g: Float64Array) => binaryLogistic(m, target, l2, withIntercept, x, g, weights, total)
+        : (x: Float64Array, g: Float64Array) => multinomialLogistic(m, target, k, l2, withIntercept, x, g, weights, total);
     return this.#finish(job, minimize(objective, job.x0, job.options));
   }
 
   /** What a fit needs before the optimizer: the checked data, class indexes, the penalty and the starting point. */
-  #prepare(m: Matrix, y: Labels): Job {
+  #prepare(m: Matrix, y: Labels, sampleWeight?: SampleWeightOptions['sampleWeight']): Job {
     if (m.rows === 0) fail('ML_SHAPE', 'X has no rows');
     assertFinite(m);
     const labels = toLabels(y, m.rows);
@@ -304,10 +327,46 @@ export class LogisticRegression implements Classifier {
     if (classes.length < 2) fail('ML_LABELS', `y has one class only (${String(classes[0])}): a classifier needs at least two`);
     const index = new Map(classes.map((c, k) => [c, k]));
     const target = Int32Array.from(labels, (l) => index.get(l)!);
-    const l2 = Number.isFinite(this.C) ? 1 / (this.C * m.rows) : 0;
+    const weights = this.#rowWeights(sampleWeight, target, classes);
+    let total = m.rows;
+    if (weights) {
+      total = 0;
+      for (const v of weights) total += v;
+      if (!(total > 0)) fail('ML_VALUE', 'every row weighs 0 (sampleWeight and classWeight together): at least one row needs weight');
+    }
+    // The penalty is ‖w‖² / (2 C Σw), against the weighted mean of the loss, as scikit-learn's.
+    const l2 = Number.isFinite(this.C) ? 1 / (this.C * total) : 0;
     const k = classes.length === 2 ? 1 : classes.length;
     const width = m.cols + (this.fitIntercept ? 1 : 0);
-    return { m, classes, target, l2, k, width, x0: new Float64Array(k * width), options: { gtol: this.tol, maxIter: this.maxIter, ftolFactor: 64 } };
+    return { m, classes, target, l2, weights, total, k, width, x0: new Float64Array(k * width), options: { gtol: this.tol, maxIter: this.maxIter, ftolFactor: 64 } };
+  }
+
+  /** Each row's weight: its sampleWeight times its class's classWeight. Undefined when there are neither. */
+  #rowWeights(sampleWeight: SampleWeightOptions['sampleWeight'], target: Int32Array, classes: readonly Label[]): Float64Array | undefined {
+    const n = target.length;
+    const sample = checkedWeights(sampleWeight, n);
+    const cw = this.classWeight;
+    if (!cw) return sample;
+    let perClass: Float64Array;
+    if (cw === 'balanced') {
+      // Σw / (classes × the class's Σw), counting rows by their sample weights (n / (classes × its rows) without
+      // them): every class weighs as much in all.
+      const counts = new Float64Array(classes.length);
+      let all = 0;
+      for (let i = 0; i < n; i++) {
+        const w = sample ? sample[i]! : 1;
+        counts[target[i]!]! += w;
+        all += w;
+      }
+      perClass = Float64Array.from(counts, (c) => (c > 0 ? all / (classes.length * c) : 0));
+    } else {
+      const known = new Map(classes.map((c, k) => [String(c), k]));
+      for (const label of Object.keys(cw)) {
+        if (!known.has(label)) fail('ML_PARAM', `classWeight names ${label}, which isn't one of the classes in y (${classes.map(String).join(', ')})`);
+      }
+      perClass = Float64Array.from(classes, (c) => cw[String(c)] ?? 1);
+    }
+    return Float64Array.from(target, (t, i) => perClass[t]! * (sample ? sample[i]! : 1));
   }
 
   #finish(job: Job, result: MinimizeResult): this {

@@ -72,8 +72,9 @@ const model = await new LogisticRegression().fit(X, y, { device: 'gpu' });
 ```
 
 A fit asks for the GPU only with `'gpu'`: `'auto'`, the default, keeps fits on the CPU, where they give exactly what
-`fitSync` gives. More than 8 classes, or an X larger than the GPU's largest buffer, fits on the CPU. Without WebGPU,
-`'gpu'` fails with `ML_PARAM`.
+`fitSync` gives. More than 8 classes, or an X larger than the GPU's largest buffer, fits on the CPU. Weights
+(`sampleWeight`, `classWeight`) aren't on the GPU yet: a weighted fit with `'gpu'` fails with `ML_PARAM`.
+Without WebGPU, `'gpu'` fails with `ML_PARAM`.
 
 ## What the GPU computes
 

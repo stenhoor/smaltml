@@ -221,8 +221,8 @@ function log1pExp(z: number): number {
  * residuals, then their contribution to the gradient, while the block is still in cache. x holds w, then b when
  * there is an intercept. Returns the mean log loss plus l2 / 2 · ‖w‖².
  */
-export function binaryLogistic(X: Matrix, y: Int32Array, l2: number, intercept: boolean, x: Float64Array, grad: Float64Array): number {
-  return finishLogistic(sumParts(X.rows, grad, (g, a, b) => binaryLogisticPart(X, y, intercept, x, g, a, b)), X, l2, intercept, x, grad, 1);
+export function binaryLogistic(X: Matrix, y: Int32Array, l2: number, intercept: boolean, x: Float64Array, grad: Float64Array, weights?: Float64Array, total = X.rows): number {
+  return finishLogistic(sumParts(X.rows, grad, (g, a, b) => binaryLogisticPart(X, y, intercept, x, g, a, b, weights)), X, l2, intercept, x, grad, 1, total);
 }
 
 /** Sums a logistic part over the chunks, in order: the loss returned, the gradient into `grad`. */
@@ -239,9 +239,10 @@ function sumParts(n: number, grad: Float64Array, part: (g: Float64Array, from: n
 
 /**
  * binaryLogistic()'s sums over rows `from` to `to`: the log loss (returned) and, in `grad`, Xᵀr, then Σr when there
- * is an intercept. Parts over disjoint rows add up; finishLogistic() turns the total into the objective.
+ * is an intercept. Parts over disjoint rows add up; finishLogistic() turns the total into the objective. With
+ * `weights`, each row's loss and residual count that many times.
  */
-export function binaryLogisticPart(X: Matrix, y: Int32Array, intercept: boolean, x: Float64Array, grad: Float64Array, from: number, to: number): number {
+export function binaryLogisticPart(X: Matrix, y: Int32Array, intercept: boolean, x: Float64Array, grad: Float64Array, from: number, to: number, weights?: Float64Array): number {
   const n = X.rows;
   const p = X.cols;
   const d = X.data;
@@ -270,9 +271,10 @@ export function binaryLogisticPart(X: Matrix, y: Int32Array, intercept: boolean,
     for (let i = 0; i < m; i++) {
       const zi = z[i]!;
       const yi = y[r0 + i]!;
-      // −log p(yᵢ) = log(1 + e^z) − y z; the residual σ(z) − y replaces z.
-      loss += log1pExp(zi) - yi * zi;
-      const ri = sigmoid(zi) - yi;
+      // −log p(yᵢ) = log(1 + e^z) − y z; the residual σ(z) − y replaces z, times the row's weight.
+      const wi = weights ? weights[r0 + i]! : 1;
+      loss += wi * (log1pExp(zi) - yi * zi);
+      const ri = wi * (sigmoid(zi) - yi);
       z[i] = ri;
       rsum += ri;
     }
@@ -304,12 +306,12 @@ export function binaryLogisticPart(X: Matrix, y: Int32Array, intercept: boolean,
  * The multinomial logistic objective and its gradient in one pass over X, as binaryLogistic(): x holds K rows of
  * (w, then b when there is an intercept).
  */
-export function multinomialLogistic(X: Matrix, y: Int32Array, K: number, l2: number, intercept: boolean, x: Float64Array, grad: Float64Array): number {
-  return finishLogistic(sumParts(X.rows, grad, (g, a, b) => multinomialLogisticPart(X, y, K, intercept, x, g, a, b)), X, l2, intercept, x, grad, K);
+export function multinomialLogistic(X: Matrix, y: Int32Array, K: number, l2: number, intercept: boolean, x: Float64Array, grad: Float64Array, weights?: Float64Array, total = X.rows): number {
+  return finishLogistic(sumParts(X.rows, grad, (g, a, b) => multinomialLogisticPart(X, y, K, intercept, x, g, a, b, weights)), X, l2, intercept, x, grad, K, total);
 }
 
 /** multinomialLogistic()'s sums over rows `from` to `to`, as binaryLogisticPart() gives the binary ones. */
-export function multinomialLogisticPart(X: Matrix, y: Int32Array, K: number, intercept: boolean, x: Float64Array, grad: Float64Array, from: number, to: number): number {
+export function multinomialLogisticPart(X: Matrix, y: Int32Array, K: number, intercept: boolean, x: Float64Array, grad: Float64Array, from: number, to: number, weights?: Float64Array): number {
   const n = X.rows;
   const p = X.cols;
   const d = X.data;
@@ -350,9 +352,11 @@ export function multinomialLogisticPart(X: Matrix, y: Int32Array, K: number, int
         z[c * BLOCK + i] = e;
         sum += e;
       }
-      loss += max + Math.log(sum) - zy;
+      // The row's weight scales its loss and its residuals.
+      const wi = weights ? weights[r0 + i]! : 1;
+      loss += wi * (max + Math.log(sum) - zy);
       const inv = 1 / sum;
-      for (let c = 0; c < K; c++) z[c * BLOCK + i] = z[c * BLOCK + i]! * inv - (c === yi ? 1 : 0);
+      for (let c = 0; c < K; c++) z[c * BLOCK + i] = wi * (z[c * BLOCK + i]! * inv - (c === yi ? 1 : 0));
     }
     for (let c = 0; c < K; c++) {
       const zc = c * BLOCK;
@@ -388,10 +392,11 @@ export function multinomialLogisticPart(X: Matrix, y: Int32Array, K: number, int
 
 /**
  * The objective from a logistic loss summed over every row, with `grad` holding the summed gradient: both divided by
- * n, plus the L2 penalty l2 / 2 · ‖w‖² (never on the intercepts) and its gradient.
+ * n (the rows' total weight, `total`, when they are weighted), plus the L2 penalty l2 / 2 · ‖w‖² (never on the intercepts) and its gradient.
  */
-export function finishLogistic(loss: number, X: Matrix, l2: number, intercept: boolean, x: Float64Array, grad: Float64Array, K: number): number {
-  const n = X.rows;
+export function finishLogistic(loss: number, X: Matrix, l2: number, intercept: boolean, x: Float64Array, grad: Float64Array, K: number, total = X.rows): number {
+  // The rows' total weight: n without weights.
+  const n = total;
   const p = X.cols;
   const width = p + (intercept ? 1 : 0);
   let reg = 0;

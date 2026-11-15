@@ -1,0 +1,39 @@
+{
+  "library": "smaltml 0.1.0",
+  "runtime": "Node 22.23.4",
+  "threads": 1,
+  "cpu": "Intel(R) Xeon(R) Processor @ 2.30GHz, 4 cores",
+  "date": "2026-11-15",
+  "milliseconds": {
+    "10k × 20": {
+      "StandardScaler fit + transform": 1.479718000000048,
+      "LinearRegression fit": 8.129494000000022,
+      "LinearRegression predict": 0.22423200000002907,
+      "Ridge fit": 3.30939699999999,
+      "Lasso fit (alpha 0.1)": 4.513909999999896,
+      "LogisticRegression fit, 2 classes": 85.70825500000001,
+      "LogisticRegression fit, 3 classes": 251.76509600000009,
+      "LogisticRegression predictProba, 3 classes": 1.211631000000125,
+      "iterations": {
+        "lasso": 5,
+        "logistic2": 100,
+        "logistic3": 100
+      }
+    },
+    "200k × 50": {
+      "StandardScaler fit + transform": 119.24254299999666,
+      "LinearRegression fit": 1619.1228649999975,
+      "LinearRegression predict": 31.799904999999853,
+      "Ridge fit": 627.1889500000034,
+      "Lasso fit (alpha 0.1)": 364.7906759999969,
+      "LogisticRegression fit, 2 classes": 7181.205013999999,
+      "LogisticRegression fit, 3 classes": 24855.815111000004,
+      "LogisticRegression predictProba, 3 classes": 105.91126499997335,
+      "iterations": {
+        "lasso": 4,
+        "logistic2": 100,
+        "logistic3": 100
+      }
+    }
+  }
+}

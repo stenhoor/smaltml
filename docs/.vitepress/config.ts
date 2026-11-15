@@ -196,6 +196,7 @@ export default defineConfig({
             text: 'Internals',
             collapsed: true,
             items: [
+              { text: 'Benchmarks', link: '/research/benchmarks' },
               { text: 'Decisions', link: '/adr/' },
               { text: '0024 Scope and architecture', link: '/adr/0024-smaltml-scope-and-architecture' },
             ],

@@ -40,6 +40,7 @@ const json = saveModel(model); // loadModel(json) gives it back
 | `npm ci` | Installs dependencies |
 | `npm run check` | Typecheck, then the tests: the compare cases, every docs example, and the entry points |
 | `npm run test:browser` | In headless Chromium: every playground of the site, then WebGPU and the worker against the CPU |
+| `npm run bench`, `bench:python`, `bench:report` | Times smaltml, then scikit-learn on the same data, and writes the [benchmarks page](docs/research/benchmarks.md) |
 | `npm run compare` | Reruns the compare cases through scikit-learn (`pip install -r compare/requirements.txt`) |
 | `npm run docs:dev` / `docs:build` | The documentation site |
 | `npm run build` | `dist/` and type declarations |

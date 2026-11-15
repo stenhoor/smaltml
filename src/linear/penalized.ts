@@ -1,4 +1,4 @@
-import { fail } from '../core/errors.js';
+import { fail, warn } from '../core/errors.js';
 import { checkedMeans, cholesky, choleskySolve, xw } from '../core/kernels.js';
 import { threadPool, type ThreadOptions } from '../parallel/index.js';
 import { keptMeans, runHere, runOn, type Solver } from './calls.js';
@@ -10,8 +10,19 @@ interface State {
   coef: Float64Array;
   intercept: number;
   nIter: number;
+  /** Whether the solver converged; null for a model saved before smaltml recorded it (format version 1). */
+  converged: boolean | null;
   nFeaturesIn: number;
   featureNamesIn: readonly string[] | undefined;
+}
+
+/** A solver's answer. Coordinate descent also gives its last duality gap and the tolerance it had to reach. */
+interface Solution {
+  coef: Float64Array;
+  nIter: number;
+  converged: boolean;
+  gap?: number;
+  gapTol?: number;
 }
 
 /**
@@ -58,6 +69,13 @@ abstract class PenalizedLinear implements Predictor {
   get nIter(): number {
     return this.#fitted().nIter;
   }
+  /**
+   * Whether the solver converged within `maxIter` (always true for Ridge, which solves in closed form). Where it didn't,
+   * fit() warned (`ML_CONVERGENCE`), as scikit-learn does. null for a model saved by smaltml before it recorded this.
+   */
+  get converged(): boolean | null {
+    return this.#fitted().converged;
+  }
   get nFeaturesIn(): number {
     return this.#fitted().nFeaturesIn;
   }
@@ -68,7 +86,7 @@ abstract class PenalizedLinear implements Predictor {
   abstract getParams(): object;
 
   /** The coefficients for X less `mean` (when there is an intercept) and centred y, and the iterations it took. */
-  protected abstract solve(X: Matrix, mean: Float64Array | undefined, y: Float64Array): Solver<{ coef: Float64Array; nIter: number }>;
+  protected abstract solve(X: Matrix, mean: Float64Array | undefined, y: Float64Array): Solver<Solution>;
 
   /**
    * Fits the model. With `threads` (default `'auto'`), the Gram matrix and Xᵀy are computed on several cores where
@@ -79,13 +97,13 @@ abstract class PenalizedLinear implements Predictor {
     const pool = await threadPool(options.threads, m.rows * m.cols);
     if (!pool) return this.fitSync(m, y);
     const c = this.#prepare(m, y);
-    return this.#finish(m, c, m.cols === 0 ? { coef: new Float64Array(0), nIter: 0 } : await runOn(pool, this.solve(m, c.xMean, c.y)));
+    return this.#finish(m, c, m.cols === 0 ? { coef: new Float64Array(0), nIter: 0, converged: true } : await runOn(pool, this.solve(m, c.xMean, c.y)));
   }
 
   fitSync(X: MatrixInput, y: VectorInput): this {
     const m = Matrix.from(X);
     const c = this.#prepare(m, y);
-    return this.#finish(m, c, m.cols === 0 ? { coef: new Float64Array(0), nIter: 0 } : runHere(this.solve(m, c.xMean, c.y)));
+    return this.#finish(m, c, m.cols === 0 ? { coef: new Float64Array(0), nIter: 0, converged: true } : runHere(this.solve(m, c.xMean, c.y)));
   }
 
   #prepare(m: Matrix, y: VectorInput) {
@@ -95,13 +113,17 @@ abstract class PenalizedLinear implements Predictor {
     return centring(m, target, this.fitIntercept);
   }
 
-  #finish(m: Matrix, c: { xMean: Float64Array | undefined; yMean: number }, { coef, nIter }: { coef: Float64Array; nIter: number }): this {
+  #finish(m: Matrix, c: { xMean: Float64Array | undefined; yMean: number }, { coef, nIter, converged, gap, gapTol }: Solution): this {
     let intercept = 0;
     if (c.xMean) {
       intercept = c.yMean;
       for (let j = 0; j < m.cols; j++) intercept -= c.xMean[j]! * coef[j]!;
     }
-    this.#state = { coef, intercept, nIter, nFeaturesIn: m.cols, featureNamesIn: m.names };
+    this.#state = { coef, intercept, nIter, converged, nFeaturesIn: m.cols, featureNamesIn: m.names };
+    if (!converged) {
+      const why = gap === undefined || gapTol === undefined ? '' : `: the duality gap is ${gap.toPrecision(3)}, above the tolerance ${gapTol.toPrecision(3)}`;
+      warn('ML_CONVERGENCE', `${this.kind} didn't converge in ${nIter} iterations (maxIter)${why}. Raise maxIter, scale the columns (StandardScaler), or raise alpha`);
+    }
     return this;
   }
 
@@ -129,6 +151,7 @@ abstract class PenalizedLinear implements Predictor {
       coef: numbers(s.coef),
       intercept: s.intercept,
       nIter: s.nIter,
+      converged: s.converged,
       nFeaturesIn: s.nFeaturesIn,
       ...(s.featureNamesIn ? { featureNamesIn: [...s.featureNamesIn] } : {}),
     });
@@ -140,6 +163,7 @@ abstract class PenalizedLinear implements Predictor {
         coef: floats(s.coef, 'coef'),
         intercept: Number(s.intercept),
         nIter: Number(s.nIter ?? 0),
+        converged: typeof s.converged === 'boolean' ? s.converged : null,
         nFeaturesIn: Number(s.nFeaturesIn),
         featureNamesIn: Array.isArray(s.featureNamesIn) ? (s.featureNamesIn as string[]) : undefined,
       };
@@ -174,14 +198,14 @@ export class Ridge extends PenalizedLinear {
     return { alpha: this.alpha, fitIntercept: this.fitIntercept };
   }
 
-  protected *solve(X: Matrix, mean: Float64Array | undefined, y: Float64Array): Solver<{ coef: Float64Array; nIter: number }> {
+  protected *solve(X: Matrix, mean: Float64Array | undefined, y: Float64Array): Solver<Solution> {
     const p = X.cols;
     // (XᵀX + alpha·I) w = Xᵀy, on X less its means.
     const A: Float64Array = yield { k: 'gram', X, mean };
     for (let j = 0; j < p; j++) A[j * p + j]! += this.alpha;
     const L = cholesky(A, p);
     if (!L) fail('ML_SINGULAR', "the columns don't determine one answer (one is a combination of others): use alpha > 0");
-    return { coef: choleskySolve(L, p, yield { k: 'xtv', X, v: y, mean }), nIter: 0 };
+    return { coef: choleskySolve(L, p, yield { k: 'xtv', X, v: y, mean }), nIter: 0, converged: true };
   }
 
   static fromJSON(doc: ModelDocument): Ridge {
@@ -229,7 +253,7 @@ export class ElasticNet extends PenalizedLinear {
     return { alpha: this.alpha, l1Ratio: this.l1Ratio, fitIntercept: this.fitIntercept, maxIter: this.maxIter, tol: this.tol };
   }
 
-  protected *solve(X: Matrix, mean: Float64Array | undefined, y: Float64Array): Solver<{ coef: Float64Array; nIter: number }> {
+  protected *solve(X: Matrix, mean: Float64Array | undefined, y: Float64Array): Solver<Solution> {
     const l1 = this.alpha * this.l1Ratio * X.rows;
     const l2 = this.alpha * (1 - this.l1Ratio) * X.rows;
     // With more rows than columns, descend on the Gram matrix: a pass costs p², not a read of X. (Its blocked kernel
@@ -304,6 +328,8 @@ function coordinateDescent(X: Matrix, mean: Float64Array | undefined, y: Float64
   for (let i = 0; i < n; i++) rsum += r[i]!;
   const gapTol = tol * dotSelf(y);
   let iter = 0;
+  let converged = false;
+  let gap = Infinity;
   for (; iter < maxIter; iter++) {
     let maxStep = 0;
     let maxW = 0;
@@ -328,13 +354,15 @@ function coordinateDescent(X: Matrix, mean: Float64Array | undefined, y: Float64
       maxW = Math.max(maxW, Math.abs(next));
     }
     if (maxW === 0 || maxStep / maxW <= tol || iter === maxIter - 1) {
-      if (dualityGap(X, mean, y, w, r, rsum, l1, l2) <= gapTol) {
+      gap = dualityGap(X, mean, y, w, r, rsum, l1, l2);
+      if (gap <= gapTol) {
+        converged = true;
         iter++;
         break;
       }
     }
   }
-  return { coef: w, nIter: Math.min(iter, maxIter) };
+  return { coef: w, nIter: Math.min(iter, maxIter), converged, gap, gapTol };
 }
 
 /** The duality gap of the elastic net, as the lasso on [X; √l2 I] with target [y; 0]; X less `mean`, as above. */
@@ -351,21 +379,33 @@ function dualityGap(X: Matrix, mean: Float64Array | undefined, y: Float64Array, 
   let ww = 0;
   let w1 = 0;
   let dualNorm = 0;
+  let xtr2 = 0;
   for (let j = 0; j < p; j++) {
     const o = j * n;
     let g = 0;
     for (let i = 0; i < n; i++) g += d[o + i]! * r[i]!;
     if (mean) g -= mean[j]! * rsum;
     dualNorm = Math.max(dualNorm, Math.abs(g - l2 * w[j]!));
+    xtr2 += g * g;
     ww += w[j]! * w[j]!;
     w1 += Math.abs(w[j]!);
   }
+  if (l1 === 0 && l2 > 0) return ridgeGap(rr, ry, ww, xtr2, l2);
   // The dual point θ = s · [r; −√l2 w], scaled into the dual's feasible set ‖X̃ᵀθ‖∞ ≤ l1.
   const s = dualNorm > l1 ? l1 / dualNorm : 1;
   const augmented = rr + l2 * ww;
   const primal = 0.5 * augmented + l1 * w1;
   const dual = s * ry - 0.5 * s * s * augmented;
   return primal - dual;
+}
+
+/**
+ * The duality gap with no L1 term (l1 = 0, l2 > 0), where the scaling above gives s = 0 and a gap that never closes.
+ * With l2 > 0 the dual, θᵀy − ½‖θ‖² − Σⱼ (|xⱼᵀθ| − l1)₊² / (2·l2), needs no feasible set, so θ = r gives the gap:
+ * ½‖r‖² + (l2/2)‖w‖² − (rᵀy − ½‖r‖² − ‖Xᵀr‖² / (2·l2)). It is 0 at the optimum, where Xᵀr = l2·w.
+ */
+function ridgeGap(rr: number, ry: number, ww: number, xtr2: number, l2: number): number {
+  return 0.5 * rr + 0.5 * l2 * ww - (ry - 0.5 * rr - xtr2 / (2 * l2));
 }
 
 /** Above this many columns, the p × p Gram matrix is too big to be worth it, and descent reads X instead. */
@@ -386,6 +426,8 @@ function gramDescent(G: Float64Array, q: Float64Array, yy: number, p: number, l1
   const c = q.slice();
   const gapTol = tol * yy;
   let iter = 0;
+  let converged = false;
+  let gap = Infinity;
   for (; iter < maxIter; iter++) {
     let maxStep = 0;
     let maxW = 0;
@@ -405,13 +447,15 @@ function gramDescent(G: Float64Array, q: Float64Array, yy: number, p: number, l1
       maxW = Math.max(maxW, Math.abs(next));
     }
     if (maxW === 0 || maxStep / maxW <= tol || iter === maxIter - 1) {
-      if (gramGap(G, q, yy, w, c, l1, l2) <= gapTol) {
+      gap = gramGap(G, q, yy, w, c, l1, l2);
+      if (gap <= gapTol) {
+        converged = true;
         iter++;
         break;
       }
     }
   }
-  return { coef: w, nIter: Math.min(iter, maxIter) };
+  return { coef: w, nIter: Math.min(iter, maxIter), converged, gap, gapTol };
 }
 
 /** dualityGap() from the Gram matrix: ‖r‖² = yy − 2 wᵀq + wᵀGw, rᵀy = yy − wᵀq, Xᵀr = c. */
@@ -422,6 +466,7 @@ function gramGap(G: Float64Array, q: Float64Array, yy: number, w: Float64Array, 
   let ww = 0;
   let w1 = 0;
   let dualNorm = 0;
+  let xtr2 = 0;
   for (let j = 0; j < p; j++) {
     wq += w[j]! * q[j]!;
     // wᵀGw = wᵀ(q − c).
@@ -429,9 +474,11 @@ function gramGap(G: Float64Array, q: Float64Array, yy: number, w: Float64Array, 
     ww += w[j]! * w[j]!;
     w1 += Math.abs(w[j]!);
     dualNorm = Math.max(dualNorm, Math.abs(c[j]! - l2 * w[j]!));
+    xtr2 += c[j]! * c[j]!;
   }
   const rr = Math.max(yy - 2 * wq + wGw, 0);
   const ry = yy - wq;
+  if (l1 === 0 && l2 > 0) return ridgeGap(rr, ry, ww, xtr2, l2);
   const s = dualNorm > l1 ? l1 / dualNorm : 1;
   const augmented = rr + l2 * ww;
   return 0.5 * augmented + l1 * w1 - (s * ry - 0.5 * s * s * augmented);

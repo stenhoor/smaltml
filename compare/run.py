@@ -12,10 +12,12 @@ numbers scikit-learn did. Each case states its tolerance: how far smaltml's resu
 """
 import json
 import math
+import warnings
 from pathlib import Path
 
 import numpy as np
 import sklearn
+from sklearn.exceptions import ConvergenceWarning
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import accuracy_score, log_loss, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
@@ -42,6 +44,17 @@ def features(n, p, scale=None, shift=None):
 
 
 cases = []
+
+
+def fit_converged(model, X, y):
+    """Fits the model; returns it and whether scikit-learn fitted it without a ConvergenceWarning. Other warnings pass."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        model.fit(X, y)
+    for w in caught:
+        if not issubclass(w.category, ConvergenceWarning):
+            warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)
+    return model, not any(issubclass(w.category, ConvergenceWarning) for w in caught)
 
 
 def case(name, kind, inputs, expected, tol, note=""):
@@ -92,11 +105,11 @@ for name, (X, y), params, tol in [
     # The defaults (tol 1e-4, 100 iterations): stopped early, the two optimizers land a little apart.
     ("logistic: defaults", classification(300, 5, 3), {}, {"rtol": 2e-3, "atol": 2e-3}),
 ]:
-    m = LogisticRegression(**params).fit(X, y)
+    m, converged = fit_converged(LogisticRegression(**params), X, y)
     Xn = rng.normal(size=(12, X.shape[1]))
     case(name, "LogisticRegression", {"X": tolist(X), "y": tolist(y), "Xnew": tolist(Xn), "params": params},
          {"classes": tolist(m.classes_), "coef": tolist(m.coef_), "intercept": tolist(m.intercept_),
-          "predict": tolist(m.predict(Xn)), "predictProba": tolist(m.predict_proba(Xn))}, tol)
+          "predict": tolist(m.predict(Xn)), "predictProba": tolist(m.predict_proba(Xn)), "converged": converged}, tol)
 
 X, yi = classification(120, 2, 2)
 ys = np.array(["no", "yes"])[yi]
@@ -230,18 +243,19 @@ for cls, kind, grid in [(Lasso, "Lasso", [{"alpha": 0.1}, {"alpha": 1.0}, {"alph
     for params in grid:
         # Converged tightly, both find the one optimum.
         tight = {**params, "tol": 1e-12, "max_iter": 100000}
-        m = cls(**tight).fit(Xr, yr)
+        m, converged = fit_converged(cls(**tight), Xr, yr)
         case(f"{kind.lower()} {params}", kind, {"X": tolist(Xr), "y": tolist(yr), "Xnew": tolist(Xrn), "params": tight},
              {"coef": tolist(m.coef_), "intercept": float(m.intercept_), "predict": tolist(m.predict(Xrn)),
-              "zero": [bool(v == 0) for v in m.coef_]}, {"rtol": 1e-7, "atol": 1e-7})
+              "zero": [bool(v == 0) for v in m.coef_], "converged": converged}, {"rtol": 1e-7, "atol": 1e-7})
     # The defaults: each stops by its own iterations, close to the optimum.
-    m = cls().fit(Xr, yr)
+    m, converged = fit_converged(cls(), Xr, yr)
     case(f"{kind.lower()}: defaults", kind, {"X": tolist(Xr), "y": tolist(yr), "Xnew": tolist(Xrn), "params": {}},
          {"coef": tolist(m.coef_), "intercept": float(m.intercept_), "predict": tolist(m.predict(Xrn)),
-          "zero": [bool(v == 0) for v in m.coef_]}, {"rtol": 1e-3, "atol": 1e-3})
-big = Lasso(alpha=1000.0).fit(Xr, yr)
+          "zero": [bool(v == 0) for v in m.coef_], "converged": converged}, {"rtol": 1e-3, "atol": 1e-3})
+big, converged = fit_converged(Lasso(alpha=1000.0), Xr, yr)
 case("lasso: a penalty that zeroes every coefficient", "Lasso", {"X": tolist(Xr), "y": tolist(yr), "Xnew": tolist(Xrn), "params": {"alpha": 1000.0}},
-     {"coef": tolist(big.coef_), "intercept": float(big.intercept_), "predict": tolist(big.predict(Xrn)), "zero": [bool(v == 0) for v in big.coef_]},
+     {"coef": tolist(big.coef_), "intercept": float(big.intercept_), "predict": tolist(big.predict(Xrn)), "zero": [bool(v == 0) for v in big.coef_],
+      "converged": converged},
      {"rtol": 1e-12, "atol": 1e-12})
 
 # Metrics: classification and absolute error ------------------------------------------------------------------------
@@ -325,11 +339,29 @@ for name, (X, y), params, tol in [
     ("logistic newton-cholesky: no penalty", classification(250, 2, 2, 0.5), {"solver": "newton-cholesky", "C": math.inf, "tol": 1e-10}, {"rtol": 1e-6, "atol": 1e-7}),
     ("logistic newton-cholesky: defaults", classification(400, 6, 2), {"solver": "newton-cholesky"}, {"rtol": 1e-4, "atol": 1e-5}),
 ]:
-    m = LogisticRegression(**params).fit(X, y)
+    m, converged = fit_converged(LogisticRegression(**params), X, y)
     Xn = rng.normal(size=(12, X.shape[1]))
     case(name, "LogisticRegression", {"X": tolist(X), "y": tolist(y), "Xnew": tolist(Xn), "params": params},
          {"classes": tolist(m.classes_), "coef": tolist(m.coef_), "intercept": tolist(m.intercept_),
-          "predict": tolist(m.predict(Xn)), "predictProba": tolist(m.predict_proba(Xn))}, tol)
+          "predict": tolist(m.predict(Xn)), "predictProba": tolist(m.predict_proba(Xn)), "converged": converged}, tol)
+
+# Fits stopped before they converge (appended, so the cases above keep their data) ---------------------------------
+# Only whether each converged, and its iterations: two solvers stopped early land at different points, so the
+# coefficients aren't compared. scikit-learn raises a ConvergenceWarning for each; smaltml warns ML_CONVERGENCE.
+Xu, yu = classification(300, 4, 3)
+Xu = Xu * rng.uniform(1, 100, 4) + rng.uniform(-50, 50, 4)  # unscaled columns
+for name, model, params, X, y in [
+    ("unfinished: logistic lbfgs, 5 iterations", "LogisticRegression", {"max_iter": 5}, Xu, yu),
+    ("unfinished: logistic lbfgs, two classes, 3 iterations", "LogisticRegression", {"max_iter": 3}, Xu, (yu == 0).astype(int)),
+    ("unfinished: logistic newton-cholesky, 1 iteration", "LogisticRegression", {"solver": "newton-cholesky", "max_iter": 1, "tol": 1e-12}, Xu, (yu == 0).astype(int)),
+    ("unfinished: lasso, 2 iterations", "Lasso", {"alpha": 0.1, "max_iter": 2, "tol": 1e-12}, Xr, yr),
+    ("unfinished: elasticnet, 3 iterations", "ElasticNet", {"alpha": 0.1, "max_iter": 3, "tol": 1e-12}, Xr, yr),
+    ("finished: logistic lbfgs, the same data scaled", "LogisticRegression", {}, StandardScaler().fit_transform(Xu), yu),
+]:
+    cls = {"LogisticRegression": LogisticRegression, "Lasso": Lasso, "ElasticNet": ElasticNet}[model]
+    m, converged = fit_converged(cls(**params), X, y)
+    case(name, "convergence", {"model": model, "X": tolist(X), "y": tolist(y), "params": params},
+         {"converged": converged, "nIter": int(np.max(m.n_iter_))}, {"rtol": 0, "atol": 0})
 
 out = {
     "comment": "Written by compare/run.py (npm run compare); don't edit by hand.",

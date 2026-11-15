@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import {
   ColumnTransformer,
   ElasticNet,
@@ -221,7 +221,7 @@ describe('saving and loading', () => {
 
   test('a document says its format and version; others are refused', () => {
     const doc = new LinearRegression().toJSON();
-    expect(doc).toEqual({ format: 'smaltml', version: 1, model: 'LinearRegression', smaltml: VERSION, params: { fitIntercept: true }, state: null });
+    expect(doc).toEqual({ format: 'smaltml', version: 2, model: 'LinearRegression', smaltml: VERSION, params: { fitIntercept: true }, state: null });
     expect(code(() => loadModel('{"format":"other"}'))).toBe('ML_FORMAT');
     expect(code(() => loadModel({ ...doc, version: 99 }))).toBe('ML_FORMAT');
     expect(code(() => loadModel({ ...doc, model: 'Mystery' }))).toBe('ML_FORMAT');
@@ -256,5 +256,62 @@ describe("LogisticRegression's newton-cholesky solver", () => {
     expect(() => new LogisticRegression({ solver: 'newton-cholesky' }).fitSync(X, [0, 1, 2, 0, 1, 2, 0, 1])).toThrow(expect.objectContaining({ code: 'ML_PARAM' }));
     await expect(new LogisticRegression({ solver: 'newton-cholesky' }).fit(X, [0, 0, 0, 1, 1, 1, 0, 1], { device: 'gpu' })).rejects.toMatchObject({ code: 'ML_PARAM' });
     expect(() => new LogisticRegression({ solver: 'sag' as 'lbfgs' })).toThrow(expect.objectContaining({ code: 'ML_PARAM' }));
+  });
+});
+
+describe('fits that stop before they converge', () => {
+  const X = [[1, 20], [2, 18], [3, 25], [4, 30], [5, 28], [6, 40], [2, 30], [5, 19]];
+  const labels = ['no', 'no', 'no', 'yes', 'yes', 'yes', 'yes', 'no'];
+  const y = [3, 4, 8, 8, 13, 12, 9, 7];
+  /** The model the fit returns and the ML_CONVERGENCE warnings it printed. */
+  const warnings = <T>(fit: () => T): [T, string[]] => {
+    const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const m = fit();
+      return [m, spy.mock.calls.map(([msg]) => String(msg)).filter((msg) => msg.startsWith('smaltml ML_CONVERGENCE:'))];
+    } finally {
+      spy.mockRestore();
+    }
+  };
+
+  test('an unfinished fit warns once and says converged false; a finished one is quiet', () => {
+    const [early, w1] = warnings(() => new LogisticRegression({ maxIter: 2 }).fitSync(X, labels));
+    expect(early.converged).toBe(false);
+    expect(early.nIter).toBe(2);
+    expect(w1).toHaveLength(1);
+    expect(w1[0]).toContain('LogisticRegression');
+    const [done, w2] = warnings(() => new LogisticRegression({ maxIter: 10000 }).fitSync(X, labels));
+    expect(done.converged).toBe(true);
+    expect(w2).toHaveLength(0);
+    for (const make of [() => new Lasso({ alpha: 0.01, maxIter: 1, tol: 1e-12 }), () => new ElasticNet({ alpha: 0.01, maxIter: 1, tol: 1e-12 })]) {
+      const [m, w] = warnings(() => make().fitSync(X, y));
+      expect(m.converged).toBe(false);
+      expect(w).toHaveLength(1);
+      expect(w[0]).toContain('duality gap');
+    }
+    const [ridge, w3] = warnings(() => new Ridge().fitSync(X, y));
+    expect(ridge.converged).toBe(true);
+    expect(w3).toHaveLength(0);
+  });
+
+  test('converged is saved; a version 1 document loads with converged null', () => {
+    const [early] = warnings(() => new LogisticRegression({ maxIter: 2 }).fitSync(X, labels));
+    expect((loadModel(saveModel(early)) as LogisticRegression).converged).toBe(false);
+    const lasso = new Lasso({ alpha: 0.1 }).fitSync(X, y);
+    expect((loadModel(saveModel(lasso)) as Lasso).converged).toBe(true);
+    const old = (doc: ReturnType<LogisticRegression['toJSON']>) => {
+      const { converged: _, ...state } = doc.state!;
+      return { ...doc, version: 1, state };
+    };
+    expect((loadModel(old(early.toJSON())) as LogisticRegression).converged).toBeNull();
+    expect((loadModel(old(lasso.toJSON())) as Lasso).converged).toBeNull();
+    expect(Array.from((loadModel(old(lasso.toJSON())) as Lasso).predictSync(X))).toEqual(Array.from(lasso.predictSync(X)));
+  });
+
+  test("ElasticNet with no L1 term (l1Ratio 0) converges: its duality gap closes", () => {
+    const [m, w] = warnings(() => new ElasticNet({ alpha: 2, l1Ratio: 0, tol: 1e-12, maxIter: 100000 }).fitSync(X, y));
+    expect(m.converged).toBe(true);
+    expect(m.nIter).toBeLessThan(1000);
+    expect(w).toHaveLength(0);
   });
 });

@@ -29,3 +29,16 @@ export class SmaltmlError extends Error {
 export function fail(code: ErrorCode, message: string): never {
   throw new SmaltmlError(code, message);
 }
+
+/** The codes smaltml's warnings carry. Each has an entry in the reference (docs/reference/errors.md). */
+export type WarningCode =
+  /** An iterative fit stopped before it converged: scikit-learn's `ConvergenceWarning`. */
+  'ML_CONVERGENCE';
+
+/**
+ * Warns on the console, where scikit-learn would warn: the work goes on and its result stands. The message starts with
+ * its code, as `smaltml ML_CONVERGENCE: …`.
+ */
+export function warn(code: WarningCode, message: string): void {
+  (globalThis as { console?: { warn(...a: unknown[]): void } }).console?.warn(`smaltml ${code}: ${message}`);
+}

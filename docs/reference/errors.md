@@ -24,6 +24,15 @@ class SmaltmlError extends Error {
 | `ML_FORMAT` | A saved model this smaltml can't read. | Save it again, or update smaltml. |
 | `ML_LABELS` | Labels a model can't use: one class only, or numbers mixed with strings. | Check `y`. |
 
+## Warnings
+
+Where scikit-learn warns and goes on, smaltml warns on the console (`console.warn`), with a message that starts
+`smaltml CODE:`, and the result stands.
+
+| Code | Meaning | What to do |
+| --- | --- | --- |
+| `ML_CONVERGENCE` | An iterative fit (`LogisticRegression`, `Lasso`, `ElasticNet`) stopped at `maxIter` before it converged; its `converged` is `false`. scikit-learn's `ConvergenceWarning`. | Scale the columns (`StandardScaler`), raise `maxIter`, or for `Lasso` and `ElasticNet` raise `alpha`. |
+
 ## Examples
 
 <!-- docs:error ML_NOT_FITTED -->

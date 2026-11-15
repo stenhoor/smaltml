@@ -17,6 +17,7 @@ class LogisticRegression implements Classifier {
   readonly coef: Matrix;
   readonly intercept: Float64Array;
   readonly nIter: number;
+  readonly converged: boolean | null;
 }
 type Label = number | string;
 ```
@@ -51,6 +52,9 @@ GPU](../../guide/hardware#fits-on-the-gpu)); `'auto'` (the default) and `'cpu'` 
 - `classes`: the labels seen in `fit`, sorted.
 - `coef`: one row for two classes (the log-odds of the second class), else one row per class; one column per feature.
 - `intercept`: one value per row of `coef`. `nIter`: the iterations the fit took.
+- `converged`: whether the solver converged within `maxIter`. Where it didn't, `fit` warns on the console
+  (`ML_CONVERGENCE`, [Errors](../errors#warnings)), as scikit-learn raises a `ConvergenceWarning`. `null` for a model
+  saved by smaltml before it recorded this.
 
 ## Errors
 
@@ -96,6 +100,17 @@ newton.nIter
 | value |
 | --- |
 | 4 |
+
+Stopped before it converges, a fit warns `ML_CONVERGENCE` on the console and says so in `converged`:
+
+```ts
+const early = await new LogisticRegression({ maxIter: 2 }).fit([[0], [1], [2], [3], [4], [5]], [0, 0, 0, 1, 1, 1]);
+({ nIter: early.nIter, converged: early.converged })
+```
+
+| nIter | converged |
+| --- | --- |
+| 2 | false |
 
 <!-- docs:error ML_LABELS -->
 ```ts

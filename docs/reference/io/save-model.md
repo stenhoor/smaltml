@@ -18,7 +18,7 @@ The model as JSON text: a document with its class, parameters and, once fitted, 
 
 ## Returns
 
-JSON text: `{ format: 'smaltml', version: 1, model, smaltml, params, state }`. `state` is `null` before the model is
+JSON text: `{ format: 'smaltml', version: 2, model, smaltml, params, state }`. `state` is `null` before the model is
 fitted. [Saving and loading models](../../guide/saving) describes each field.
 
 ## Errors
@@ -35,7 +35,7 @@ saveModel(new StandardScaler({ withStd: false }))
 
 | value |
 | --- |
-| \{"format":"smaltml","version":1,"model":"StandardScaler","smaltml":"0.1.0","params":\{"withMean":true,"withStd":false\},"state":null\} |
+| \{"format":"smaltml","version":2,"model":"StandardScaler","smaltml":"0.1.0","params":\{"withMean":true,"withStd":false\},"state":null\} |
 
 ## Working demo
 

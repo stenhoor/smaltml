@@ -1,4 +1,4 @@
-import { fail } from '../core/errors.js';
+import { fail, warn } from '../core/errors.js';
 import { binaryLogistic, cholesky, choleskySolve, finishLogistic, multinomialLogistic, weightedGram, xw } from '../core/kernels.js';
 import { logisticOnGpu } from '../gpu/logistic.js';
 import { minimize, minimizeAsync, type MinimizeResult } from '../core/linalg.js';
@@ -64,6 +64,8 @@ interface State {
   coef: Matrix;
   intercept: Float64Array;
   nIter: number;
+  /** Whether the solver converged; null for a model saved before smaltml recorded it (format version 1). */
+  converged: boolean | null;
   nFeaturesIn: number;
   featureNamesIn: readonly string[] | undefined;
 }
@@ -183,6 +185,14 @@ export class LogisticRegression implements Classifier {
     return this.#fitted().nIter;
   }
 
+  /**
+   * Whether the solver converged within `maxIter`. Where it didn't, fit() warned (`ML_CONVERGENCE`), as scikit-learn
+   * does. null for a model saved by smaltml before it recorded this (format version 1).
+   */
+  get converged(): boolean | null {
+    return this.#fitted().converged;
+  }
+
   get nFeaturesIn(): number {
     return this.#fitted().nFeaturesIn;
   }
@@ -300,7 +310,10 @@ export class LogisticRegression implements Classifier {
       for (let j = 0; j < p; j++) coef.data[j * k + c] = result.x[c * width + j]!;
       intercept[c] = this.fitIntercept ? result.x[c * width + p]! : 0;
     }
-    this.#state = { classes, coef, intercept, nIter: result.iterations, nFeaturesIn: p, featureNamesIn: m.names };
+    this.#state = { classes, coef, intercept, nIter: result.iterations, converged: result.converged, nFeaturesIn: p, featureNamesIn: m.names };
+    if (!result.converged) {
+      warn('ML_CONVERGENCE', `LogisticRegression (solver '${this.solver}') stopped after ${result.iterations} of at most ${this.maxIter} iterations without converging: raise maxIter, or scale the columns (StandardScaler)`);
+    }
     return this;
   }
 
@@ -405,6 +418,7 @@ export class LogisticRegression implements Classifier {
       coef: s.coef.toRows(),
       intercept: numbers(s.intercept),
       nIter: s.nIter,
+      converged: s.converged,
       nFeaturesIn: s.nFeaturesIn,
       ...(s.featureNamesIn ? { featureNamesIn: [...s.featureNamesIn] } : {}),
     });
@@ -422,6 +436,7 @@ export class LogisticRegression implements Classifier {
         coef: Matrix.fromRows(s.coef as number[][]),
         intercept: floats(s.intercept, 'intercept'),
         nIter: Number(s.nIter),
+        converged: typeof s.converged === 'boolean' ? s.converged : null,
         nFeaturesIn: Number(s.nFeaturesIn),
         featureNamesIn: Array.isArray(s.featureNamesIn) ? (s.featureNamesIn as string[]) : undefined,
       };

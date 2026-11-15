@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
+import { typeChecker } from 'smaltkit/typechecker';
 import { runExample, toTable } from '../docs/.vitepress/theme/smaltml.js';
 import type { SetupStep } from '../docs/.vitepress/theme/playground.js';
 
@@ -91,6 +92,37 @@ function render(t: { columns: string[]; rows: string[][]; note?: string }): stri
   return out;
 }
 
+/**
+ * The examples type-checked by smaltty, the smalt apps' own checker (through smaltkit/typechecker), against smaltml's
+ * source by its package names, as a reader's editor would check them: a misspelt method or option, or an option of the
+ * wrong type, fails here with tsc's message. Each example is checked with the examples above it on its page (they share
+ * one scope); only errors in its own lines are its own.
+ */
+const SRC = new URL('../src/', import.meta.url).pathname;
+function sources(dir: string): [string, string][] {
+  return readdirSync(dir).flatMap((f) => {
+    const p = join(dir, f);
+    return statSync(p).isDirectory() ? sources(p) : p.endsWith('.ts') ? [[`/src/${p.slice(SRC.length)}`, readFileSync(p, 'utf8')] as [string, string]] : [];
+  });
+}
+const AREAS = ['core', 'preprocessing', 'linear', 'metrics', 'selection', 'pipeline', 'io', 'gpu', 'parallel', 'registry', 'worker'];
+const checkTypes = typeChecker({
+  files: Object.fromEntries(sources(SRC)),
+  packages: { '@smaltworks/smaltml': '/src/index.ts', ...Object.fromEntries(AREAS.map((a) => [`@smaltworks/smaltml/${a}`, `/src/${a}/index.ts`])) },
+});
+
+/** The code smaltty checks for an example: a module, the setup above it, then the example; repeated imports once. */
+function checkedCode(ex: Example): { code: string; first: number } {
+  const seen = new Set<string>();
+  const once = (part: string) =>
+    part
+      .split('\n')
+      .filter((l) => !/^\s*import\s/.test(l) || (!seen.has(l.trim()) && !!seen.add(l.trim())))
+      .join('\n');
+  const before = ['export {};', ...ex.setup.map((s) => (typeof s === 'string' ? s : s.sql)).map(once)].join('\n;\n') + '\n;\n';
+  return { code: before + once(ex.code), first: before.split('\n').length };
+}
+
 const files = markdown(DOCS);
 const updates = new Map<string, { at: Example; table: string[] }[]>();
 
@@ -99,6 +131,11 @@ for (const file of files) {
   if (list.length === 0) continue;
   describe(file.slice(DOCS.length), () => {
     for (const ex of list) {
+      test(`line ${ex.line} type-checks (smaltty)`, () => {
+        const { code, first } = checkedCode(ex);
+        const own = checkTypes(code).filter((w) => w.line >= first);
+        expect(own.map((w) => `line ${ex.line + w.line - first + 1}: TS${w.code} ${w.message}`), `${file}:${ex.line}`).toEqual([]);
+      });
       test(`line ${ex.line}`, async () => {
         if (ex.fails !== undefined) {
           await expect(runExample(ex.code, ex.setup)).rejects.toMatchObject({ code: ex.fails });

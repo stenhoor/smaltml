@@ -8,3 +8,5 @@ docs/.vitepress/dist/
 .claude/worktrees/
 bench/results/*.local.json
 .vitest/
+bench/data/
+__pycache__/

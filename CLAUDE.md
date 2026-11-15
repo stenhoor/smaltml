@@ -30,6 +30,7 @@ Settings → Pages → Source must be **GitHub Actions**.
 | `npm ci` | Installs dependencies |
 | `npm run check` | Typecheck, then the tests (vitest): the compare cases, every docs example, the entry points. Before every commit |
 | `npm run test:browser` | In headless Chromium: Run on every playground of the site (`test/browser/docs.mjs`), then WebGPU and the worker against the CPU (`test/browser/hardware.mjs`, WebGPU on SwiftShader). CI runs it |
+| `npm run bench` / `bench:python` / `bench:report` | Times smaltml and scikit-learn on the same data; the report writes docs/research/benchmarks.md. Rerun after performance work |
 | `npm run compare` | Reruns compare/run.py through scikit-learn and rewrites fixtures/compare.json |
 | `npm run docs:dev` / `docs:build` | The site |
 | `npm run build` | `dist/` and type declarations |

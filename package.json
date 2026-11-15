@@ -29,7 +29,10 @@
     "compare": "python3 compare/run.py",
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
-    "docs:preview": "vitepress preview docs"
+    "docs:preview": "vitepress preview docs",
+    "bench": "npm run build && node bench/smaltml.mjs",
+    "bench:python": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python3 bench/reference.py && python3 bench/reference.py",
+    "bench:report": "node bench/report.mjs"
   },
   "exports": {
     ".": {

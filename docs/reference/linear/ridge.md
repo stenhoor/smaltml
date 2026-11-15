@@ -37,7 +37,8 @@ Linear regression with an L2 penalty: minimizes `‖y − X·w − b‖² + alph
 
 ## Notes
 
-Solved as `(XᵀX + alpha·I) w = Xᵀy` on centred data, by Cholesky, in 64-bit floats. Results agree with scikit-learn's
+Solved as `(XᵀX + alpha·I) w = Xᵀy` on centred data, by Cholesky, in 64-bit floats; XᵀX takes one blocked pass over
+X, centred as it is read. Results agree with scikit-learn's
 within 1e-9 in the compare tests.
 
 ## Examples

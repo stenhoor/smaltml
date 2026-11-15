@@ -1,4 +1,5 @@
 import { fail } from '../core/errors.js';
+import { binaryLogistic, multinomialLogistic, xw } from '../core/kernels.js';
 import { minimize } from '../core/linalg.js';
 import { assertFinite, Matrix, type MatrixInput } from '../core/matrix.js';
 import { matMul, useGpu, type DeviceOptions } from '../gpu/index.js';
@@ -120,7 +121,11 @@ export class LogisticRegression implements Classifier {
     const l2 = Number.isFinite(this.C) ? 1 / (this.C * n) : 0;
     const k = classes.length === 2 ? 1 : classes.length;
     const width = p + (this.fitIntercept ? 1 : 0);
-    const objective = k === 1 ? binaryLoss(m, target, l2, this.fitIntercept) : multinomialLoss(m, target, k, l2, this.fitIntercept);
+    const withIntercept = this.fitIntercept;
+    const objective =
+      k === 1
+        ? (x: Float64Array, g: Float64Array) => binaryLogistic(m, target, l2, withIntercept, x, g)
+        : (x: Float64Array, g: Float64Array) => multinomialLogistic(m, target, k, l2, withIntercept, x, g);
     const result = minimize(objective, new Float64Array(k * width), { gtol: this.tol, maxIter: this.maxIter, ftolFactor: 64 });
     const coef = new Matrix(k, p);
     const intercept = new Float64Array(k);
@@ -220,13 +225,8 @@ export class LogisticRegression implements Classifier {
     const k = s.coef.rows;
     const out = new Float64Array(n * k);
     for (let c = 0; c < k; c++) {
-      const off = c * n;
-      out.fill(s.intercept[c]!, off, off + n);
-      for (let j = 0; j < m.cols; j++) {
-        const w = s.coef.data[j * k + c]!;
-        const col = j * n;
-        for (let i = 0; i < n; i++) out[off + i]! += m.data[col + i]! * w;
-      }
+      const w = Float64Array.from({ length: m.cols }, (_, j) => s.coef.data[j * k + c]!);
+      xw(m, w, s.intercept[c]!, undefined, out.subarray(c * n, (c + 1) * n));
     }
     return new Matrix(n, k, out);
   }
@@ -269,102 +269,4 @@ export class LogisticRegression implements Classifier {
 
 function sigmoid(z: number): number {
   return z >= 0 ? 1 / (1 + Math.exp(-z)) : Math.exp(z) / (1 + Math.exp(z));
-}
-
-/** log(1 + e^z), without overflow. */
-function log1pExp(z: number): number {
-  return z > 0 ? z + Math.log1p(Math.exp(-z)) : Math.log1p(Math.exp(z));
-}
-
-/**
- * The binary objective: the mean log loss of y ∈ {0, 1} under sigmoid(X·w + b), plus l2 / 2 · ‖w‖².
- * x holds w, then b when there is an intercept.
- */
-function binaryLoss(X: Matrix, y: Int32Array, l2: number, intercept: boolean) {
-  const n = X.rows;
-  const p = X.cols;
-  const z = new Float64Array(n);
-  const r = new Float64Array(n);
-  return (x: Float64Array, grad: Float64Array): number => {
-    z.fill(intercept ? x[p]! : 0);
-    for (let j = 0; j < p; j++) {
-      const w = x[j]!;
-      if (w === 0) continue;
-      const off = j * n;
-      for (let i = 0; i < n; i++) z[i]! += X.data[off + i]! * w;
-    }
-    let loss = 0;
-    let rsum = 0;
-    for (let i = 0; i < n; i++) {
-      const zi = z[i]!;
-      // −log p(yᵢ) = log(1 + e^z) − y z
-      loss += log1pExp(zi) - y[i]! * zi;
-      const ri = sigmoid(zi) - y[i]!;
-      r[i] = ri;
-      rsum += ri;
-    }
-    let reg = 0;
-    for (let j = 0; j < p; j++) {
-      const off = j * n;
-      let g = 0;
-      for (let i = 0; i < n; i++) g += X.data[off + i]! * r[i]!;
-      const w = x[j]!;
-      grad[j] = g / n + l2 * w;
-      reg += w * w;
-    }
-    if (intercept) grad[p] = rsum / n;
-    return loss / n + (l2 / 2) * reg;
-  };
-}
-
-/**
- * The multinomial objective: the mean log loss under softmax(X·Wᵀ + b), plus l2 / 2 · ‖W‖². x holds K rows of
- * (w, then b when there is an intercept).
- */
-function multinomialLoss(X: Matrix, y: Int32Array, K: number, l2: number, intercept: boolean) {
-  const n = X.rows;
-  const p = X.cols;
-  const width = p + (intercept ? 1 : 0);
-  const z = new Float64Array(n * K);
-  return (x: Float64Array, grad: Float64Array): number => {
-    for (let c = 0; c < K; c++) {
-      const off = c * n;
-      z.fill(intercept ? x[c * width + p]! : 0, off, off + n);
-      for (let j = 0; j < p; j++) {
-        const w = x[c * width + j]!;
-        if (w === 0) continue;
-        const col = j * n;
-        for (let i = 0; i < n; i++) z[off + i]! += X.data[col + i]! * w;
-      }
-    }
-    let loss = 0;
-    // z becomes the residuals softmax − onehot, row by row.
-    for (let i = 0; i < n; i++) {
-      let max = -Infinity;
-      for (let c = 0; c < K; c++) max = Math.max(max, z[c * n + i]!);
-      let sum = 0;
-      for (let c = 0; c < K; c++) sum += Math.exp(z[c * n + i]! - max);
-      const lse = max + Math.log(sum);
-      loss += lse - z[y[i]! * n + i]!;
-      for (let c = 0; c < K; c++) z[c * n + i] = Math.exp(z[c * n + i]! - lse) - (c === y[i] ? 1 : 0);
-    }
-    let reg = 0;
-    for (let c = 0; c < K; c++) {
-      const off = c * n;
-      for (let j = 0; j < p; j++) {
-        const col = j * n;
-        let g = 0;
-        for (let i = 0; i < n; i++) g += X.data[col + i]! * z[off + i]!;
-        const w = x[c * width + j]!;
-        grad[c * width + j] = g / n + l2 * w;
-        reg += w * w;
-      }
-      if (intercept) {
-        let g = 0;
-        for (let i = 0; i < n; i++) g += z[off + i]!;
-        grad[c * width + p] = g / n;
-      }
-    }
-    return loss / n + (l2 / 2) * reg;
-  };
 }

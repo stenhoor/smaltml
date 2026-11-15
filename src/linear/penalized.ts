@@ -1,5 +1,5 @@
 import { fail } from '../core/errors.js';
-import { matVec } from '../core/linalg.js';
+import { checkedMeans, cholesky, choleskySolve, gram, xtv, xw } from '../core/kernels.js';
 import { assertFinite, assertFiniteVector, Matrix, toVector, type MatrixInput, type VectorInput } from '../core/matrix.js';
 import { checkColumns, checkDocument, document, floats, notFitted, numbers, type ModelDocument, type Predictor } from '../core/model.js';
 import { matMul, useGpu, type DeviceOptions } from '../gpu/index.js';
@@ -12,25 +12,19 @@ interface State {
   featureNamesIn: readonly string[] | undefined;
 }
 
-/** X and y centred (when there is an intercept), with the means that undo it. */
-function centred(m: Matrix, y: Float64Array, intercept: boolean) {
-  const n = m.rows;
-  const p = m.cols;
-  const xMean = new Float64Array(p);
+/**
+ * The column means and y's mean (when there is an intercept), and y centred. X itself isn't copied: the kernels
+ * subtract the means as they read it.
+ */
+function centring(m: Matrix, y: Float64Array, intercept: boolean) {
+  // The column means check X on the way; without an intercept, check it here.
+  const xMean = intercept ? checkedMeans(m, assertFinite) : (assertFinite(m), undefined);
   let yMean = 0;
-  if (!intercept) return { X: m, y, xMean, yMean };
-  const data = new Float64Array(m.data.length);
-  for (let j = 0; j < p; j++) {
-    const col = m.column(j);
-    let s = 0;
-    for (let i = 0; i < n; i++) s += col[i]!;
-    const mu = s / n;
-    xMean[j] = mu;
-    for (let i = 0; i < n; i++) data[j * n + i] = col[i]! - mu;
+  if (intercept) {
+    for (let i = 0; i < y.length; i++) yMean += y[i]!;
+    yMean /= y.length;
   }
-  for (let i = 0; i < n; i++) yMean += y[i]!;
-  yMean /= n;
-  return { X: new Matrix(n, p, data, m.names), y: y.map((v) => v - yMean), xMean, yMean };
+  return { xMean, yMean, y: intercept ? y.map((v) => v - yMean) : y };
 }
 
 /** A linear model with a penalty: what Ridge, Lasso and ElasticNet share. */
@@ -71,8 +65,8 @@ abstract class PenalizedLinear implements Predictor {
 
   abstract getParams(): object;
 
-  /** The coefficients for centred X and y, and the iterations it took. */
-  protected abstract solve(X: Matrix, y: Float64Array): { coef: Float64Array; nIter: number };
+  /** The coefficients for X less `mean` (when there is an intercept) and centred y, and the iterations it took. */
+  protected abstract solve(X: Matrix, mean: Float64Array | undefined, y: Float64Array): { coef: Float64Array; nIter: number };
 
   async fit(X: MatrixInput, y: VectorInput): Promise<this> {
     return this.fitSync(X, y);
@@ -81,13 +75,12 @@ abstract class PenalizedLinear implements Predictor {
   fitSync(X: MatrixInput, y: VectorInput): this {
     const m = Matrix.from(X);
     if (m.rows === 0) fail('ML_SHAPE', 'X has no rows');
-    assertFinite(m);
     const target = toVector(y, m.rows);
     assertFiniteVector(target);
-    const c = centred(m, target, this.fitIntercept);
-    const { coef, nIter } = m.cols === 0 ? { coef: new Float64Array(0), nIter: 0 } : this.solve(c.X, c.y);
+    const c = centring(m, target, this.fitIntercept);
+    const { coef, nIter } = m.cols === 0 ? { coef: new Float64Array(0), nIter: 0 } : this.solve(m, c.xMean, c.y);
     let intercept = 0;
-    if (this.fitIntercept) {
+    if (c.xMean) {
       intercept = c.yMean;
       for (let j = 0; j < m.cols; j++) intercept -= c.xMean[j]! * coef[j]!;
     }
@@ -110,7 +103,7 @@ abstract class PenalizedLinear implements Predictor {
     const s = this.#fitted();
     const m = Matrix.from(X);
     checkColumns(m, s.nFeaturesIn, this.kind);
-    return matVec(m, s.coef, s.intercept);
+    return xw(m, s.coef, s.intercept);
   }
 
   toJSON(): ModelDocument {
@@ -164,66 +157,20 @@ export class Ridge extends PenalizedLinear {
     return { alpha: this.alpha, fitIntercept: this.fitIntercept };
   }
 
-  protected solve(X: Matrix, y: Float64Array) {
+  protected solve(X: Matrix, mean: Float64Array | undefined, y: Float64Array) {
     const p = X.cols;
-    const n = X.rows;
-    // A = XᵀX + alpha·I (lower triangle), b = Xᵀy.
-    const A = new Float64Array(p * p);
-    const b = new Float64Array(p);
-    for (let j = 0; j < p; j++) {
-      const cj = X.column(j);
-      for (let k = 0; k <= j; k++) {
-        const ck = X.column(k);
-        let s = 0;
-        for (let i = 0; i < n; i++) s += cj[i]! * ck[i]!;
-        A[j * p + k] = s;
-      }
-      A[j * p + j]! += this.alpha;
-      let s = 0;
-      for (let i = 0; i < n; i++) s += cj[i]! * y[i]!;
-      b[j] = s;
-    }
-    return { coef: choleskySolve(A, b, p, (j) => X.columnName(j)), nIter: 0 };
+    // (XᵀX + alpha·I) w = Xᵀy, on X less its means.
+    const A = gram(X, mean);
+    for (let j = 0; j < p; j++) A[j * p + j]! += this.alpha;
+    const L = cholesky(A, p);
+    if (!L) fail('ML_SINGULAR', "the columns don't determine one answer (one is a combination of others): use alpha > 0");
+    return { coef: choleskySolve(L, p, xtv(X, y, mean)), nIter: 0 };
   }
 
   static fromJSON(doc: ModelDocument): Ridge {
     const d = checkDocument(doc, 'Ridge');
     return new Ridge(d.params as RidgeParams).restore(d.state);
   }
-}
-
-/** Solves A x = b for a symmetric positive definite A (its lower triangle, row-major), by Cholesky. */
-function choleskySolve(A: Float64Array, b: Float64Array, p: number, name: (j: number) => string): Float64Array {
-  const L = new Float64Array(p * p);
-  let scale = 0;
-  for (let j = 0; j < p; j++) scale = Math.max(scale, Math.abs(A[j * p + j]!));
-  for (let j = 0; j < p; j++) {
-    let d = A[j * p + j]!;
-    for (let k = 0; k < j; k++) d -= L[j * p + k]! ** 2;
-    if (!(d > p * Number.EPSILON * scale)) {
-      fail('ML_SINGULAR', `column ${name(j)} is a combination of the columns before it, so the coefficients aren't determined: use alpha > 0`);
-    }
-    const ljj = Math.sqrt(d);
-    L[j * p + j] = ljj;
-    for (let i = j + 1; i < p; i++) {
-      let s = A[i * p + j]!;
-      for (let k = 0; k < j; k++) s -= L[i * p + k]! * L[j * p + k]!;
-      L[i * p + j] = s / ljj;
-    }
-  }
-  const z = new Float64Array(p);
-  for (let i = 0; i < p; i++) {
-    let s = b[i]!;
-    for (let k = 0; k < i; k++) s -= L[i * p + k]! * z[k]!;
-    z[i] = s / L[i * p + i]!;
-  }
-  const x = new Float64Array(p);
-  for (let i = p - 1; i >= 0; i--) {
-    let s = z[i]!;
-    for (let k = i + 1; k < p; k++) s -= L[k * p + i]! * x[k]!;
-    x[i] = s / L[i * p + i]!;
-  }
-  return x;
 }
 
 export interface ElasticNetParams {
@@ -265,8 +212,12 @@ export class ElasticNet extends PenalizedLinear {
     return { alpha: this.alpha, l1Ratio: this.l1Ratio, fitIntercept: this.fitIntercept, maxIter: this.maxIter, tol: this.tol };
   }
 
-  protected solve(X: Matrix, y: Float64Array) {
-    return coordinateDescent(X, y, this.alpha * this.l1Ratio * X.rows, this.alpha * (1 - this.l1Ratio) * X.rows, this.maxIter, this.tol);
+  protected solve(X: Matrix, mean: Float64Array | undefined, y: Float64Array) {
+    const l1 = this.alpha * this.l1Ratio * X.rows;
+    const l2 = this.alpha * (1 - this.l1Ratio) * X.rows;
+    // With more rows than columns, descend on the Gram matrix: a pass costs p², not a read of X.
+    if (X.rows >= X.cols && X.cols <= GRAM_MAX) return gramDescent(gram(X, mean), xtv(X, y, mean), dotSelf(y), X.cols, l1, l2, this.maxIter, this.tol);
+    return coordinateDescent(mean ? centredCopy(X, mean) : X, y, l1, l2, this.maxIter, this.tol);
   }
 
   static fromJSON(doc: ModelDocument): ElasticNet {
@@ -376,4 +327,83 @@ function dualityGap(X: Matrix, y: Float64Array, w: Float64Array, r: Float64Array
   const primal = 0.5 * augmented + l1 * w1;
   const dual = s * ry - 0.5 * s * s * augmented;
   return primal - dual;
+}
+
+/** Above this many columns, the p × p Gram matrix is too big to be worth it, and descent reads X instead. */
+const GRAM_MAX = 2048;
+
+function centredCopy(m: Matrix, mean: Float64Array): Matrix {
+  const n = m.rows;
+  const data = new Float64Array(m.data.length);
+  for (let j = 0; j < m.cols; j++) {
+    const mu = mean[j]!;
+    for (let i = 0; i < n; i++) data[j * n + i] = m.data[j * n + i]! - mu;
+  }
+  return new Matrix(n, m.cols, data, m.names);
+}
+
+function dotSelf(v: Float64Array): number {
+  let s = 0;
+  for (let i = 0; i < v.length; i++) s += v[i]! * v[i]!;
+  return s;
+}
+
+/**
+ * coordinateDescent() on the Gram matrix G = XᵀX, with q = Xᵀy and yy = yᵀy: the same updates in the same order,
+ * with Xᵀr kept as c = q − G w, and ‖r‖² and rᵀy from G, q and yy for the duality gap.
+ */
+function gramDescent(G: Float64Array, q: Float64Array, yy: number, p: number, l1: number, l2: number, maxIter: number, tol: number) {
+  const w = new Float64Array(p);
+  const c = q.slice();
+  const gapTol = tol * yy;
+  let iter = 0;
+  for (; iter < maxIter; iter++) {
+    let maxStep = 0;
+    let maxW = 0;
+    for (let j = 0; j < p; j++) {
+      const gjj = G[j * p + j]!;
+      if (gjj === 0) continue;
+      const old = w[j]!;
+      const rho = c[j]! + gjj * old;
+      const next = Math.sign(rho) * Math.max(Math.abs(rho) - l1, 0) / (gjj + l2);
+      if (next !== old) {
+        const d = next - old;
+        const row = j * p;
+        for (let k = 0; k < p; k++) c[k]! -= G[row + k]! * d;
+        w[j] = next;
+      }
+      maxStep = Math.max(maxStep, Math.abs(next - old));
+      maxW = Math.max(maxW, Math.abs(next));
+    }
+    if (maxW === 0 || maxStep / maxW <= tol || iter === maxIter - 1) {
+      if (gramGap(G, q, yy, w, c, l1, l2) <= gapTol) {
+        iter++;
+        break;
+      }
+    }
+  }
+  return { coef: w, nIter: Math.min(iter, maxIter) };
+}
+
+/** dualityGap() from the Gram matrix: ‖r‖² = yy − 2 wᵀq + wᵀGw, rᵀy = yy − wᵀq, Xᵀr = c. */
+function gramGap(G: Float64Array, q: Float64Array, yy: number, w: Float64Array, c: Float64Array, l1: number, l2: number): number {
+  const p = w.length;
+  let wq = 0;
+  let wGw = 0;
+  let ww = 0;
+  let w1 = 0;
+  let dualNorm = 0;
+  for (let j = 0; j < p; j++) {
+    wq += w[j]! * q[j]!;
+    // wᵀGw = wᵀ(q − c).
+    wGw += w[j]! * (q[j]! - c[j]!);
+    ww += w[j]! * w[j]!;
+    w1 += Math.abs(w[j]!);
+    dualNorm = Math.max(dualNorm, Math.abs(c[j]! - l2 * w[j]!));
+  }
+  const rr = Math.max(yy - 2 * wq + wGw, 0);
+  const ry = yy - wq;
+  const s = dualNorm > l1 ? l1 / dualNorm : 1;
+  const augmented = rr + l2 * ww;
+  return 0.5 * augmented + l1 * w1 - (s * ry - 0.5 * s * s * augmented);
 }

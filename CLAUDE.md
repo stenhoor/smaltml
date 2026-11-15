@@ -82,7 +82,8 @@ Playwright is a dev dependency, pinned to CI's version (1.64.1). Its Chromium is
   (`UPDATE_DOCS=1 npx vitest run test/docs-examples.test.ts` writes them). `<!-- docs:error CODE -->` marks one that
   must fail; `<!-- docs:skip -->` marks a block that isn't run and isn't setup for those below (signatures, sketches).
   `noplay` blocks still run as setup, so don't use them for code that can't run.
-- **No runtime dependencies.** smaltkit is a dev dependency, pinned to a commit, for the site's playgrounds. Ask the
-  owner before adding any other package.
+- **No runtime dependencies.** smaltkit is a dev dependency, pinned to a commit, for the site's playgrounds; smaltty is
+  one, pinned to a release tag (the one smaltkit takes), for `test/smaltty.test.ts`, which checks smaltml's source
+  with smaltty beside tsc (the owner's yes, 2026-11-15). Ask the owner before adding any other package.
 - No fixed sleeps in tests. Probe tests (`test/zz-*.test.ts`) are scratch: never commit them.
 - A significant decision gets an ADR in `docs/adr/`.

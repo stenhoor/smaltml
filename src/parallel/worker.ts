@@ -41,10 +41,11 @@ function handle(req: Request): Response {
     }
     case 'logistic': {
       const y = new Int32Array(t.y);
+      const w = t.weights ? new Float64Array(t.weights) : undefined;
       const width = X.cols + (t.intercept ? 1 : 0);
       const parts = t.chunks.map(([a, b]) => {
         const g = new Float64Array(t.K === 1 ? width : t.K * width);
-        const loss = t.K === 1 ? binaryLogisticPart(X, y, t.intercept, t.x, g, a, b) : multinomialLogisticPart(X, y, t.K, t.intercept, t.x, g, a, b);
+        const loss = t.K === 1 ? binaryLogisticPart(X, y, t.intercept, t.x, g, a, b, w) : multinomialLogisticPart(X, y, t.K, t.intercept, t.x, g, a, b, w);
         return { loss, values: g };
       });
       return { id: req.id, ok: true, parts };

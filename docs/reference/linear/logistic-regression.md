@@ -7,8 +7,9 @@ description: 'LogisticRegression: classes and their probabilities from a linear 
 <!-- docs:skip -->
 ```ts
 class LogisticRegression implements Classifier {
-  constructor(params?: { C?: number; l1Ratio?: number; tol?: number; fitIntercept?: boolean; maxIter?: number; solver?: 'lbfgs' | 'newton-cholesky' });
-  fit(X: MatrixInput, y: Labels, options?: { threads?: number | 'auto'; device?: 'auto' | 'cpu' | 'gpu' }): Promise<this>;
+  constructor(params?: { C?: number; l1Ratio?: number; tol?: number; fitIntercept?: boolean; maxIter?: number; solver?: 'lbfgs' | 'newton-cholesky'; classWeight?: 'balanced' | Record<string, number> });
+  fit(X: MatrixInput, y: Labels, options?: { threads?: number | 'auto'; device?: 'auto' | 'cpu' | 'gpu'; sampleWeight?: ArrayLike<number> }): Promise<this>;
+  fitSync(X: MatrixInput, y: Labels, options?: { sampleWeight?: ArrayLike<number> }): this;
   predict(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Label[]>;
   predictProba(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Matrix>;
   decisionFunction(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Matrix>;
@@ -38,10 +39,16 @@ with the solvers `lbfgs` (the default) and `newton-cholesky`.
   iterations. `'newton-cholesky'` takes Newton steps with the exact Hessian, solved by Cholesky: a few costly ones,
   usually the faster fit with many rows and up to a few hundred columns. It takes two classes so far, and runs on the
   CPU (on several threads, as `lbfgs` does).
+- `classWeight` (default: every class 1): weights for the classes, scikit-learn's `class_weight`. `'balanced'` gives
+  each class n / (classes × its rows), counting rows by their sample weights, so every class counts as much in all: the
+  usual remedy when one class is rare. An object gives a class's weight by its label, `{ yes: 5 }`; classes it leaves
+  out weigh 1.
 
 `fit` takes `threads` ([On several cores](../../guide/hardware#on-several-cores)) and `device`: `'gpu'` runs the loss
 and its gradient on the GPU in 32-bit floats, for a fit close to the CPU's ([Fits on the
-GPU](../../guide/hardware#fits-on-the-gpu)); `'auto'` (the default) and `'cpu'` fit on the CPU.
+GPU](../../guide/hardware#fits-on-the-gpu)); `'auto'` (the default) and `'cpu'` fit on the CPU. `fit` and `fitSync`
+take `sampleWeight`, one weight per row: each row's loss counts that many times, multiplied by its class's
+`classWeight`. The loss is then the weighted mean, and the penalty `‖w‖² / (2·C·Σw)`, as in scikit-learn.
 
 ## Returns
 
@@ -60,7 +67,11 @@ GPU](../../guide/hardware#fits-on-the-gpu)); `'auto'` (the default) and `'cpu'` 
 
 - `ML_LABELS`: one class only, or labels that mix numbers and strings.
 - `ML_PARAM`: `C` ≤ 0, `l1Ratio` other than 0, `tol` ≤ 0, `maxIter` below 1, a `solver` it doesn't know,
-  `device: 'gpu'` where there is no WebGPU, or `'newton-cholesky'` with more than two classes or with `device: 'gpu'`.
+  `device: 'gpu'` where there is no WebGPU, or with weights (`sampleWeight`, `classWeight`), `'newton-cholesky'` with
+  more than two classes or with `device: 'gpu'`, a `classWeight` that isn't `'balanced'` or an object of weights 0 or
+  more, or one that names a class y doesn't have.
+- `ML_SHAPE`, `ML_VALUE`: `sampleWeight` of the wrong length, or with a negative or non-finite weight; every row
+  weighing 0.
 - `ML_VALUE`, `ML_SHAPE`, `ML_NOT_FITTED`: as for every model.
 
 ## Notes
@@ -111,6 +122,21 @@ const early = await new LogisticRegression({ maxIter: 2 }).fit([[0], [1], [2], [
 | nIter | converged |
 | --- | --- |
 | 2 | false |
+
+One class rare: nine rows of `no` to three of `yes`. `classWeight: 'balanced'` makes each class count as much in all,
+so the model leans less towards the common one:
+
+```ts
+const Xr = [[0], [1], [2], [3], [4], [5], [6], [7], [8], [9], [10], [11]];
+const yr = ['no', 'no', 'no', 'no', 'no', 'no', 'yes', 'no', 'no', 'yes', 'no', 'yes'];
+const plain = new LogisticRegression().fitSync(Xr, yr);
+const balanced = new LogisticRegression({ classWeight: 'balanced' }).fitSync(Xr, yr);
+({ plain: plain.predictSync([[7.5]]), balanced: balanced.predictSync([[7.5]]) })
+```
+
+| plain | balanced |
+| --- | --- |
+| no | yes |
 
 <!-- docs:error ML_LABELS -->
 ```ts

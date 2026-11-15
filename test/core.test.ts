@@ -356,8 +356,43 @@ describe('sampleWeight on the least-squares models', () => {
     const p = pipeline(new StandardScaler(), new Ridge()).fitSync(rows, y, { sampleWeight: counts });
     const scaled = new StandardScaler().fitSync(rows).transformSync(rows);
     expect(Array.from((p.last as Ridge).coef)).toEqual(Array.from(new Ridge().fitSync(scaled, y, { sampleWeight: counts }).coef));
-    const labels = y.map((v) => (v > 3 ? 'high' : 'low'));
-    expect(() => pipeline(new StandardScaler(), new LogisticRegression()).fitSync(rows, labels, { sampleWeight: counts })).toThrow(expect.objectContaining({ code: 'ML_PARAM' }));
-    await expect(new LogisticRegression().fit(rows, labels, { sampleWeight: counts } as object)).rejects.toMatchObject({ code: 'ML_PARAM' });
+    expect(() => pipeline(new StandardScaler(), new MinMaxScaler()).fitSync(rows, y, { sampleWeight: counts })).toThrow(expect.objectContaining({ code: 'ML_PARAM' }));
+  });
+});
+
+describe('sampleWeight and classWeight on LogisticRegression', () => {
+  const r = new Random(4);
+  const rows = Array.from({ length: 90 }, () => [r.next() * 4 - 2, r.next() * 2 - 1]);
+  const labels = rows.map((x) => (x[0]! + 0.5 * x[1]! + 0.4 * (r.next() - 0.5) > 0.6 ? 'yes' : 'no'));
+  const counts = rows.map((_, i) => 1 + (i % 3));
+  const repeatedX = rows.flatMap((x, i) => Array.from({ length: counts[i]! }, () => x));
+  const repeatedY = labels.flatMap((l, i) => Array.from({ length: counts[i]! }, () => l));
+
+  test.each(['lbfgs', 'newton-cholesky'] as const)('%s: whole-number weights equal repeating the rows', (solver) => {
+    const make = () => new LogisticRegression({ solver, tol: 1e-10, maxIter: 10000 });
+    const weighted = make().fitSync(rows, labels, { sampleWeight: counts });
+    const repeated = make().fitSync(repeatedX, repeatedY);
+    weighted.coef.data.forEach((v, j) => expect(v).toBeCloseTo(repeated.coef.data[j]!, 6));
+  });
+
+  test("classWeight by class is a sample weight for that class's rows", () => {
+    const byClass = new LogisticRegression({ classWeight: { yes: 3 }, tol: 1e-10, maxIter: 10000 }).fitSync(rows, labels);
+    const bySample = new LogisticRegression({ tol: 1e-10, maxIter: 10000 }).fitSync(rows, labels, { sampleWeight: labels.map((l) => (l === 'yes' ? 3 : 1)) });
+    expect(Array.from(byClass.coef.data)).toEqual(Array.from(bySample.coef.data));
+  });
+
+  test('classWeight survives saving, and wrong ones fail', () => {
+    const m = new LogisticRegression({ classWeight: 'balanced' }).fitSync(rows, labels);
+    expect(LogisticRegression.fromJSON(JSON.parse(JSON.stringify(m.toJSON()))).getParams().classWeight).toBe('balanced');
+    expect(() => new LogisticRegression({ classWeight: 'even' as 'balanced' })).toThrow(expect.objectContaining({ code: 'ML_PARAM' }));
+    expect(() => new LogisticRegression({ classWeight: { yes: -1 } })).toThrow(expect.objectContaining({ code: 'ML_PARAM' }));
+    expect(() => new LogisticRegression({ classWeight: { maybe: 2 } }).fitSync(rows, labels)).toThrow(expect.objectContaining({ code: 'ML_PARAM' }));
+    expect(() => new LogisticRegression({ classWeight: { yes: 0, no: 0 } }).fitSync(rows, labels)).toThrow(expect.objectContaining({ code: 'ML_VALUE' }));
+  });
+
+  test('a pipeline passes the weights to it', () => {
+    const p = pipeline(new StandardScaler(), new LogisticRegression()).fitSync(rows, labels, { sampleWeight: counts });
+    const scaled = new StandardScaler().fitSync(rows).transformSync(rows);
+    expect(Array.from((p.last as LogisticRegression).coef.data)).toEqual(Array.from(new LogisticRegression().fitSync(scaled, labels, { sampleWeight: counts }).coef.data));
   });
 });

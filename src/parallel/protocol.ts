@@ -12,7 +12,7 @@ export type Task =
   | { op: 'gram'; X: SharedMatrix; mean: Float64Array | null; weights: SharedArrayBuffer | null; ones: boolean; chunks: [number, number][] }
   | { op: 'xtv'; X: SharedMatrix; v: SharedArrayBuffer; mean: Float64Array | null; chunks: [number, number][] }
   | { op: 'xw'; X: SharedMatrix; w: Float64Array; b: number; mean: Float64Array | null; out: SharedArrayBuffer; chunks: [number, number][] }
-  | { op: 'logistic'; X: SharedMatrix; y: SharedArrayBuffer; K: number; intercept: boolean; x: Float64Array; chunks: [number, number][] };
+  | { op: 'logistic'; X: SharedMatrix; y: SharedArrayBuffer; K: number; intercept: boolean; x: Float64Array; weights: SharedArrayBuffer | null; chunks: [number, number][] };
 
 export interface Request {
   id: number;

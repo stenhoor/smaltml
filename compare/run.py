@@ -244,6 +244,79 @@ case("lasso: a penalty that zeroes every coefficient", "Lasso", {"X": tolist(Xr)
      {"coef": tolist(big.coef_), "intercept": float(big.intercept_), "predict": tolist(big.predict(Xrn)), "zero": [bool(v == 0) for v in big.coef_]},
      {"rtol": 1e-12, "atol": 1e-12})
 
+# Metrics: classification and absolute error ------------------------------------------------------------------------
+from sklearn.metrics import confusion_matrix, f1_score, mean_absolute_error, precision_score, recall_score, roc_auc_score
+from sklearn.model_selection import GridSearchCV, KFold, StratifiedKFold, cross_val_score
+
+t = rng.normal(size=40) * 5
+case("metrics: mean absolute error", "mae", {"yTrue": tolist(t), "yPred": tolist(t + rng.normal(size=40))},
+     {"value": mean_absolute_error(t, t + 0)}, {"rtol": 1e-12, "atol": 1e-12})
+cases[-1]["expected"]["value"] = mean_absolute_error(cases[-1]["input"]["yTrue"], cases[-1]["input"]["yPred"])
+for name, yt, yp in [
+    ("binary", rng.integers(0, 2, 60), rng.integers(0, 2, 60)),
+    ("three classes", rng.integers(0, 3, 80), rng.integers(0, 3, 80)),
+    ("strings", rng.choice(["cat", "dog", "fox"], 50), rng.choice(["cat", "dog", "fox", "owl"], 50)),
+]:
+    averages = ["binary", "micro", "macro", "weighted", None] if name == "binary" else ["micro", "macro", "weighted", None]
+    for avg in averages:
+        out = {}
+        for fn, key in [(precision_score, "precision"), (recall_score, "recall"), (f1_score, "f1")]:
+            v = fn(yt, yp, average=avg, zero_division=0)
+            out[key] = tolist(v) if avg is None else float(v)
+        case(f"metrics: precision, recall, F1, {name}, average {avg}", "prf", {"yTrue": tolist(yt), "yPred": tolist(yp), "params": {"average": avg}}, out, {"rtol": 1e-12, "atol": 1e-12})
+    labels = sorted(set(yt.tolist()) | set(yp.tolist()))
+    case(f"metrics: confusion matrix, {name}", "confusion", {"yTrue": tolist(yt), "yPred": tolist(yp)},
+         {"matrix": tolist(confusion_matrix(yt, yp).astype(float)), "labels": labels}, {"rtol": 0, "atol": 0})
+# No predictions of a class: the zero-division value.
+case("metrics: precision with a class never predicted", "prf", {"yTrue": [0, 1, 2, 2], "yPred": [0, 0, 0, 2], "params": {"average": "macro"}},
+     {"precision": precision_score([0, 1, 2, 2], [0, 0, 0, 2], average="macro", zero_division=0),
+      "recall": recall_score([0, 1, 2, 2], [0, 0, 0, 2], average="macro", zero_division=0),
+      "f1": f1_score([0, 1, 2, 2], [0, 0, 0, 2], average="macro", zero_division=0)}, {"rtol": 1e-12, "atol": 1e-12})
+yb = rng.integers(0, 2, 70)
+sb = np.round(rng.normal(size=70) + yb, 1)  # rounded, so there are ties
+case("metrics: ROC AUC, binary with ties", "auc", {"yTrue": tolist(yb), "yScore": tolist(sb), "params": {}},
+     {"value": roc_auc_score(yb, sb)}, {"rtol": 1e-12, "atol": 1e-12})
+y3 = rng.integers(0, 3, 90)
+s3 = rng.dirichlet([1, 1, 1], size=90)
+for avg in ["macro", "weighted"]:
+    case(f"metrics: ROC AUC, three classes, one against the rest, {avg}", "auc", {"yTrue": tolist(y3), "yScore": tolist(s3), "params": {"multi_class": "ovr", "average": avg}},
+         {"value": roc_auc_score(y3, s3, multi_class="ovr", average=avg)}, {"rtol": 1e-12, "atol": 1e-12})
+
+# Folds -------------------------------------------------------------------------------------------------------------
+for n, k in [(10, 5), (11, 3), (7, 2), (100, 10)]:
+    folds = [tolist(test) for _, test in KFold(n_splits=k).split(np.zeros(n))]
+    case(f"folds: KFold, {n} rows in {k}", "kfold", {"n": n, "params": {"n_splits": k}}, {"tests": folds}, {"rtol": 0, "atol": 0})
+for n, k in [(30, 5), (31, 4)]:
+    ys = rng.choice(["a", "b", "c"], size=n, p=[0.5, 0.3, 0.2])
+    sizes = sorted(len(test) for _, test in StratifiedKFold(n_splits=k).split(np.zeros(n), ys))
+    case(f"folds: StratifiedKFold, {n} rows in {k}", "stratified", {"y": tolist(ys), "params": {"n_splits": k}}, {"testSizes": sizes}, {"rtol": 0, "atol": 0})
+
+# Cross-validation and grid search, on KFold's folds -----------------------------------------------------------------
+Xg, yg = regression_data(80, 6, 4)
+cv = KFold(n_splits=5)
+for scoring in [None, "neg_mean_squared_error", "neg_mean_absolute_error"]:
+    s = cross_val_score(make_pipeline(StandardScaler(), Ridge(alpha=2.0)), Xg, yg, cv=cv, scoring=scoring)
+    case(f"cross-validation: scaled ridge, {scoring or 'default (R2)'}", "cvscore", {"X": tolist(Xg), "y": tolist(yg), "params": {"scoring": scoring}, "model": "scaled-ridge"},
+         {"scores": tolist(s)}, {"rtol": 1e-9, "atol": 1e-9})
+Xc, yc = classification(150, 4, 3)
+for scoring in [None, "neg_log_loss", "f1_macro"]:
+    s = cross_val_score(LogisticRegression(tol=1e-10, max_iter=10000), Xc, yc, cv=cv, scoring=scoring)
+    case(f"cross-validation: logistic, {scoring or 'default (accuracy)'}", "cvscore", {"X": tolist(Xc), "y": tolist(yc), "params": {"scoring": scoring}, "model": "logistic"},
+         {"scores": tolist(s)}, {"rtol": 1e-5, "atol": 1e-6})
+ybin = (yc == 0).astype(int)
+s = cross_val_score(LogisticRegression(tol=1e-10, max_iter=10000), Xc, ybin, cv=cv, scoring="roc_auc")
+case("cross-validation: logistic, roc_auc", "cvscore", {"X": tolist(Xc), "y": tolist(ybin), "params": {"scoring": "roc_auc"}, "model": "logistic"},
+     {"scores": tolist(s)}, {"rtol": 1e-6, "atol": 1e-6})
+g = GridSearchCV(make_pipeline(StandardScaler(), Ridge()), {"ridge__alpha": [0.01, 1.0, 30.0, 300.0]}, cv=cv).fit(Xg, yg)
+case("grid search: scaled ridge over alpha", "grid", {"X": tolist(Xg), "y": tolist(yg), "params": {}, "model": "scaled-ridge", "grid": {"ridge__alpha": [0.01, 1.0, 30.0, 300.0]}},
+     {"params": g.cv_results_["params"], "mean": tolist(g.cv_results_["mean_test_score"]), "std": tolist(g.cv_results_["std_test_score"]),
+      "rank": tolist(g.cv_results_["rank_test_score"]), "best": g.best_params_}, {"rtol": 1e-9, "atol": 1e-9})
+grid = {"C": [0.01, 0.1, 1.0, 10.0], "fit_intercept": [True, False]}
+g = GridSearchCV(LogisticRegression(tol=1e-10, max_iter=10000), grid, cv=cv, scoring="f1_macro").fit(Xc, yc)
+case("grid search: logistic over C and fit_intercept, f1_macro", "grid", {"X": tolist(Xc), "y": tolist(yc), "params": {"scoring": "f1_macro"}, "model": "logistic", "grid": grid},
+     {"params": g.cv_results_["params"], "mean": tolist(g.cv_results_["mean_test_score"]), "std": tolist(g.cv_results_["std_test_score"]),
+      "rank": tolist(g.cv_results_["rank_test_score"]), "best": g.best_params_}, {"rtol": 1e-5, "atol": 1e-6})
+
 out = {
     "comment": "Written by compare/run.py (npm run compare); don't edit by hand.",
     "reference": {"scikit-learn": sklearn.__version__, "numpy": np.__version__},

@@ -32,6 +32,11 @@ Each of these fails with `ML_PARAM` or isn't a parameter yet:
 - `LogisticRegression`: L1 and elastic-net penalties (`l1Ratio` other than 0), solvers other than `lbfgs`,
   `class_weight`, `sample_weight`, `warm_start`.
 - `trainTestSplit`: `stratify`.
+- `StratifiedKFold`: the same guarantees as scikit-learn's, but its own allocation, so the folds can differ.
+- `crossValScore` and `GridSearchCV`: `groups`, `n_jobs`, `error_score`, `return_train_score`, several scorers at
+  once, and a `refit` that names a scorer.
+- `rocAucScore`: `'ovo'` and `max_fpr`. The classification metrics: `sample_weight`, and the warning on a zero
+  denominator.
 - `StandardScaler`: `partial_fit`, `sample_weight`.
 - `SimpleImputer`: text columns, `missing_values` other than `NaN`, `add_indicator`.
 - `OneHotEncoder` and `OrdinalEncoder`: categories given in advance (`categories`), infrequent categories

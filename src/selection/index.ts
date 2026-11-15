@@ -1,5 +1,6 @@
 /**
- * Model selection: splitting data to test a model on rows it didn't see. scikit-learn's `model_selection`.
+ * Model selection: splitting data to test a model on rows it didn't see, cross-validation, and grid search.
+ * scikit-learn's `model_selection`.
  * @module
  */
 import { fail } from '../core/errors.js';
@@ -72,3 +73,18 @@ function sizes(n: number, testSize: number | undefined, trainSize: number | unde
   if (nTrain === 0) fail('ML_PARAM', `with ${n} rows and these sizes, the training set would be empty`);
   return [nTrain, nTest];
 }
+
+export { KFold, StratifiedKFold, type Fold, type KFoldParams, type Splitter } from './folds.js';
+export {
+  GridSearchCV,
+  SCORER_NAMES,
+  cloneModel,
+  crossValScore,
+  parameterGrid,
+  type CrossValOptions,
+  type CvResults,
+  type GridSearchOptions,
+  type ParamGrid,
+  type Scorer,
+  type ScorerName,
+} from './search.js';

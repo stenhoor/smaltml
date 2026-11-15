@@ -95,3 +95,16 @@ function pair(yTrue: VectorInput, yPred: VectorInput): [Float64Array, Float64Arr
 function isFlat(v: unknown): v is ArrayLike<number> {
   return ArrayBuffer.isView(v) || (Array.isArray(v) && (v.length === 0 || typeof v[0] === 'number'));
 }
+
+export {
+  confusionMatrix,
+  f1Score,
+  meanAbsoluteError,
+  precisionScore,
+  recallScore,
+  rocAucScore,
+  type Average,
+  type ConfusionMatrixOptions,
+  type PrecisionRecallOptions,
+  type RocAucOptions,
+} from './classification.js';

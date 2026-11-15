@@ -23,8 +23,8 @@ uses:
 | `@smaltworks/smaltml/core` | `Matrix`, `SmaltmlError`, `Random`, the model and table types, `VERSION` |
 | `@smaltworks/smaltml/preprocessing` | `StandardScaler`, `MinMaxScaler`, `RobustScaler`, `SimpleImputer`, `OneHotEncoder`, `OrdinalEncoder` |
 | `@smaltworks/smaltml/linear` | `LinearRegression`, `Ridge`, `Lasso`, `ElasticNet`, `LogisticRegression` |
-| `@smaltworks/smaltml/metrics` | `meanSquaredError`, `r2Score`, `accuracyScore`, `logLoss` |
-| `@smaltworks/smaltml/selection` | `trainTestSplit` |
+| `@smaltworks/smaltml/metrics` | `meanSquaredError`, `meanAbsoluteError`, `r2Score`, `accuracyScore`, `precisionScore`, `recallScore`, `f1Score`, `rocAucScore`, `confusionMatrix`, `logLoss` |
+| `@smaltworks/smaltml/selection` | `trainTestSplit`, `KFold`, `StratifiedKFold`, `crossValScore`, `cloneModel`, `GridSearchCV` |
 | `@smaltworks/smaltml/pipeline` | `pipeline`, `Pipeline`, `ColumnTransformer` |
 | `@smaltworks/smaltml/io` | `saveModel`, `loadModel` |
 | `@smaltworks/smaltml/registry` | `predict`, `predictProba`, `ModelRegistry`, `MemoryStore`, `TableStore`, `useRegistry` |

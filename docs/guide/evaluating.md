@@ -1,5 +1,5 @@
 ---
-description: 'Measure how well a model does on rows it has not seen: trainTestSplit, then the metrics for regression and classification.'
+description: 'Measure how well a model does on rows it has not seen: test sets, metrics, cross-validation, and tuning parameters by grid search.'
 ---
 
 # Evaluating models
@@ -70,6 +70,85 @@ const loss = logLoss(split.yTest, await classifier.predictProba(split.XTest), { 
 confident wrong answer costs the most. Pass the model's `classes` as `labels` when the test rows may not hold every
 class.
 
+## Precision, recall and the confusion matrix
+
+Accuracy hides which mistakes a model makes. `confusionMatrix` counts true labels (rows) against predicted ones
+(columns); `precisionScore`, `recallScore` and `f1Score` measure a class at a time:
+
+```ts
+import { confusionMatrix, precisionScore, recallScore, f1Score } from '@smaltworks/smaltml';
+
+const truth = ['spam', 'ham', 'spam', 'ham', 'ham', 'spam', 'ham', 'ham'];
+const guess = ['spam', 'ham', 'ham', 'ham', 'spam', 'spam', 'ham', 'ham'];
+confusionMatrix(truth, guess)
+```
+
+| ham | spam |
+| --- | --- |
+| 4 | 1 |
+| 1 | 2 |
+
+```ts
+const spam = { posLabel: 'spam' };
+({ precision: precisionScore(truth, guess, spam), recall: recallScore(truth, guess, spam), f1: f1Score(truth, guess, spam) })
+```
+
+| precision | recall | f1 |
+| --- | --- | --- |
+| 0.666667 | 0.666667 | 0.666667 |
+
+With more than two classes, `average` combines them: `'macro'` (each class alike), `'weighted'` (by each class's
+rows) or `'micro'` (every row alike). `rocAucScore` scores probabilities rather than labels.
+
+## Cross-validation
+
+One test set is one sample. `crossValScore` fits a fresh copy of the model on each of k folds' training rows, and
+scores it on the fold's test rows: k scores, from every row taking a turn in a test set.
+
+```ts
+import { crossValScore, KFold } from '@smaltworks/smaltml';
+
+const scores = await crossValScore(new LinearRegression(), X, rent, { cv: new KFold({ nSplits: 5 }) });
+({ scores, mean: scores.reduce((a, b) => a + b, 0) / scores.length })
+```
+
+| scores | mean |
+| --- | --- |
+| [0.930761, 0.9389, 0.938561, 0.966219, 0.770818] | 0.909052 |
+
+The default is 5 folds, kept in proportion by class (`StratifiedKFold`) for a classifier, and the model's usual score:
+accuracy for a classifier, R² otherwise. `scoring` names another, as scikit-learn names them (`'f1_macro'`,
+`'neg_mean_squared_error'` …).
+
+## Tuning with a grid search
+
+`GridSearchCV` cross-validates every combination of the parameters you list, keeps the best, and fits it on all the
+rows. Name a pipeline step's parameter as `step__parameter`:
+
+```ts
+import { GridSearchCV, Ridge, StandardScaler, pipeline } from '@smaltworks/smaltml';
+
+const search = await new GridSearchCV(
+  pipeline(new StandardScaler(), new Ridge()),
+  { ridge__alpha: [0.1, 1, 10, 100] },
+  { cv: new KFold({ nSplits: 4 }) },
+).fit(X, rent);
+({ best: search.bestParams, score: search.bestScore })
+```
+
+| best | score |
+| --- | --- |
+| \{"ridge__alpha":0.1\} | 0.933863 |
+
+```ts
+await search.predict([[75, 3]])
+```
+
+| value |
+| --- |
+| 1646.8 |
+
 ## See also
 
-- [`trainTestSplit`](../reference/selection/train-test-split), [Metrics](../reference/metrics/)
+- [`trainTestSplit`](../reference/selection/train-test-split), [`crossValScore`](../reference/selection/cross-val-score),
+  [`GridSearchCV`](../reference/selection/grid-search-cv), [Metrics](../reference/metrics/)

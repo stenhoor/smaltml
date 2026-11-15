@@ -12,7 +12,7 @@ const ALLOWED: Record<string, string[]> = {
   preprocessing: ['core', 'preprocessing'],
   linear: ['core', 'linear', 'gpu'],
   metrics: ['core', 'metrics'],
-  selection: ['core', 'selection'],
+  selection: ['core', 'selection', 'io', 'metrics', 'preprocessing', 'linear', 'pipeline', 'gpu'],
   pipeline: ['core', 'pipeline'],
   io: ['core', 'io', 'preprocessing', 'linear', 'pipeline', 'gpu'],
   gpu: ['core', 'gpu'],

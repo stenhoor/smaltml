@@ -2,6 +2,16 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import {
   ColumnTransformer,
+  GridSearchCV,
+  KFold,
+  StratifiedKFold,
+  confusionMatrix,
+  crossValScore,
+  f1Score,
+  meanAbsoluteError,
+  precisionScore,
+  recallScore,
+  rocAucScore,
   ElasticNet,
   Lasso,
   Ridge,
@@ -54,7 +64,8 @@ function nan(v: any): any {
 /** Python's snake_case parameters in smaltml's camelCase (ADR 0024, section 2). */
 function camel(params: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(
-    Object.entries(params).map(([k, v]) => [k.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()), v === 'Infinity' ? Infinity : v]),
+    // Each part of a step__param name on its own: ridge__alpha stays ridge__alpha, fit_intercept becomes fitIntercept.
+    Object.entries(params).map(([k, v]) => [k.split('__').map((part) => part.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase())).join('__'), v === 'Infinity' ? Infinity : v]),
   );
 }
 
@@ -81,7 +92,7 @@ function rowsOf(m: Matrix): number[] {
 }
 
 describe(`compared with scikit-learn ${fixture.reference['scikit-learn']}`, () => {
-  test.each(fixture.cases.map((c) => [c.name, c] as const))('%s', (_name, c) => {
+  test.each(fixture.cases.map((c) => [c.name, c] as const))('%s', async (_name, c) => {
     const { input: inp, expected: exp, tol } = c;
     const fails = DIVERGES[c.name];
     const run = () => check(c, inp, exp, tol);
@@ -89,11 +100,11 @@ describe(`compared with scikit-learn ${fixture.reference['scikit-learn']}`, () =
       expect(run).toThrow(expect.objectContaining({ code: fails }));
       return;
     }
-    run();
+    await run();
   });
 });
 
-function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol: Case['tol']): void {
+function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol: Case['tol']): void | Promise<void> {
   switch (c.kind) {
     case 'StandardScaler': {
       const X = nan(inp.X) as number[][];
@@ -156,6 +167,36 @@ function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol:
       if (exp.zero) expect(Array.from(m.coef, (v) => v === 0), 'which coefficients are 0').toEqual(exp.zero);
       return;
     }
+    case 'mae':
+      close(meanAbsoluteError(inp.yTrue, inp.yPred), exp.value, tol, 'meanAbsoluteError');
+      return;
+    case 'prf': {
+      const o = { average: inp.params.average as never, zeroDivision: 0 };
+      close(precisionScore(inp.yTrue, inp.yPred, o) as never, exp.precision, tol, 'precision');
+      close(recallScore(inp.yTrue, inp.yPred, o) as never, exp.recall, tol, 'recall');
+      close(f1Score(inp.yTrue, inp.yPred, o) as never, exp.f1, tol, 'f1');
+      return;
+    }
+    case 'confusion': {
+      const m = confusionMatrix(inp.yTrue, inp.yPred);
+      expect(m.names).toEqual(exp.labels.map(String));
+      close(rowsOf(m), exp.matrix, tol, 'confusion matrix');
+      return;
+    }
+    case 'auc':
+      close(rocAucScore(inp.yTrue, inp.yScore, camel(inp.params) as never), exp.value, tol, 'rocAucScore');
+      return;
+    case 'kfold':
+      expect(new KFold(camel(inp.params) as never).split(inp.n).map((f) => Array.from(f.test))).toEqual(exp.tests);
+      return;
+    case 'stratified': {
+      const folds = new StratifiedKFold(camel(inp.params) as never).split(inp.y.length, inp.y);
+      expect(folds.map((f) => f.test.length).sort((a, b) => a - b)).toEqual(exp.testSizes);
+      return;
+    }
+    case 'cvscore':
+    case 'grid':
+      return checkSearch(c, inp, exp, tol);
     case 'MinMaxScaler': {
       const s = new MinMaxScaler(camel(inp.params) as never).fitSync(nan(inp.X));
       close(s.dataMin, exp.dataMin, tol, 'dataMin');
@@ -213,4 +254,27 @@ function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol:
     default:
       throw new Error(`no check for ${c.kind}`);
   }
+}
+
+/** The models the cross-validation cases use, by name. */
+function searchModel(name: string) {
+  if (name === 'scaled-ridge') return pipeline(new StandardScaler(), new Ridge({ alpha: 2 }));
+  return new LogisticRegression({ tol: 1e-10, maxIter: 10000 });
+}
+
+async function checkSearch(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol: Case['tol']): Promise<void> {
+  const cv = new KFold({ nSplits: 5 });
+  const scoring = inp.params.scoring ?? undefined;
+  if (c.kind === 'cvscore') {
+    close(await crossValScore(searchModel(inp.model), inp.X, inp.y, { cv, scoring }), exp.scores, tol, 'scores');
+    return;
+  }
+  const grid = camel(inp.grid) as Record<string, unknown[]>;
+  const g = await new GridSearchCV(searchModel(inp.model), grid, { cv, scoring }).fit(inp.X, inp.y);
+  const camelParams = (exp.params as Record<string, unknown>[]).map((p) => camel(p));
+  expect(g.cvResults.params).toEqual(camelParams);
+  close(g.cvResults.meanTestScore, exp.mean, tol, 'mean test score');
+  close(g.cvResults.stdTestScore, exp.std, { rtol: tol.rtol * 100, atol: tol.atol * 100 }, 'std test score');
+  expect(Array.from(g.cvResults.rankTestScore)).toEqual(exp.rank);
+  expect(g.bestParams).toEqual(camel(exp.best));
 }

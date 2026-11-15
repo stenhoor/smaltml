@@ -126,7 +126,17 @@ export default defineConfig({
               { text: 'LogisticRegression', link: '/reference/linear/logistic-regression' },
             ],
           },
-          { text: 'Model selection', collapsed: false, items: [{ text: 'trainTestSplit', link: '/reference/selection/train-test-split' }] },
+          {
+            text: 'Model selection',
+            collapsed: false,
+            items: [
+              { text: 'trainTestSplit', link: '/reference/selection/train-test-split' },
+              { text: 'KFold', link: '/reference/selection/k-fold' },
+              { text: 'StratifiedKFold', link: '/reference/selection/stratified-k-fold' },
+              { text: 'crossValScore', link: '/reference/selection/cross-val-score' },
+              { text: 'GridSearchCV', link: '/reference/selection/grid-search-cv' },
+            ],
+          },
           {
             text: 'Pipelines',
             collapsed: false,
@@ -141,8 +151,14 @@ export default defineConfig({
             link: '/reference/metrics/',
             items: [
               { text: 'meanSquaredError', link: '/reference/metrics/mean-squared-error' },
+              { text: 'meanAbsoluteError', link: '/reference/metrics/mean-absolute-error' },
               { text: 'r2Score', link: '/reference/metrics/r2-score' },
               { text: 'accuracyScore', link: '/reference/metrics/accuracy-score' },
+              { text: 'precisionScore', link: '/reference/metrics/precision-score' },
+              { text: 'recallScore', link: '/reference/metrics/recall-score' },
+              { text: 'f1Score', link: '/reference/metrics/f1-score' },
+              { text: 'rocAucScore', link: '/reference/metrics/roc-auc-score' },
+              { text: 'confusionMatrix', link: '/reference/metrics/confusion-matrix' },
               { text: 'logLoss', link: '/reference/metrics/log-loss' },
             ],
           },

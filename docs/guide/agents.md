@@ -52,6 +52,8 @@ try {
   a Web Worker and returns ordinary fitted models.
 - **Models by name:** `registry.save('churn', model)` keeps a version; `predict('churn', X, { registry })` predicts with
   the latest (`version` picks one). `new ModelRegistry(new TableStore(db))` keeps them in a smaltdb table.
+- **Tuning:** `new GridSearchCV(pipeline(new StandardScaler(), new Ridge()), { ridge__alpha: [0.1, 1, 10] }).fit(X, y)`,
+  then `bestParams`, `bestScore`, `predict`. `crossValScore(model, X, y, { cv: 5, scoring: 'f1_macro' })` scores folds.
 - **Errors are `SmaltmlError`s with a `code`:** `ML_SHAPE`, `ML_VALUE`, `ML_PARAM`, `ML_NOT_FITTED`, `ML_SINGULAR`,
   `ML_FORMAT`, `ML_LABELS` ([Errors](../reference/errors)).
 - **What isn't supported fails with an error, never a wrong answer.** [Where smaltml

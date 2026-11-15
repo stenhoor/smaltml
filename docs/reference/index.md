@@ -32,8 +32,12 @@ From `@smaltworks/smaltml/preprocessing`:
 
 ## Model selection
 
+From `@smaltworks/smaltml/selection`:
+
 - [`trainTestSplit`](./selection/train-test-split): splits rows into a training set and a test set.
-  `@smaltworks/smaltml/selection`
+- [`KFold`](./selection/k-fold), [`StratifiedKFold`](./selection/stratified-k-fold): folds for cross-validation.
+- [`crossValScore`](./selection/cross-val-score): a score per fold.
+- [`GridSearchCV`](./selection/grid-search-cv): the best of a grid of parameters, by cross-validation.
 
 ## Pipelines
 
@@ -45,8 +49,11 @@ From `@smaltworks/smaltml/preprocessing`:
 
 [Metrics](./metrics/), from `@smaltworks/smaltml/metrics`:
 
-- [`meanSquaredError`](./metrics/mean-squared-error), [`r2Score`](./metrics/r2-score) for regression
-- [`accuracyScore`](./metrics/accuracy-score), [`logLoss`](./metrics/log-loss) for classification
+- [`meanSquaredError`](./metrics/mean-squared-error), [`meanAbsoluteError`](./metrics/mean-absolute-error),
+  [`r2Score`](./metrics/r2-score) for regression
+- [`accuracyScore`](./metrics/accuracy-score), [`precisionScore`](./metrics/precision-score),
+  [`recallScore`](./metrics/recall-score), [`f1Score`](./metrics/f1-score), [`rocAucScore`](./metrics/roc-auc-score),
+  [`confusionMatrix`](./metrics/confusion-matrix), [`logLoss`](./metrics/log-loss) for classification
 
 ## Saving and loading
 

@@ -28,6 +28,14 @@ const LOADERS: Record<string, (doc: ModelDocument) => Model> = {
   ColumnTransformer: (d) => ColumnTransformer.fromJSON(d, loadDocument),
 };
 
+/**
+ * Teaches loadModel() a model class from outside this module (GridSearchCV registers itself when
+ * `@smaltworks/smaltml/selection` loads, as io can't import selection without a cycle).
+ */
+export function registerLoader(kind: string, load: (doc: ModelDocument) => Model): void {
+  LOADERS[kind] = load;
+}
+
 /** The model as JSON text: its parameters and, once fitted, what it learned. */
 export function saveModel(model: Model): string {
   return JSON.stringify(model.toJSON());
@@ -49,6 +57,6 @@ export function loadModel(json: string | ModelDocument): Model {
 function loadDocument(doc: ModelDocument): Model {
   const d = checkDocument(doc);
   const load = LOADERS[d.model];
-  if (!load) fail('ML_FORMAT', `this smaltml can't load a ${d.model} model`);
+  if (!load) fail('ML_FORMAT', `this smaltml can't load a ${d.model} model${d.model === 'GridSearchCV' ? ': import @smaltworks/smaltml/selection first' : ''}`);
   return load(d);
 }

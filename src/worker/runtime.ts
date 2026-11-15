@@ -37,7 +37,7 @@ async function handle(req: Request, transfer: Transferable[]): Promise<Result> {
   const options = req.device ? { device: req.device } : {};
   switch (req.op) {
     case 'fit':
-      await (model as unknown as { fit(X: unknown, y?: unknown): Promise<unknown> }).fit(X, req.y);
+      await (model as unknown as { fit(X: unknown, y?: unknown, o?: object): Promise<unknown> }).fit(X, req.y, req.sampleWeight ? { sampleWeight: req.sampleWeight } : {});
       return { kind: 'model', model: model.toJSON() };
     case 'predict': {
       if (!isPredictor(model)) throw new SmaltmlError('ML_PARAM', `${model.kind} doesn't predict`);

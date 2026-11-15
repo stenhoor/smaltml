@@ -8,7 +8,8 @@ description: 'Ridge: linear regression with an L2 penalty, solved in closed form
 ```ts
 class Ridge implements Predictor {
   constructor(params?: { alpha?: number; fitIntercept?: boolean });
-  fit(X: MatrixInput, y: ArrayLike<number>, options?: { threads?: number | 'auto' }): Promise<this>;
+  fit(X: MatrixInput, y: ArrayLike<number>, options?: { threads?: number | 'auto'; sampleWeight?: ArrayLike<number> }): Promise<this>;
+  fitSync(X: MatrixInput, y: ArrayLike<number>, options?: { sampleWeight?: ArrayLike<number> }): this;
   predict(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Float64Array>;
   readonly coef: Float64Array;
   readonly intercept: number;
@@ -24,6 +25,10 @@ Linear regression with an L2 penalty: minimizes `‖y − X·w − b‖² + alph
 
 - `alpha` (default `1`): the penalty's strength. `0` is ordinary least squares.
 - `fitIntercept` (default `true`): fit an intercept, which is never penalized.
+
+`fit` and `fitSync` take `sampleWeight`: one weight per row, 0 or more, as scikit-learn's `sample_weight`. A row's
+squared error counts that many times, so whole-number weights fit as the rows repeated would. The penalty isn't weighted: it is `alpha·‖w‖²` whatever the weights add up to, as in
+scikit-learn.
 
 ## Returns
 

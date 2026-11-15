@@ -2,6 +2,7 @@ import { fail } from '../core/errors.js';
 import { checkedMeans, cholesky, choleskySolve, xw } from '../core/kernels.js';
 import { threadPool, type ThreadOptions } from '../parallel/index.js';
 import { keptMeans, runHere, runOn, type Solver } from './calls.js';
+import { checkedWeights, weightedLeastSquares, type SampleWeightOptions } from './weights.js';
 import { leastSquares } from '../core/linalg.js';
 import { assertFinite, assertFiniteVector, Matrix, toVector, type MatrixInput, type VectorInput } from '../core/matrix.js';
 import { matMul, predictOnGpu, type DeviceOptions } from '../gpu/index.js';
@@ -61,26 +62,38 @@ export class LinearRegression implements Predictor {
 
   /**
    * Fits the model. With `threads` (default `'auto'`), the heavy products run on several cores where shared memory
-   * allows and X is large enough, with the same result as fitSync() to the last bit.
+   * allows and X is large enough, with the same result as fitSync() to the last bit. With `sampleWeight`, each row's
+   * squared error counts that many times.
    */
-  async fit(X: MatrixInput, y: VectorInput, options: ThreadOptions = {}): Promise<this> {
+  async fit(X: MatrixInput, y: VectorInput, options: ThreadOptions & SampleWeightOptions = {}): Promise<this> {
     const m = Matrix.from(X);
     const pool = await threadPool(options.threads, m.rows * m.cols);
-    if (!pool) return this.fitSync(m, y);
-    const job = this.#prepare(m, y);
-    const coef = job.p === 0 ? new Float64Array(0) : ((await runOn(pool, seminormal(m, job.xMean, job.b))) ?? householder(m, job.xMean, job.b));
+    if (!pool) return this.fitSync(m, y, options);
+    const job = this.#prepare(m, y, options.sampleWeight);
+    const coef = job.p === 0 ? new Float64Array(0) : ((await runOn(pool, seminormal(job.design, job.kernelMean, job.b))) ?? householder(job.design, job.kernelMean, job.b));
     return this.#finish(job, coef);
   }
 
-  fitSync(X: MatrixInput, y: VectorInput): this {
+  fitSync(X: MatrixInput, y: VectorInput, options: SampleWeightOptions = {}): this {
     const m = Matrix.from(X);
-    const job = this.#prepare(m, y);
-    const coef = job.p === 0 ? new Float64Array(0) : (runHere(seminormal(m, job.xMean, job.b)) ?? householder(m, job.xMean, job.b));
+    const job = this.#prepare(m, y, options.sampleWeight);
+    const coef = job.p === 0 ? new Float64Array(0) : (runHere(seminormal(job.design, job.kernelMean, job.b)) ?? householder(job.design, job.kernelMean, job.b));
     return this.#finish(job, coef);
   }
 
-  #prepare(m: Matrix, y: VectorInput) {
+  /**
+   * The design the solvers read (X, or its weighted copy), the means the kernels subtract from it, and the means the
+   * intercept comes from.
+   */
+  #prepare(m: Matrix, y: VectorInput, sampleWeight: VectorInput | undefined) {
     if (m.rows === 0) fail('ML_SHAPE', 'X has no rows');
+    const weights = checkedWeights(sampleWeight, m.rows);
+    if (weights) {
+      const target = toVector(y, m.rows);
+      assertFiniteVector(target);
+      const wd = weightedLeastSquares(m, target, weights, this.fitIntercept);
+      return { m, p: m.cols, design: wd.X, kernelMean: undefined, xMean: wd.xMean, yMean: wd.yMean, b: wd.y };
+    }
     // With an intercept, the column means check X on the way; without one, check it here.
     if (!this.fitIntercept) assertFinite(m);
     const target = toVector(y, m.rows);
@@ -97,7 +110,7 @@ export class LinearRegression implements Predictor {
       yMean /= n;
       b = target.map((v) => v - yMean);
     }
-    return { m, p, xMean, yMean, b };
+    return { m, p, design: m, kernelMean: xMean, xMean, yMean, b };
   }
 
   #finish(job: { m: Matrix; p: number; xMean: Float64Array | undefined; yMean: number }, coef: Float64Array): this {

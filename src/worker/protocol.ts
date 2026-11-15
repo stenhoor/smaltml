@@ -26,6 +26,8 @@ export interface Request {
   /** X as numbers, or, when it holds text, as named columns. */
   X: WireMatrix | { table: Record<string, Float64Array | (string | null)[]> };
   y?: Labels;
+  /** fit's per-row weights. */
+  sampleWeight?: number[];
   device?: 'auto' | 'cpu' | 'gpu';
 }
 

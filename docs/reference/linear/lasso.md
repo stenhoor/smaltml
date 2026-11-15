@@ -8,7 +8,8 @@ description: 'Lasso: linear regression with an L1 penalty, which sets some coeff
 ```ts
 class Lasso implements Predictor {
   constructor(params?: { alpha?: number; fitIntercept?: boolean; maxIter?: number; tol?: number });
-  fit(X: MatrixInput, y: ArrayLike<number>, options?: { threads?: number | 'auto' }): Promise<this>;
+  fit(X: MatrixInput, y: ArrayLike<number>, options?: { threads?: number | 'auto'; sampleWeight?: ArrayLike<number> }): Promise<this>;
+  fitSync(X: MatrixInput, y: ArrayLike<number>, options?: { sampleWeight?: ArrayLike<number> }): this;
   predict(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Float64Array>;
   readonly coef: Float64Array;
   readonly intercept: number;
@@ -27,6 +28,10 @@ useful coefficients to exactly 0. scikit-learn's
 - `fitIntercept` (default `true`): fit an intercept, which is never penalized.
 - `maxIter` (default `1000`): the most passes over the coefficients.
 - `tol` (default `1e-4`): the stopping tolerance (Notes).
+
+`fit` and `fitSync` take `sampleWeight`: one weight per row, 0 or more, as scikit-learn's `sample_weight`. A row's
+squared error counts that many times, so whole-number weights fit as the rows repeated would. As in scikit-learn, the weights are first scaled to add up to the number of rows, so they
+change which rows matter, not the penalty's strength.
 
 ## Returns
 

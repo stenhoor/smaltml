@@ -116,7 +116,7 @@ function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol:
       return;
     }
     case 'LinearRegression': {
-      const m = new LinearRegression(camel(inp.params)).fitSync(inp.X, inp.y);
+      const m = new LinearRegression(camel(inp.params)).fitSync(inp.X, inp.y, inp.sampleWeight ? { sampleWeight: inp.sampleWeight } : {});
       close(m.coef, exp.coef, tol, 'coef');
       close(m.intercept, exp.intercept, tol, 'intercept');
       close(m.predictSync(inp.Xnew), exp.predict, tol, 'predict');
@@ -160,7 +160,7 @@ function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol:
     case 'Lasso':
     case 'ElasticNet': {
       const make = { Ridge: (p: object) => new Ridge(p), Lasso: (p: object) => new Lasso(p), ElasticNet: (p: object) => new ElasticNet(p) }[c.kind]!;
-      const m = make(camel(inp.params)).fitSync(inp.X, inp.y);
+      const m = make(camel(inp.params)).fitSync(inp.X, inp.y, inp.sampleWeight ? { sampleWeight: inp.sampleWeight } : {});
       close(m.coef, exp.coef, tol, 'coef');
       close(m.intercept, exp.intercept, tol, 'intercept');
       close(m.predictSync(inp.Xnew), exp.predict, tol, 'predict');
@@ -258,7 +258,7 @@ function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol:
       const make = { LogisticRegression: (p: object) => new LogisticRegression(p), Lasso: (p: object) => new Lasso(p), ElasticNet: (p: object) => new ElasticNet(p) }[inp.model as string]!;
       const warned = vi.spyOn(console, 'warn').mockImplementation(() => {});
       try {
-        const m = make(camel(inp.params)).fitSync(inp.X, inp.y);
+        const m = make(camel(inp.params)).fitSync(inp.X, inp.y, inp.sampleWeight ? { sampleWeight: inp.sampleWeight } : {});
         expect(m.converged, 'converged').toBe(exp.converged);
         expect(m.nIter, 'nIter').toBe(exp.nIter);
         const ours = warned.mock.calls.filter(([msg]) => String(msg).startsWith('smaltml ML_CONVERGENCE:'));

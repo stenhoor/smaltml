@@ -39,6 +39,13 @@ export interface LogisticRegressionParams {
   solver?: 'lbfgs' | 'newton-cholesky';
 }
 
+/** Weights aren't supported yet: fail rather than fit without them. */
+function noWeights(options: object): void {
+  if ((options as { sampleWeight?: unknown }).sampleWeight !== undefined) {
+    fail('ML_PARAM', "LogisticRegression doesn't take sampleWeight yet: leave it out");
+  }
+}
+
 const SOLVERS = ['lbfgs', 'newton-cholesky'] as const;
 
 /** Where a fit runs: `'gpu'` asks for the GPU; `'auto'` (the default) and `'cpu'` fit on the CPU. */
@@ -211,6 +218,7 @@ export class LogisticRegression implements Classifier {
    * instead, in 32-bit floats; `'auto'` (the default) keeps fits on the CPU.
    */
   async fit(X: MatrixInput, y: Labels, options: ThreadOptions & FitDeviceOptions = {}): Promise<this> {
+    noWeights(options);
     const m = Matrix.from(X);
     if (this.solver === 'newton-cholesky') {
       if (options.device === 'gpu') fail('ML_PARAM', "solver 'newton-cholesky' runs on the CPU: use solver 'lbfgs' on the GPU");
@@ -258,7 +266,8 @@ export class LogisticRegression implements Classifier {
     return this.#finish(job, await minimizeAsync(objective, job.x0, job.options));
   }
 
-  fitSync(X: MatrixInput, y: Labels): this {
+  fitSync(X: MatrixInput, y: Labels, options: object = {}): this {
+    noWeights(options);
     const m = Matrix.from(X);
     const job = this.#prepare(m, y);
     const { target, k, l2 } = job;

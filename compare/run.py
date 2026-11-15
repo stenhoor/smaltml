@@ -363,6 +363,28 @@ for name, model, params, X, y in [
     case(name, "convergence", {"model": model, "X": tolist(X), "y": tolist(y), "params": params},
          {"converged": converged, "nIter": int(np.max(m.n_iter_))}, {"rtol": 0, "atol": 0})
 
+# Sample weights (appended, so the cases above keep their data) ---------------------------------------------------
+Xw, yw = regression_data(150, 6, 4)
+Xwn = features(10, 6, rng.uniform(0.5, 20, 6), rng.uniform(-10, 10, 6))
+sw = rng.uniform(0.0, 3.0, size=150)
+sw[:10] = 0.0  # rows that don't count at all
+sw_int = rng.integers(1, 4, size=150).astype(float)  # whole numbers: the same as repeating rows
+for name, kind, cls, params, weights, tol in [
+    ("linear: sample weights", "LinearRegression", LinearRegression, {}, sw, {"rtol": 1e-9, "atol": 1e-9}),
+    ("linear: sample weights, no intercept", "LinearRegression", LinearRegression, {"fit_intercept": False}, sw, {"rtol": 1e-9, "atol": 1e-9}),
+    ("linear: whole-number sample weights", "LinearRegression", LinearRegression, {}, sw_int, {"rtol": 1e-9, "atol": 1e-9}),
+    ("ridge: sample weights", "Ridge", Ridge, {"alpha": 3.0}, sw, {"rtol": 1e-9, "atol": 1e-9}),
+    ("ridge: sample weights, no intercept", "Ridge", Ridge, {"alpha": 3.0, "fit_intercept": False}, sw, {"rtol": 1e-9, "atol": 1e-9}),
+    ("lasso: sample weights", "Lasso", Lasso, {"alpha": 0.2, "tol": 1e-12, "max_iter": 100000}, sw, {"rtol": 1e-7, "atol": 1e-7}),
+    ("lasso: sample weights, no intercept", "Lasso", Lasso, {"alpha": 0.2, "fit_intercept": False, "tol": 1e-12, "max_iter": 100000}, sw, {"rtol": 1e-7, "atol": 1e-7}),
+    ("elasticnet: sample weights", "ElasticNet", ElasticNet, {"alpha": 0.3, "l1_ratio": 0.4, "tol": 1e-12, "max_iter": 100000}, sw, {"rtol": 1e-7, "atol": 1e-7}),
+]:
+    m = cls(**params).fit(Xw, yw, sample_weight=weights)
+    expected = {"coef": tolist(m.coef_), "intercept": float(m.intercept_), "predict": tolist(m.predict(Xwn))}
+    if kind in ("Lasso", "ElasticNet"):
+        expected["zero"] = [bool(v == 0) for v in m.coef_]
+    case(name, kind, {"X": tolist(Xw), "y": tolist(yw), "Xnew": tolist(Xwn), "params": params, "sampleWeight": tolist(weights)}, expected, tol)
+
 out = {
     "comment": "Written by compare/run.py (npm run compare); don't edit by hand.",
     "reference": {"scikit-learn": sklearn.__version__, "numpy": np.__version__},

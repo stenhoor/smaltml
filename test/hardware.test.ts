@@ -4,6 +4,7 @@ import {
   ColumnTransformer,
   LinearRegression,
   OneHotEncoder,
+  Ridge,
   LogisticRegression,
   Matrix,
   SmaltmlError,
@@ -80,6 +81,18 @@ describe('the worker protocol', () => {
       expect(fitted.coef.data).toEqual(local.coef.data);
       expect(await ml.predict(fitted, X)).toEqual(local.predictSync(X));
       expect((await ml.predictProba(fitted, X)).data).toEqual(local.predictProbaSync(X).data);
+    } finally {
+      close();
+    }
+  });
+
+  test('a weighted fit in the worker equals a local one, bit for bit', async () => {
+    const { ml, close } = setup();
+    try {
+      const y = [1, 2, 3, 4, 5, 6, 7, 9];
+      const sampleWeight = [1, 0, 2, 1, 3, 1, 0.5, 2];
+      const fitted = await ml.fit(new Ridge({ alpha: 0.5 }), X, y, { sampleWeight });
+      expect(Array.from(fitted.coef)).toEqual(Array.from(new Ridge({ alpha: 0.5 }).fitSync(X, y, { sampleWeight }).coef));
     } finally {
       close();
     }

@@ -10,7 +10,8 @@ function pipeline(...steps: Step[]): Pipeline;
 type Step = Model | readonly [name: string, model: Model];
 class Pipeline implements Model {
   constructor(steps: readonly Step[]);
-  fit(X: MatrixInput, y?: Labels, options?: { threads?: number | 'auto' }): Promise<this>; // threads reach the last step
+  fit(X: MatrixInput, y?: Labels, options?: { threads?: number | 'auto'; sampleWeight?: ArrayLike<number> }): Promise<this>; // the options reach the last step
+  fitSync(X: MatrixInput, y?: Labels, options?: { sampleWeight?: ArrayLike<number> }): this;
   predict(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Float64Array | Label[]>;
   predictProba(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Matrix>;
   transform(X: MatrixInput): Promise<Matrix>;

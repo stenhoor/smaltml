@@ -315,3 +315,49 @@ describe('fits that stop before they converge', () => {
     expect(w).toHaveLength(0);
   });
 });
+
+describe('sampleWeight on the least-squares models', () => {
+  const r = new Random(9);
+  const rows = Array.from({ length: 60 }, () => [r.next() * 4, r.next() - 0.5, r.next() * 2 + 1]);
+  const y = rows.map((x) => 2 * x[0]! - 3 * x[1]! + 0.5 * x[2]! + 1 + 0.2 * (r.next() - 0.5));
+  const counts = rows.map((_, i) => 1 + (i % 3));
+  // The same rows, each repeated as many times as its weight.
+  const repeatedX = rows.flatMap((x, i) => Array.from({ length: counts[i]! }, () => x));
+  const repeatedY = y.flatMap((v, i) => Array.from({ length: counts[i]! }, () => v));
+  const models = [
+    ['LinearRegression', () => new LinearRegression()],
+    ['Ridge', () => new Ridge({ alpha: 2 })],
+    ['Lasso', () => new Lasso({ alpha: 0.05, tol: 1e-12, maxIter: 100000 })],
+    ['ElasticNet', () => new ElasticNet({ alpha: 0.05, l1Ratio: 0.3, tol: 1e-12, maxIter: 100000 })],
+  ] as const;
+
+  test.each(models)('%s: whole-number weights equal repeating the rows', (_, make) => {
+    const weighted = make().fitSync(rows, y, { sampleWeight: counts });
+    const repeated = make().fitSync(repeatedX, repeatedY);
+    weighted.coef.forEach((v, j) => expect(v).toBeCloseTo(repeated.coef[j]!, 8));
+    expect(weighted.intercept).toBeCloseTo(repeated.intercept, 8);
+  });
+
+  test.each(models)('%s: equal weights fit as no weights do', (_, make) => {
+    const weighted = make().fitSync(rows, y, { sampleWeight: rows.map(() => 1) });
+    const plain = make().fitSync(rows, y);
+    weighted.coef.forEach((v, j) => expect(v).toBeCloseTo(plain.coef[j]!, 10));
+  });
+
+  test('weights that are wrong fail', () => {
+    const fit = (w: unknown) => () => new LinearRegression().fitSync(rows, y, { sampleWeight: w as number[] });
+    expect(fit([1, 2])).toThrow(expect.objectContaining({ code: 'ML_SHAPE' }));
+    expect(fit(rows.map((_, i) => (i === 3 ? -1 : 1)))).toThrow(expect.objectContaining({ code: 'ML_VALUE' }));
+    expect(fit(rows.map((_, i) => (i === 3 ? NaN : 1)))).toThrow(expect.objectContaining({ code: 'ML_VALUE' }));
+    expect(fit(rows.map(() => 0))).toThrow(expect.objectContaining({ code: 'ML_VALUE' }));
+  });
+
+  test("a pipeline passes them to its last step, and fails where that step doesn't take them", async () => {
+    const p = pipeline(new StandardScaler(), new Ridge()).fitSync(rows, y, { sampleWeight: counts });
+    const scaled = new StandardScaler().fitSync(rows).transformSync(rows);
+    expect(Array.from((p.last as Ridge).coef)).toEqual(Array.from(new Ridge().fitSync(scaled, y, { sampleWeight: counts }).coef));
+    const labels = y.map((v) => (v > 3 ? 'high' : 'low'));
+    expect(() => pipeline(new StandardScaler(), new LogisticRegression()).fitSync(rows, labels, { sampleWeight: counts })).toThrow(expect.objectContaining({ code: 'ML_PARAM' }));
+    await expect(new LogisticRegression().fit(rows, labels, { sampleWeight: counts } as object)).rejects.toMatchObject({ code: 'ML_PARAM' });
+  });
+});

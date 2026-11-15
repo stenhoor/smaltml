@@ -18,6 +18,15 @@ import {
   type Transformer,
 } from '../core/model.js';
 
+/** The models whose fit takes `sampleWeight`; a pipeline given weights fails for any other last step. */
+const WEIGHTED = new Set(['LinearRegression', 'Ridge', 'Lasso', 'ElasticNet']);
+
+function checkWeighted(last: Model, options: { sampleWeight?: unknown }): void {
+  if (options.sampleWeight !== undefined && !WEIGHTED.has(last.kind)) {
+    fail('ML_PARAM', `sampleWeight isn't supported by ${last.kind} yet: leave it out, or end the pipeline with a model that takes it`);
+  }
+}
+
 /** A step: a model, named after its class unless you name it (`['scale', new StandardScaler()]`). */
 export type Step = Model | readonly [string, Model];
 
@@ -70,8 +79,12 @@ export class Pipeline implements Model {
     return Object.fromEntries(this.steps.map(([n, m]) => [n, m.getParams()]));
   }
 
-  /** Fits each step; the last step's own fit() gets `threads`, so a heavy model at the end runs on several cores. */
-  async fit(X: TableInput, y?: Labels, options: { threads?: number | 'auto' } = {}): Promise<this> {
+  /**
+   * Fits each step. The last step's own fit() gets the options: `threads`, so a heavy model at the end runs on several
+   * cores, and `sampleWeight`, the rows' weights for the model. The steps before it fit without weights.
+   */
+  async fit(X: TableInput, y?: Labels, options: { threads?: number | 'auto'; sampleWeight?: ArrayLike<number> } = {}): Promise<this> {
+    checkWeighted(this.last, options);
     let data = X as MatrixInput;
     const steps = this.steps.map(([, m]) => m);
     for (const model of steps.slice(0, -1)) data = (model as Transformer).fitSync(data, y).transformSync(data);
@@ -79,13 +92,15 @@ export class Pipeline implements Model {
     return this;
   }
 
-  fitSync(X: TableInput, y?: Labels): this {
+  /** fit() on this thread; `sampleWeight` reaches the last step, as in fit(). */
+  fitSync(X: TableInput, y?: Labels, options: { sampleWeight?: ArrayLike<number> } = {}): this {
+    checkWeighted(this.last, options);
     // The first step gets X as it came, so it may hold text for an encoder or a ColumnTransformer.
     let data = X as MatrixInput;
     const last = this.steps.length - 1;
     this.steps.forEach(([, model], k) => {
       if (k < last) data = (model as Transformer).fitSync(data, y).transformSync(data);
-      else (model as unknown as { fitSync(X: MatrixInput, y?: Labels): unknown }).fitSync(data, y);
+      else (model as unknown as { fitSync(X: MatrixInput, y?: Labels, o?: object): unknown }).fitSync(data, y, options);
     });
     return this;
   }

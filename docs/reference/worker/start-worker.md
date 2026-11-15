@@ -8,7 +8,7 @@ description: 'startWorker: smaltml in a Web Worker of its own, so long fits leav
 ```ts
 function startWorker(url?: string | URL): MlWorker;
 interface MlWorker {
-  fit<M extends Model>(model: M, X: MatrixInput, y?: Labels): Promise<M>;
+  fit<M extends Model>(model: M, X: MatrixInput, y?: Labels, options?: { sampleWeight?: ArrayLike<number> }): Promise<M>;
   predict(model: Model, X: MatrixInput, options?: { device?: Device }): Promise<Float64Array | Label[]>;
   predictProba(model: Model, X: MatrixInput, options?: { device?: Device }): Promise<Matrix>;
   transform(model: Model, X: MatrixInput): Promise<Matrix>;

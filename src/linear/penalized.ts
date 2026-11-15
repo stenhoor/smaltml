@@ -232,13 +232,14 @@ export class ElasticNet extends PenalizedLinear {
   protected *solve(X: Matrix, mean: Float64Array | undefined, y: Float64Array): Solver<{ coef: Float64Array; nIter: number }> {
     const l1 = this.alpha * this.l1Ratio * X.rows;
     const l2 = this.alpha * (1 - this.l1Ratio) * X.rows;
-    // With more rows than columns, descend on the Gram matrix: a pass costs p², not a read of X.
+    // With more rows than columns, descend on the Gram matrix: a pass costs p², not a read of X. (Its blocked kernel
+    // costs about three passes over X, and descent on X needs four or more with its gap check: Gram first measured faster.)
     if (X.rows >= X.cols && X.cols <= GRAM_MAX) {
       const G: Float64Array = yield { k: 'gram', X, mean };
       const q: Float64Array = yield { k: 'xtv', X, v: y, mean };
       return gramDescent(G, q, dotSelf(y), X.cols, l1, l2, this.maxIter, this.tol);
     }
-    return coordinateDescent(mean ? centredCopy(X, mean) : X, y, l1, l2, this.maxIter, this.tol);
+    return coordinateDescent(X, mean, y, l1, l2, this.maxIter, this.tol);
   }
 
   static fromJSON(doc: ModelDocument): ElasticNet {
@@ -273,46 +274,61 @@ export class Lasso extends ElasticNet {
 
 /**
  * Cyclic coordinate descent for ½‖y − Xw‖² + l1 ‖w‖₁ + (l2 / 2) ‖w‖² (the elastic-net objective times n), with the
- * duality gap of the lasso on X augmented by √l2 · I, which this objective is.
+ * duality gap of the lasso on X augmented by √l2 · I, which this objective is. X less `mean` is the design: column j is
+ * read as xⱼ − μⱼ, with no copy of X, which matters on wide data.
  */
-function coordinateDescent(X: Matrix, y: Float64Array, l1: number, l2: number, maxIter: number, tol: number) {
+function coordinateDescent(X: Matrix, mean: Float64Array | undefined, y: Float64Array, l1: number, l2: number, maxIter: number, tol: number) {
   const n = X.rows;
   const p = X.cols;
+  const d = X.data;
   const w = new Float64Array(p);
   const r = y.slice();
   const norms = new Float64Array(p);
+  // sums[j] = Σᵢ (xᵢⱼ − μⱼ): about 0, kept so Σr stays exact as r changes.
+  const sums = new Float64Array(p);
+  const mu = (j: number) => (mean ? mean[j]! : 0);
   for (let j = 0; j < p; j++) {
-    const c = X.column(j);
+    const o = j * n;
+    const m = mu(j);
     let s = 0;
-    for (let i = 0; i < n; i++) s += c[i]! * c[i]!;
+    let t = 0;
+    for (let i = 0; i < n; i++) {
+      const v = d[o + i]! - m;
+      s += v * v;
+      t += v;
+    }
     norms[j] = s;
+    sums[j] = t;
   }
-  let yy = 0;
-  for (let i = 0; i < n; i++) yy += y[i]! * y[i]!;
-  const gapTol = tol * yy;
+  let rsum = 0;
+  for (let i = 0; i < n; i++) rsum += r[i]!;
+  const gapTol = tol * dotSelf(y);
   let iter = 0;
   for (; iter < maxIter; iter++) {
     let maxStep = 0;
     let maxW = 0;
     for (let j = 0; j < p; j++) {
       if (norms[j] === 0) continue;
-      const c = X.column(j);
+      const o = j * n;
+      const m = mu(j);
       const old = w[j]!;
-      // ρ = xⱼᵀ(r + xⱼ wⱼ): the fit of column j to the residual without it.
+      // ρ = (xⱼ − μⱼ)ᵀ(r + (xⱼ − μⱼ) wⱼ): the fit of column j to the residual without it.
       let rho = 0;
-      for (let i = 0; i < n; i++) rho += c[i]! * r[i]!;
-      rho += norms[j]! * old;
+      for (let i = 0; i < n; i++) rho += d[o + i]! * r[i]!;
+      rho += norms[j]! * old - m * rsum;
       const next = Math.sign(rho) * Math.max(Math.abs(rho) - l1, 0) / (norms[j]! + l2);
       if (next !== old) {
-        const d = next - old;
-        for (let i = 0; i < n; i++) r[i]! -= c[i]! * d;
+        const step = next - old;
+        const shift = m * step;
+        for (let i = 0; i < n; i++) r[i]! -= d[o + i]! * step - shift;
+        rsum -= sums[j]! * step;
         w[j] = next;
       }
       maxStep = Math.max(maxStep, Math.abs(next - old));
       maxW = Math.max(maxW, Math.abs(next));
     }
     if (maxW === 0 || maxStep / maxW <= tol || iter === maxIter - 1) {
-      if (dualityGap(X, y, w, r, l1, l2) <= gapTol) {
+      if (dualityGap(X, mean, y, w, r, rsum, l1, l2) <= gapTol) {
         iter++;
         break;
       }
@@ -321,10 +337,11 @@ function coordinateDescent(X: Matrix, y: Float64Array, l1: number, l2: number, m
   return { coef: w, nIter: Math.min(iter, maxIter) };
 }
 
-/** The duality gap of the elastic net, as the lasso on [X; √l2 I] with target [y; 0]. */
-function dualityGap(X: Matrix, y: Float64Array, w: Float64Array, r: Float64Array, l1: number, l2: number): number {
+/** The duality gap of the elastic net, as the lasso on [X; √l2 I] with target [y; 0]; X less `mean`, as above. */
+function dualityGap(X: Matrix, mean: Float64Array | undefined, y: Float64Array, w: Float64Array, r: Float64Array, rsum: number, l1: number, l2: number): number {
   const n = X.rows;
   const p = X.cols;
+  const d = X.data;
   let rr = 0;
   let ry = 0;
   for (let i = 0; i < n; i++) {
@@ -335,9 +352,10 @@ function dualityGap(X: Matrix, y: Float64Array, w: Float64Array, r: Float64Array
   let w1 = 0;
   let dualNorm = 0;
   for (let j = 0; j < p; j++) {
-    const c = X.column(j);
+    const o = j * n;
     let g = 0;
-    for (let i = 0; i < n; i++) g += c[i]! * r[i]!;
+    for (let i = 0; i < n; i++) g += d[o + i]! * r[i]!;
+    if (mean) g -= mean[j]! * rsum;
     dualNorm = Math.max(dualNorm, Math.abs(g - l2 * w[j]!));
     ww += w[j]! * w[j]!;
     w1 += Math.abs(w[j]!);
@@ -352,16 +370,6 @@ function dualityGap(X: Matrix, y: Float64Array, w: Float64Array, r: Float64Array
 
 /** Above this many columns, the p × p Gram matrix is too big to be worth it, and descent reads X instead. */
 const GRAM_MAX = 2048;
-
-function centredCopy(m: Matrix, mean: Float64Array): Matrix {
-  const n = m.rows;
-  const data = new Float64Array(m.data.length);
-  for (let j = 0; j < m.cols; j++) {
-    const mu = mean[j]!;
-    for (let i = 0; i < n; i++) data[j * n + i] = m.data[j * n + i]! - mu;
-  }
-  return new Matrix(n, m.cols, data, m.names);
-}
 
 function dotSelf(v: Float64Array): number {
   let s = 0;

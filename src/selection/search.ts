@@ -1,7 +1,8 @@
 import { fail } from '../core/errors.js';
+import { withKernelCache } from '../linear/calls.js';
 import { Matrix, type MatrixInput } from '../core/matrix.js';
 import { checkDocument, document, isClassifier, isPredictor, type Label, type Labels, type Model, type ModelDocument } from '../core/model.js';
-import { toTable, type TableInput } from '../core/table.js';
+import { numericMatrix, toTable, type TableInput } from '../core/table.js';
 import { loadModel, registerLoader } from '../io/index.js';
 import {
   accuracyScore,
@@ -94,6 +95,15 @@ function foldsFor(model: Model, cv: number | Splitter | readonly Fold[] | undefi
 }
 
 /** The rows at `index` of X and y. */
+function asMatrixIfNumeric(X: TableInput): TableInput {
+  if (X instanceof Matrix) return X;
+  try {
+    return numericMatrix(X);
+  } catch {
+    return X;
+  }
+}
+
 function rowsOf(X: TableInput, index: Uint32Array): TableInput {
   if (X instanceof Matrix) return X.take(index);
   const t = toTable(X);
@@ -240,6 +250,13 @@ export class GridSearchCV implements Model {
   }
 
   async fit(X: TableInput, y: Labels): Promise<this> {
+    // The candidates share each fold's rows: linear models work out XᵀX and Xᵀy once per fold.
+    return withKernelCache(() => this.#fit(X, y));
+  }
+
+  async #fit(X: TableInput, y: Labels): Promise<this> {
+    // Numbers become one Matrix up front, so each fold's rows are one matrix every candidate fits on.
+    X = asMatrixIfNumeric(X);
     const n = toTable(X).rows;
     if (y.length !== n) fail('ML_SHAPE', `y has ${y.length} values; X has ${n} rows`);
     const candidates = parameterGrid(this.paramGrid);

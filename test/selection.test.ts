@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'vitest';
 import {
+  ElasticNet,
   GridSearchCV,
   KFold,
+  Lasso,
   LinearRegression,
   LogisticRegression,
   Ridge,
@@ -127,5 +129,27 @@ describe('cloning and searching', () => {
     expect(back.bestParams).toEqual(g.bestParams);
     expect(Array.from(back.cvResults.meanTestScore)).toEqual(Array.from(g.cvResults.meanTestScore));
     expect(Array.from((await back.predict(X)) as Float64Array)).toEqual(Array.from((await g.predict(X)) as Float64Array));
+  });
+});
+
+describe('GridSearchCV keeps XᵀX per fold', () => {
+  // Candidates on one fold share its rows, so the search works XᵀX, Xᵀy and the means out once per fold. Its scores
+  // must be those of fitting each candidate on its own, bit for bit.
+  let s = 11;
+  const r = () => ((s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 2 ** 32) * 2 - 1;
+  const X = Array.from({ length: 120 }, () => [r() * 3, r(), r() + 2, r() * 0.5]);
+  const y = X.map((row) => 2 * row[0]! - row[1]! + 0.5 * row[3]! + 0.1 * r());
+  test.each([
+    ['Ridge', () => new Ridge()],
+    ['Lasso', () => new Lasso()],
+    ['ElasticNet', () => new ElasticNet()],
+    ['LinearRegression', () => new LinearRegression()],
+  ] as const)('%s: the same scores as separate fits', async (_, make) => {
+    const grid: Record<string, unknown[]> = make() instanceof LinearRegression ? { fitIntercept: [true, false] } : { alpha: [0.001, 0.1, 1], fitIntercept: [true, false] };
+    const search = await new GridSearchCV(make(), grid, { cv: 4 }).fit(X, y);
+    const each = await Promise.all(parameterGrid(grid).map((p) => crossValScore(cloneModel(make(), p), X, y, { cv: 4 })));
+    search.cvResults.params.forEach((_, c) => {
+      expect(Array.from(search.cvResults.splitTestScores, (row) => row[c])).toEqual(Array.from(each[c]!));
+    });
   });
 });

@@ -1,7 +1,7 @@
 import { fail } from '../core/errors.js';
 import { checkedMeans, cholesky, choleskySolve, xw } from '../core/kernels.js';
 import { threadPool, type ThreadOptions } from '../parallel/index.js';
-import { runHere, runOn, type Solver } from './calls.js';
+import { keptMeans, runHere, runOn, type Solver } from './calls.js';
 import { leastSquares } from '../core/linalg.js';
 import { assertFinite, assertFiniteVector, Matrix, toVector, type MatrixInput, type VectorInput } from '../core/matrix.js';
 import { matMul, useGpu, type DeviceOptions } from '../gpu/index.js';
@@ -92,7 +92,7 @@ export class LinearRegression implements Predictor {
     let b = target;
     if (this.fitIntercept) {
       // Centre: the intercept is then ȳ − x̄·w. X isn't copied; the kernels subtract its means as they read it.
-      xMean = checkedMeans(m, assertFinite);
+      xMean = keptMeans(m, () => checkedMeans(m, assertFinite));
       for (let i = 0; i < n; i++) yMean += target[i]!;
       yMean /= n;
       b = target.map((v) => v - yMean);

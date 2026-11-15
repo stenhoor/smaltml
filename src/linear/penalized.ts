@@ -1,7 +1,7 @@
 import { fail } from '../core/errors.js';
 import { checkedMeans, cholesky, choleskySolve, xw } from '../core/kernels.js';
 import { threadPool, type ThreadOptions } from '../parallel/index.js';
-import { runHere, runOn, type Solver } from './calls.js';
+import { keptMeans, runHere, runOn, type Solver } from './calls.js';
 import { assertFinite, assertFiniteVector, Matrix, toVector, type MatrixInput, type VectorInput } from '../core/matrix.js';
 import { checkColumns, checkDocument, document, floats, notFitted, numbers, type ModelDocument, type Predictor } from '../core/model.js';
 import { matMul, useGpu, type DeviceOptions } from '../gpu/index.js';
@@ -20,7 +20,7 @@ interface State {
  */
 function centring(m: Matrix, y: Float64Array, intercept: boolean) {
   // The column means check X on the way; without an intercept, check it here.
-  const xMean = intercept ? checkedMeans(m, assertFinite) : (assertFinite(m), undefined);
+  const xMean = intercept ? keptMeans(m, () => checkedMeans(m, assertFinite)) : (assertFinite(m), undefined);
   let yMean = 0;
   if (intercept) {
     for (let i = 0; i < y.length; i++) yMean += y[i]!;

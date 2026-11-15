@@ -88,6 +88,36 @@ export class StandardScaler implements Transformer {
     let missing = false;
     for (let j = 0; j < p; j++) {
       const col = m.column(j);
+      // Most columns have no missing value, which their sum shows (a NaN or an infinity makes it non-finite): then
+      // two plain passes, without a test per value.
+      let s0 = 0, s1 = 0, s2 = 0, s3 = 0;
+      let k = 0;
+      for (; k + 3 < n; k += 4) {
+        s0 += col[k]!; s1 += col[k + 1]!; s2 += col[k + 2]!; s3 += col[k + 3]!;
+      }
+      for (; k < n; k++) s0 += col[k]!;
+      const total = s0 + s1 + s2 + s3;
+      if (Number.isFinite(total)) {
+        const mu = total / n;
+        let q0 = 0, q1 = 0, c0 = 0, c1 = 0;
+        let i = 0;
+        for (; i + 1 < n; i += 2) {
+          const d0 = col[i]! - mu;
+          const d1 = col[i + 1]! - mu;
+          q0 += d0 * d0; q1 += d1 * d1; c0 += d0; c1 += d1;
+        }
+        for (; i < n; i++) {
+          const d0 = col[i]! - mu;
+          q0 += d0 * d0;
+          c0 += d0;
+        }
+        const ss = q0 + q1;
+        const comp = c0 + c1;
+        mean[j] = mu;
+        variance[j] = (ss - (comp * comp) / n) / n;
+        counts[j] = n;
+        continue;
+      }
       // Two passes: the mean, then the squared deviations from it, which keeps the variance accurate.
       let count = 0;
       let sum = 0;

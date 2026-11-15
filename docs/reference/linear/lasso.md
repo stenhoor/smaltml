@@ -38,7 +38,8 @@ useful coefficients to exactly 0. scikit-learn's
 
 ## Notes
 
-Fitted by cyclic coordinate descent, with scikit-learn's documented stopping rule: once the largest change in a pass
+Fitted by cyclic coordinate descent, on the Gram matrix XᵀX when there are at least as many rows as columns (each
+pass then costs p², not a read of X), with scikit-learn's documented stopping rule: once the largest change in a pass
 is at most `tol` times the largest coefficient, it stops when the duality gap is at most `tol · ‖y‖² / n`. Run to
 convergence, results agree with scikit-learn's within 1e-7 and zero the same coefficients; with the defaults, within
 1e-3. `Lasso` is `ElasticNet` with `l1Ratio` 1.

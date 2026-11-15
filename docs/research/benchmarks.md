@@ -34,14 +34,14 @@ stands.
 
 | Operation | smaltml | scikit-learn, 1 thread | scikit-learn, 4 threads | smaltml ÷ 1 thread | smaltml ÷ 4 threads |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| StandardScaler fit + transform | 1.48 | 1.34 | 1.33 | 1.1× | 1.1× |
-| LinearRegression fit | 8.13 | 3.05 | 3.75 | 2.7× | 2.2× |
-| LinearRegression predict | 0.22 | 0.15 | 0.15 | 1.5× | 1.5× |
-| Ridge fit | 3.31 | 1.24 | 1.25 | 2.7× | 2.7× |
-| Lasso fit (alpha 0.1) | 4.51 | 1.22 | 1.49 | 3.7× | 3.0× |
-| LogisticRegression fit, 2 classes | 85.7 | 41.6 | 41.6 | 2.1× | 2.1× |
-| LogisticRegression fit, 3 classes | 252 | 102 | 104 | 2.5× | 2.4× |
-| LogisticRegression predictProba, 3 classes | 1.21 | 0.88 | 0.94 | 1.4× | 1.3× |
+| StandardScaler fit + transform | 1.63 | 1.34 | 1.33 | 1.2× | 1.2× |
+| LinearRegression fit | 3.95 | 3.05 | 3.75 | 1.3× | 1.1× |
+| LinearRegression predict | 0.39 | 0.15 | 0.15 | 2.5× | 2.6× |
+| Ridge fit | 2.14 | 1.24 | 1.25 | 1.7× | 1.7× |
+| Lasso fit (alpha 0.1) | 2.11 | 1.22 | 1.49 | 1.7× | 1.4× |
+| LogisticRegression fit, 2 classes | 64.3 | 41.6 | 41.6 | 1.5× | 1.5× |
+| LogisticRegression fit, 3 classes | 188 | 102 | 104 | 1.8× | 1.8× |
+| LogisticRegression predictProba, 3 classes | 0.91 | 0.88 | 0.94 | 1.0× | 1.0× |
 
 Iterations: Lasso 5 (scikit-learn 5), logistic regression 100 and 100 (scikit-learn 100 and 100).
 
@@ -49,14 +49,14 @@ Iterations: Lasso 5 (scikit-learn 5), logistic regression 100 and 100 (scikit-le
 
 | Operation | smaltml | scikit-learn, 1 thread | scikit-learn, 4 threads | smaltml ÷ 1 thread | smaltml ÷ 4 threads |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| StandardScaler fit + transform | 119 | 102 | 145 | 1.2× | 0.8× |
-| LinearRegression fit | 1,619 | 415 | 339 | 3.9× | 4.8× |
-| LinearRegression predict | 31.8 | 10.0 | 8.63 | 3.2× | 3.7× |
-| Ridge fit | 627 | 64.2 | 76.9 | 9.8× | 8.2× |
-| Lasso fit (alpha 0.1) | 365 | 97.5 | 65.0 | 3.7× | 5.6× |
-| LogisticRegression fit, 2 classes | 7,181 | 1,632 | 2,508 | 4.4× | 2.9× |
-| LogisticRegression fit, 3 classes | 24,856 | 3,877 | 8,028 | 6.4× | 3.1× |
-| LogisticRegression predictProba, 3 classes | 106 | 30.8 | 22.5 | 3.4× | 4.7× |
+| StandardScaler fit + transform | 90.6 | 102 | 145 | 0.9× | 0.6× |
+| LinearRegression fit | 198 | 415 | 339 | 0.5× | 0.6× |
+| LinearRegression predict | 11.1 | 10.0 | 8.63 | 1.1× | 1.3× |
+| Ridge fit | 171 | 64.2 | 76.9 | 2.7× | 2.2× |
+| Lasso fit (alpha 0.1) | 173 | 97.5 | 65.0 | 1.8× | 2.7× |
+| LogisticRegression fit, 2 classes | 2,818 | 1,632 | 2,508 | 1.7× | 1.1× |
+| LogisticRegression fit, 3 classes | 7,113 | 3,877 | 8,028 | 1.8× | 0.9× |
+| LogisticRegression predictProba, 3 classes | 41.0 | 30.8 | 22.5 | 1.3× | 1.8× |
 
 Iterations: Lasso 4 (scikit-learn 4), logistic regression 100 and 100 (scikit-learn 100 and 100).
 

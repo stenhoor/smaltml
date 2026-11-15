@@ -41,8 +41,10 @@ the intercept (0 without `fitIntercept`).
 
 ## Notes
 
-Solved by Householder QR on centred data, in 64-bit floats. Results agree with scikit-learn within 1e-8 (relative) in
-the compare tests. Where scikit-learn returns one of many equally good solutions (the minimum-norm one), smaltml fails
+Solved in 64-bit floats by the corrected semi-normal equations: a Cholesky factor of XᵀX (one blocked pass over X,
+centred as it is read), then up to three steps of iterative refinement on the residual. Where the columns are nearly
+dependent, the refinement doesn't settle and the fit uses Householder QR instead, which is slower and as accurate as
+the data allows. Results agree with scikit-learn within 1e-8 (relative) in the compare tests. Where scikit-learn returns one of many equally good solutions (the minimum-norm one), smaltml fails
 with `ML_SINGULAR` instead ([Where smaltml differs](../divergences)).
 
 ## Examples

@@ -1,5 +1,6 @@
 import { fail } from '../core/errors.js';
-import { leastSquares, matVec } from '../core/linalg.js';
+import { checkedMeans, cholesky, choleskySolve, gram, xtv, xw } from '../core/kernels.js';
+import { leastSquares } from '../core/linalg.js';
 import { assertFinite, assertFiniteVector, Matrix, toVector, type MatrixInput, type VectorInput } from '../core/matrix.js';
 import { matMul, useGpu, type DeviceOptions } from '../gpu/index.js';
 import { checkColumns, checkDocument, document, floats, notFitted, numbers, type ModelDocument, type Predictor } from '../core/model.js';
@@ -63,34 +64,25 @@ export class LinearRegression implements Predictor {
   fitSync(X: MatrixInput, y: VectorInput): this {
     const m = Matrix.from(X);
     if (m.rows === 0) fail('ML_SHAPE', 'X has no rows');
-    assertFinite(m);
+    // With an intercept, the column means check X on the way; without one, check it here.
+    if (!this.fitIntercept) assertFinite(m);
     const target = toVector(y, m.rows);
     assertFiniteVector(target);
     const n = m.rows;
     const p = m.cols;
-    let A = m;
-    let b = target;
-    const xMean = new Float64Array(p);
+    let xMean: Float64Array | undefined;
     let yMean = 0;
+    let b = target;
     if (this.fitIntercept) {
-      // Centre X and y; the intercept is then ȳ − x̄·w.
-      const data = new Float64Array(m.data.length);
-      for (let j = 0; j < p; j++) {
-        const col = m.column(j);
-        let s = 0;
-        for (let i = 0; i < n; i++) s += col[i]!;
-        const mu = s / n;
-        xMean[j] = mu;
-        for (let i = 0; i < n; i++) data[j * n + i] = col[i]! - mu;
-      }
-      A = new Matrix(n, p, data, m.names);
+      // Centre: the intercept is then ȳ − x̄·w. X isn't copied; the kernels subtract its means as they read it.
+      xMean = checkedMeans(m, assertFinite);
       for (let i = 0; i < n; i++) yMean += target[i]!;
       yMean /= n;
       b = target.map((v) => v - yMean);
     }
-    const coef = p === 0 ? new Float64Array(0) : leastSquares(A, b);
+    const coef = p === 0 ? new Float64Array(0) : (seminormal(m, xMean, b) ?? householder(m, xMean, b));
     let intercept = 0;
-    if (this.fitIntercept) {
+    if (xMean) {
       intercept = yMean;
       for (let j = 0; j < p; j++) intercept -= xMean[j]! * coef[j]!;
     }
@@ -116,7 +108,7 @@ export class LinearRegression implements Predictor {
     const s = this.#fitted();
     const m = Matrix.from(X);
     checkColumns(m, s.nFeaturesIn, this.kind);
-    return matVec(m, s.coef, s.intercept);
+    return xw(m, s.coef, s.intercept);
   }
 
   toJSON(): ModelDocument {
@@ -147,4 +139,46 @@ export class LinearRegression implements Predictor {
   #fitted(): State {
     return this.#state ?? notFitted(this.kind);
   }
+}
+
+/**
+ * Least squares by the corrected semi-normal equations (Björck): Cholesky of XᵀX, then up to two steps of iterative
+ * refinement on the residual. Fast, as XᵀX is one blocked pass over X; as accurate as QR when the columns aren't
+ * nearly dependent. Returns null when they are (Cholesky fails, or the refinement doesn't settle), and the caller
+ * uses QR instead.
+ */
+function seminormal(X: Matrix, mean: Float64Array | undefined, y: Float64Array): Float64Array | null {
+  const p = X.cols;
+  if (X.rows < p) return null;
+  const L = cholesky(gram(X, mean), p);
+  if (!L) return null;
+  const w = choleskySolve(L, p, xtv(X, y, mean));
+  const r = new Float64Array(X.rows);
+  for (let step = 0; step < 3; step++) {
+    xw(X, w, 0, mean, r);
+    for (let i = 0; i < r.length; i++) r[i] = y[i]! - r[i]!;
+    const dw = choleskySolve(L, p, xtv(X, r, mean));
+    let dn = 0;
+    let wn = 0;
+    for (let j = 0; j < p; j++) {
+      w[j]! += dw[j]!;
+      dn = Math.max(dn, Math.abs(dw[j]!));
+      wn = Math.max(wn, Math.abs(w[j]!));
+    }
+    // Settled: the correction is at rounding level.
+    if (dn <= 1e-12 * wn || wn === 0) return w;
+  }
+  return null;
+}
+
+/** Least squares by Householder QR on a centred copy: slower, and right for nearly dependent columns too. */
+function householder(X: Matrix, mean: Float64Array | undefined, y: Float64Array): Float64Array {
+  if (!mean) return leastSquares(X, y);
+  const n = X.rows;
+  const data = new Float64Array(X.data.length);
+  for (let j = 0; j < X.cols; j++) {
+    const mu = mean[j]!;
+    for (let i = 0; i < n; i++) data[j * n + i] = X.data[j * n + i]! - mu;
+  }
+  return leastSquares(new Matrix(n, X.cols, data, X.names), y);
 }

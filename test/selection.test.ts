@@ -62,6 +62,12 @@ describe('StratifiedKFold keeps its documented guarantees', () => {
     }
   });
 
+  test('a million rows split without spreading a class onto the call stack', () => {
+    const big = Array.from({ length: 1_000_000 }, (_, i) => (i % 3 === 0 ? 'x' : 'y'));
+    const folds = new StratifiedKFold({ nSplits: 2 }).split(big.length, big);
+    expect(folds.map((f) => f.test.length)).toEqual([500_000, 500_000]);
+  });
+
   test('a seed repeats a shuffle; parameters are checked', async () => {
     const a = new KFold({ nSplits: 3, shuffle: true, seed: 9 }).split(20);
     expect(new KFold({ nSplits: 3, shuffle: true, seed: 9 }).split(20)).toEqual(a);

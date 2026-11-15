@@ -127,7 +127,8 @@ export class StratifiedKFold implements Splitter {
       }
       let at = 0;
       for (let f = 0; f < k; f++) {
-        tests[f]!.push(...list.slice(at, at + counts[f]!));
+        // A loop, not push(...slice): a class can have more rows than a call can take as arguments.
+        for (let i = at; i < at + counts[f]!; i++) tests[f]!.push(list[i]!);
         at += counts[f]!;
         sizes[f]! += counts[f]!;
       }

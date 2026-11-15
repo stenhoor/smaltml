@@ -324,13 +324,18 @@ export function multinomialLogisticPart(X: Matrix, y: Int32Array, K: number, int
     for (let i = 0; i < m; i++) {
       let max = -Infinity;
       for (let c = 0; c < K; c++) max = Math.max(max, z[c * BLOCK + i]!);
-      let sum = 0;
-      for (let c = 0; c < K; c++) sum += Math.exp(z[c * BLOCK + i]! - max);
-      const lse = max + Math.log(sum);
       const yi = y[r0 + i]!;
-      loss += lse - z[yi * BLOCK + i]!;
-      // The residuals softmax − one-hot replace the scores.
-      for (let c = 0; c < K; c++) z[c * BLOCK + i] = Math.exp(z[c * BLOCK + i]! - lse) - (c === yi ? 1 : 0);
+      const zy = z[yi * BLOCK + i]!;
+      // One exp per class: e = exp(z − max) replaces the score, then the residual e / Σe − one-hot replaces e.
+      let sum = 0;
+      for (let c = 0; c < K; c++) {
+        const e = Math.exp(z[c * BLOCK + i]! - max);
+        z[c * BLOCK + i] = e;
+        sum += e;
+      }
+      loss += max + Math.log(sum) - zy;
+      const inv = 1 / sum;
+      for (let c = 0; c < K; c++) z[c * BLOCK + i] = z[c * BLOCK + i]! * inv - (c === yi ? 1 : 0);
     }
     for (let c = 0; c < K; c++) {
       const zc = c * BLOCK;

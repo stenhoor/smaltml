@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import {
   ColumnTransformer,
   GridSearchCV,
@@ -129,6 +129,7 @@ function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol:
       close(m.intercept, exp.intercept, tol, 'intercept');
       close(rowsOf(m.predictProbaSync(inp.Xnew)), exp.predictProba, tol, 'predictProba');
       expect(m.predictSync(inp.Xnew)).toEqual(exp.predict as Label[]);
+      if ('converged' in exp) expect(m.converged, 'converged, as scikit-learn (no ConvergenceWarning)').toBe(exp.converged);
       return;
     }
     case 'Pipeline': {
@@ -165,6 +166,7 @@ function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol:
       close(m.predictSync(inp.Xnew), exp.predict, tol, 'predict');
       // The L1 penalty sets coefficients to exactly 0: the same ones.
       if (exp.zero) expect(Array.from(m.coef, (v) => v === 0), 'which coefficients are 0').toEqual(exp.zero);
+      if ('converged' in exp) expect(m.converged, 'converged, as scikit-learn (no ConvergenceWarning)').toBe(exp.converged);
       return;
     }
     case 'mae':
@@ -249,6 +251,21 @@ function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol:
         new LogisticRegression({ tol: 1e-10, maxIter: 10000 }),
       ).fitSync(inp.X, inp.y);
       close(rowsOf(p.predictProbaSync(inp.X)), exp.predictProba, tol, 'predictProba');
+      return;
+    }
+    case 'convergence': {
+      // A fit stopped early: smaltml says so (converged false, a warning) where scikit-learn raised ConvergenceWarning.
+      const make = { LogisticRegression: (p: object) => new LogisticRegression(p), Lasso: (p: object) => new Lasso(p), ElasticNet: (p: object) => new ElasticNet(p) }[inp.model as string]!;
+      const warned = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        const m = make(camel(inp.params)).fitSync(inp.X, inp.y);
+        expect(m.converged, 'converged').toBe(exp.converged);
+        expect(m.nIter, 'nIter').toBe(exp.nIter);
+        const ours = warned.mock.calls.filter(([msg]) => String(msg).startsWith('smaltml ML_CONVERGENCE:'));
+        expect(ours.length, 'ML_CONVERGENCE warnings').toBe(exp.converged ? 0 : 1);
+      } finally {
+        warned.mockRestore();
+      }
       return;
     }
     default:

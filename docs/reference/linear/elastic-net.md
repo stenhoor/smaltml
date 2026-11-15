@@ -13,6 +13,7 @@ class ElasticNet implements Predictor {
   readonly coef: Float64Array;
   readonly intercept: number;
   readonly nIter: number;
+  readonly converged: boolean | null;
 }
 ```
 
@@ -38,7 +39,9 @@ As [`Lasso`](./lasso).
 ## Notes
 
 Fitted as `Lasso` is, by coordinate descent with the same stopping rule; the duality gap is the lasso's on X with
-`√(n · alpha · (1 − l1Ratio)) · I` rows added. With correlated columns, it tends to keep them together where the
+`√(n · alpha · (1 − l1Ratio)) · I` rows added. With `l1Ratio` 0 that gap can't close (its dual point scales to 0), so
+the gap is the elastic net's own dual at the residual, which needs no scaling when the L2 term is above 0: such a fit
+stops when it converges, as scikit-learn's does, instead of running to `maxIter`. With correlated columns, it tends to keep them together where the
 lasso picks one.
 
 ## Examples

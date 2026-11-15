@@ -48,7 +48,7 @@ await (loadModel(doc) as LinearRegression).predict([[10]])
 
 <!-- docs:error ML_FORMAT -->
 ```ts
-loadModel({ ...doc, version: 2 })
+loadModel({ ...doc, version: 99 })
 ```
 
 ## Working demo

@@ -13,6 +13,7 @@ class Ridge implements Predictor {
   readonly coef: Float64Array;
   readonly intercept: number;
   readonly nIter: number;
+  readonly converged: boolean | null;
 }
 ```
 
@@ -26,8 +27,9 @@ Linear regression with an L2 penalty: minimizes `‖y − X·w − b‖² + alph
 
 ## Returns
 
-`predict` returns `X·w + b`; `device` chooses where the product runs. After `fit`: `coef`, `intercept`, and `nIter`
-(0: the solution is closed-form).
+`predict` returns `X·w + b`; `device` chooses where the product runs. After `fit`: `coef`, `intercept`, `nIter`
+(0: the solution is closed-form), and `converged`, always `true` for the same reason (`null` for a model saved by
+smaltml before it recorded this).
 
 ## Errors
 

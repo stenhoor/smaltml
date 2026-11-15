@@ -13,6 +13,7 @@ class Lasso implements Predictor {
   readonly coef: Float64Array;
   readonly intercept: number;
   readonly nIter: number;
+  readonly converged: boolean | null;
 }
 ```
 
@@ -29,7 +30,10 @@ useful coefficients to exactly 0. scikit-learn's
 
 ## Returns
 
-`predict` returns `X·w + b`. After `fit`: `coef` (some exactly 0), `intercept`, and `nIter`, the passes it took.
+`predict` returns `X·w + b`. After `fit`: `coef` (some exactly 0), `intercept`, `nIter`, the passes it took, and
+`converged`: whether the duality gap reached `tol` within `maxIter`. Where it didn't, `fit` warns on the console
+(`ML_CONVERGENCE`, [Errors](../errors#warnings)), as scikit-learn raises a `ConvergenceWarning`. `converged` is `null`
+for a model saved by smaltml before it recorded this.
 
 ## Errors
 

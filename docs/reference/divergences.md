@@ -19,6 +19,7 @@ have something yet, it fails with an error rather than give a different answer. 
 | Encoders: `None` and `NaN` in a column of numbers | Two different values | Both missing, one category |
 | `OneHotEncoder` names for numbers | Python's (`size_3.0` for floats) | JavaScript's (`size_3`) |
 | Encoders and `ColumnTransformer` output | Sparse by default | Dense always |
+| A fit that stops before it converges | A `ConvergenceWarning` | A console warning, `ML_CONVERGENCE`, and `converged` `false`: an attribute scikit-learn doesn't have |
 
 ## Not yet supported
 
@@ -27,8 +28,7 @@ Each of these fails with `ML_PARAM` or isn't a parameter yet:
 - `LinearRegression`: several targets at once, `positive`, `sample_weight`.
 - `Ridge`: several targets, solvers other than Cholesky (`solver`), `positive`, `sample_weight`.
 - `Lasso` and `ElasticNet`: several targets, `positive`, `selection='random'`, `warm_start`, `precompute`,
-  `sample_weight`. Where they don't converge in `maxIter`, scikit-learn warns; smaltml stops without a warning, and
-  `nIter` equals `maxIter`.
+  `sample_weight`.
 - `LogisticRegression`: L1 and elastic-net penalties (`l1Ratio` other than 0), solvers other than `lbfgs` and
   `newton-cholesky`, `newton-cholesky` with more than two classes, `class_weight`, `sample_weight`, `warm_start`.
 - `trainTestSplit`: `stratify`.

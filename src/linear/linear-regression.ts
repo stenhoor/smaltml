@@ -1,5 +1,7 @@
 import { fail } from '../core/errors.js';
-import { checkedMeans, cholesky, choleskySolve, gram, xtv, xw } from '../core/kernels.js';
+import { checkedMeans, cholesky, choleskySolve, xw } from '../core/kernels.js';
+import { threadPool, type ThreadOptions } from '../parallel/index.js';
+import { runHere, runOn, type Solver } from './calls.js';
 import { leastSquares } from '../core/linalg.js';
 import { assertFinite, assertFiniteVector, Matrix, toVector, type MatrixInput, type VectorInput } from '../core/matrix.js';
 import { matMul, useGpu, type DeviceOptions } from '../gpu/index.js';
@@ -57,12 +59,27 @@ export class LinearRegression implements Predictor {
     return { fitIntercept: this.fitIntercept };
   }
 
-  async fit(X: MatrixInput, y: VectorInput): Promise<this> {
-    return this.fitSync(X, y);
+  /**
+   * Fits the model. With `threads` (default `'auto'`), the heavy products run on several cores where shared memory
+   * allows and X is large enough, with the same result as fitSync() to the last bit.
+   */
+  async fit(X: MatrixInput, y: VectorInput, options: ThreadOptions = {}): Promise<this> {
+    const m = Matrix.from(X);
+    const pool = await threadPool(options.threads, m.rows * m.cols);
+    if (!pool) return this.fitSync(m, y);
+    const job = this.#prepare(m, y);
+    const coef = job.p === 0 ? new Float64Array(0) : ((await runOn(pool, seminormal(m, job.xMean, job.b))) ?? householder(m, job.xMean, job.b));
+    return this.#finish(job, coef);
   }
 
   fitSync(X: MatrixInput, y: VectorInput): this {
     const m = Matrix.from(X);
+    const job = this.#prepare(m, y);
+    const coef = job.p === 0 ? new Float64Array(0) : (runHere(seminormal(m, job.xMean, job.b)) ?? householder(m, job.xMean, job.b));
+    return this.#finish(job, coef);
+  }
+
+  #prepare(m: Matrix, y: VectorInput) {
     if (m.rows === 0) fail('ML_SHAPE', 'X has no rows');
     // With an intercept, the column means check X on the way; without one, check it here.
     if (!this.fitIntercept) assertFinite(m);
@@ -80,7 +97,11 @@ export class LinearRegression implements Predictor {
       yMean /= n;
       b = target.map((v) => v - yMean);
     }
-    const coef = p === 0 ? new Float64Array(0) : (seminormal(m, xMean, b) ?? householder(m, xMean, b));
+    return { m, p, xMean, yMean, b };
+  }
+
+  #finish(job: { m: Matrix; p: number; xMean: Float64Array | undefined; yMean: number }, coef: Float64Array): this {
+    const { m, p, xMean, yMean } = job;
     let intercept = 0;
     if (xMean) {
       intercept = yMean;
@@ -147,17 +168,17 @@ export class LinearRegression implements Predictor {
  * nearly dependent. Returns null when they are (Cholesky fails, or the refinement doesn't settle), and the caller
  * uses QR instead.
  */
-function seminormal(X: Matrix, mean: Float64Array | undefined, y: Float64Array): Float64Array | null {
+function* seminormal(X: Matrix, mean: Float64Array | undefined, y: Float64Array): Solver<Float64Array | null> {
   const p = X.cols;
   if (X.rows < p) return null;
-  const L = cholesky(gram(X, mean), p);
+  const L = cholesky(yield { k: 'gram', X, mean }, p);
   if (!L) return null;
-  const w = choleskySolve(L, p, xtv(X, y, mean));
-  const r = new Float64Array(X.rows);
+  const w = choleskySolve(L, p, yield { k: 'xtv', X, v: y, mean });
   for (let step = 0; step < 3; step++) {
-    xw(X, w, 0, mean, r);
-    for (let i = 0; i < r.length; i++) r[i] = y[i]! - r[i]!;
-    const dw = choleskySolve(L, p, xtv(X, r, mean));
+    const fitted: Float64Array = yield { k: 'xw', X, w: w.slice(), b: 0, mean };
+    const r = new Float64Array(X.rows);
+    for (let i = 0; i < r.length; i++) r[i] = y[i]! - fitted[i]!;
+    const dw = choleskySolve(L, p, yield { k: 'xtv', X, v: r, mean });
     let dn = 0;
     let wn = 0;
     for (let j = 0; j < p; j++) {

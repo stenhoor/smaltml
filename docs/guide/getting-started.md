@@ -29,6 +29,8 @@ uses:
 | `@smaltworks/smaltml/io` | `saveModel`, `loadModel` |
 | `@smaltworks/smaltml/registry` | `predict`, `predictProba`, `ModelRegistry`, `MemoryStore`, `TableStore`, `useRegistry` |
 | `@smaltworks/smaltml/gpu` | `matMul`, `matMulSync`, `gpuAvailable`, `gpuDevice`, `GPU_MIN_WORK` |
+| `@smaltworks/smaltml/parallel` | `configureThreads`, `stopThreads`, `sharedMemoryAvailable`, `PARALLEL_MIN_VALUES` |
+| `@smaltworks/smaltml/threads-script` | The script the thread pool's workers run |
 | `@smaltworks/smaltml/worker` | `startWorker`, `connect`, `serve` (not in the main entry point) |
 | `@smaltworks/smaltml/worker-script` | The worker script `startWorker` runs |
 

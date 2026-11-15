@@ -10,22 +10,23 @@ import { describe, expect, test } from 'vitest';
 const ALLOWED: Record<string, string[]> = {
   core: ['core'],
   preprocessing: ['core', 'preprocessing'],
-  linear: ['core', 'linear', 'gpu'],
+  linear: ['core', 'linear', 'gpu', 'parallel'],
   metrics: ['core', 'metrics'],
-  selection: ['core', 'selection', 'io', 'metrics', 'preprocessing', 'linear', 'pipeline', 'gpu'],
+  selection: ['core', 'selection', 'io', 'metrics', 'preprocessing', 'linear', 'pipeline', 'gpu', 'parallel'],
   pipeline: ['core', 'pipeline'],
-  io: ['core', 'io', 'preprocessing', 'linear', 'pipeline', 'gpu'],
+  io: ['core', 'io', 'preprocessing', 'linear', 'pipeline', 'gpu', 'parallel'],
   gpu: ['core', 'gpu'],
-  registry: ['core', 'registry', 'io', 'preprocessing', 'linear', 'pipeline', 'gpu'],
-  worker: ['core', 'worker', 'io', 'preprocessing', 'linear', 'pipeline', 'gpu'],
+  parallel: ['core', 'parallel'],
+  registry: ['core', 'registry', 'io', 'preprocessing', 'linear', 'pipeline', 'gpu', 'parallel'],
+  worker: ['core', 'worker', 'io', 'preprocessing', 'linear', 'pipeline', 'gpu', 'parallel'],
 };
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { exports: Record<string, unknown> };
 
 describe('entry points', () => {
   test('package.json exports every area, and only those', () => {
-    // ./worker-script is the worker's script, not an area.
-    const areas = Object.keys(pkg.exports).filter((k) => !['.', './package.json', './worker-script'].includes(k)).map((k) => k.slice(2));
+    // ./worker-script and ./threads-script are workers' scripts, not areas.
+    const areas = Object.keys(pkg.exports).filter((k) => !['.', './package.json', './worker-script', './threads-script'].includes(k)).map((k) => k.slice(2));
     expect(areas.sort()).toEqual(Object.keys(ALLOWED).sort());
   });
 

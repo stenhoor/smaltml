@@ -63,6 +63,24 @@ window.results = (async () => {
   const same = gl.filter((v, i) => v === cl[i]).length / cl.length;
   check(same > 0.999, 'pipeline labels on the GPU: ' + (same * 100).toFixed(2) + '% the same as the CPU');
 
+  // Threads: the page is cross-origin isolated, so fits run on a pool of workers sharing X, and equal fitSync.
+  const par = await import('/dist/parallel.js');
+  check(ml.sharedMemoryAvailable(), 'shared memory on a cross-origin isolated page');
+  check((await par.threadPool(4, 1e9)) !== null, 'the thread pool starts its workers');
+  const T = matrix(30000, 40, 2);
+  const tLabels = Array.from({ length: 30000 }, (_, i) => (T.data[i] + T.data[30000 + i] > 0 ? 'a' : T.data[60000 + i] > 0 ? 'b' : 'c'));
+  const tY = Array.from({ length: 30000 }, (_, i) => T.data[i] * 2 - T.data[90000 + i]);
+  for (const [what, make, target] of [
+    ['LogisticRegression, 3 classes', () => new ml.LogisticRegression({ maxIter: 30 }), tLabels],
+    ['Ridge', () => new ml.Ridge(), tY],
+    ['Lasso', () => new ml.Lasso({ alpha: 0.01 }), tY],
+  ]) {
+    const many = await make().fit(T, target, { threads: 4 });
+    const one = make().fitSync(T, target);
+    check(JSON.stringify(many.toJSON()) === JSON.stringify(one.toJSON()), what + ' on 4 threads equals fitSync, bit for bit');
+  }
+  await ml.stopThreads();
+
   // The worker: the same fits, off the page's thread.
   const worker = startWorker();
   try {
@@ -88,10 +106,12 @@ window.results = (async () => {
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.map': 'application/json' };
 const server = http.createServer((req, res) => {
   const p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-  if (p === '/') return res.writeHead(200, { 'content-type': 'text/html' }).end(PAGE);
+  // Cross-origin isolated, so the page can share memory with the thread pool's workers.
+  const isolated = { 'cross-origin-opener-policy': 'same-origin', 'cross-origin-embedder-policy': 'require-corp' };
+  if (p === '/') return res.writeHead(200, { 'content-type': 'text/html', ...isolated }).end(PAGE);
   const file = join(root, p);
   if (!p.startsWith('/dist/') || !existsSync(file) || statSync(file).isDirectory()) return res.writeHead(404).end();
-  res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream' });
+  res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream', ...isolated });
   createReadStream(file).pipe(res);
 });
 await new Promise((r) => server.listen(0, r));

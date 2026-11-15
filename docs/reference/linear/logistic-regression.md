@@ -8,7 +8,7 @@ description: 'LogisticRegression: classes and their probabilities from a linear 
 ```ts
 class LogisticRegression implements Classifier {
   constructor(params?: { C?: number; l1Ratio?: number; tol?: number; fitIntercept?: boolean; maxIter?: number });
-  fit(X: MatrixInput, y: Labels): Promise<this>;
+  fit(X: MatrixInput, y: Labels, options?: { threads?: number | 'auto' }): Promise<this>;
   predict(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Label[]>;
   predictProba(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Matrix>;
   decisionFunction(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Matrix>;

@@ -18,13 +18,16 @@ stands.
   logistic regression stops at its 100-iteration default on the larger data; the iteration counts below show both
   libraries doing the same work.
 - **Timing:** the median of 7 runs (3 for the larger data), after a warm-up run, in one process.
-- **smaltml:** the built package (`dist/`), in Node, on one thread, calling the synchronous methods.
+- **smaltml:** the built package (`dist/`), in Node: on one thread, calling the synchronous methods, and with fits on
+  up to 4 threads (`fit(X, y, { threads: 'auto' })`, `configureThreads({ max: 4 })`), which leaves fits below about a
+  million values on one thread. Predictions and `StandardScaler` run on one thread in both.
 - **scikit-learn:** on one thread (`OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1`) and on every core, with its default
   BLAS.
 - **Rerun:** `npm run bench` (smaltml), `npm run bench:python` (scikit-learn; needs `compare/requirements.txt`), then
   `npm run bench:report`, which writes the tables below from `bench/results/`.
 
-`smaltml ÷ …` is how many times longer smaltml takes: below 1 is faster.
+`smaltml ÷ …` is how many times longer smaltml takes than scikit-learn on the same number of threads: below 1 is
+faster.
 
 ## Results
 
@@ -32,35 +35,35 @@ stands.
 
 ### 10k × 20
 
-| Operation | smaltml | scikit-learn, 1 thread | scikit-learn, 4 threads | smaltml ÷ 1 thread | smaltml ÷ 4 threads |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| StandardScaler fit + transform | 1.63 | 1.34 | 1.33 | 1.2× | 1.2× |
-| LinearRegression fit | 3.95 | 3.05 | 3.75 | 1.3× | 1.1× |
-| LinearRegression predict | 0.39 | 0.15 | 0.15 | 2.5× | 2.6× |
-| Ridge fit | 2.14 | 1.24 | 1.25 | 1.7× | 1.7× |
-| Lasso fit (alpha 0.1) | 2.11 | 1.22 | 1.49 | 1.7× | 1.4× |
-| LogisticRegression fit, 2 classes | 64.3 | 41.6 | 41.6 | 1.5× | 1.5× |
-| LogisticRegression fit, 3 classes | 188 | 102 | 104 | 1.8× | 1.8× |
-| LogisticRegression predictProba, 3 classes | 0.91 | 0.88 | 0.94 | 1.0× | 1.0× |
+| Operation | smaltml, 1 thread | smaltml, 4 threads | scikit-learn, 1 thread | scikit-learn, 4 threads | smaltml ÷ scikit-learn, 1 thread | smaltml ÷ scikit-learn, 4 threads |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| StandardScaler fit + transform | 1.43 | 1.68 | 1.34 | 1.33 | 1.1× | 1.3× |
+| LinearRegression fit | 3.00 | 3.82 | 3.05 | 3.75 | 1.0× | 1.0× |
+| LinearRegression predict | 0.16 | 0.15 | 0.15 | 0.15 | 1.0× | 1.0× |
+| Ridge fit | 2.28 | 2.20 | 1.24 | 1.25 | 1.8× | 1.8× |
+| Lasso fit (alpha 0.1) | 2.15 | 2.18 | 1.22 | 1.49 | 1.8× | 1.5× |
+| LogisticRegression fit, 2 classes | 72.9 | 68.0 | 41.6 | 41.6 | 1.8× | 1.6× |
+| LogisticRegression fit, 3 classes | 196 | 189 | 102 | 104 | 1.9× | 1.8× |
+| LogisticRegression predictProba, 3 classes | 0.93 | 1.06 | 0.88 | 0.94 | 1.1× | 1.1× |
 
 Iterations: Lasso 5 (scikit-learn 5), logistic regression 100 and 100 (scikit-learn 100 and 100).
 
 ### 200k × 50
 
-| Operation | smaltml | scikit-learn, 1 thread | scikit-learn, 4 threads | smaltml ÷ 1 thread | smaltml ÷ 4 threads |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| StandardScaler fit + transform | 90.6 | 102 | 145 | 0.9× | 0.6× |
-| LinearRegression fit | 198 | 415 | 339 | 0.5× | 0.6× |
-| LinearRegression predict | 11.1 | 10.0 | 8.63 | 1.1× | 1.3× |
-| Ridge fit | 171 | 64.2 | 76.9 | 2.7× | 2.2× |
-| Lasso fit (alpha 0.1) | 173 | 97.5 | 65.0 | 1.8× | 2.7× |
-| LogisticRegression fit, 2 classes | 2,818 | 1,632 | 2,508 | 1.7× | 1.1× |
-| LogisticRegression fit, 3 classes | 7,113 | 3,877 | 8,028 | 1.8× | 0.9× |
-| LogisticRegression predictProba, 3 classes | 41.0 | 30.8 | 22.5 | 1.3× | 1.8× |
+| Operation | smaltml, 1 thread | smaltml, 4 threads | scikit-learn, 1 thread | scikit-learn, 4 threads | smaltml ÷ scikit-learn, 1 thread | smaltml ÷ scikit-learn, 4 threads |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| StandardScaler fit + transform | 124 | 87.4 | 102 | 145 | 1.2× | 0.6× |
+| LinearRegression fit | 210 | 108 | 415 | 339 | 0.5× | 0.3× |
+| LinearRegression predict | 12.0 | 10.1 | 10.0 | 8.63 | 1.2× | 1.2× |
+| Ridge fit | 193 | 75.5 | 64.2 | 76.9 | 3.0× | 1.0× |
+| Lasso fit (alpha 0.1) | 186 | 81.3 | 97.5 | 65.0 | 1.9× | 1.3× |
+| LogisticRegression fit, 2 classes | 2,825 | 974 | 1,632 | 2,508 | 1.7× | 0.4× |
+| LogisticRegression fit, 3 classes | 7,196 | 2,657 | 3,877 | 8,028 | 1.9× | 0.3× |
+| LogisticRegression predictProba, 3 classes | 48.1 | 42.8 | 30.8 | 22.5 | 1.6× | 1.9× |
 
 Iterations: Lasso 4 (scikit-learn 4), logistic regression 100 and 100 (scikit-learn 100 and 100).
 
-Run 2026-11-15: smaltml 0.1.0 on Node 22.23.4, 1 thread; scikit-learn 1.9.1, NumPy 2.5.4 on Python 3.13.18 (openblas 0.3.31.dev, openblas 0.3.34.106.0, openmp). CPU: Intel(R) Xeon(R) Processor @ 2.30GHz, 4 cores.
+Run 2026-11-15: smaltml 0.1.0 on Node 22.23.4; scikit-learn 1.9.1, NumPy 2.5.4 on Python 3.13.18 (openblas 0.3.31.dev, openblas 0.3.34.106.0, openmp). CPU: Intel(R) Xeon(R) Processor @ 2.30GHz, 4 cores. smaltml's runs on several threads use fit() with threads 'auto' (up to that many); predictions and StandardScaler run on one thread in every smaltml column.
 
 <!-- /bench:results -->
 

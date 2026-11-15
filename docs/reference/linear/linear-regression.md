@@ -8,7 +8,7 @@ description: 'LinearRegression: ordinary least squares for one target. scikit-le
 ```ts
 class LinearRegression implements Predictor {
   constructor(params?: { fitIntercept?: boolean });
-  fit(X: MatrixInput, y: ArrayLike<number>): Promise<this>;
+  fit(X: MatrixInput, y: ArrayLike<number>, options?: { threads?: number | 'auto' }): Promise<this>;
   predict(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Float64Array>;
   readonly coef: Float64Array;
   readonly intercept: number;

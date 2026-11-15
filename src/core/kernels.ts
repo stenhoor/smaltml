@@ -10,17 +10,18 @@ export const BLOCK = 512;
 
 /**
  * (X − mean)ᵀ (X − mean): the p × p Gram matrix, row-major, both triangles filled. `mean` (one per column) is
- * subtracted as each block is read; leave it out for X as it is.
+ * subtracted as each block is read; leave it out for X as it is. `from` and `to` limit it to those rows, so parts
+ * computed in parallel add up to the whole.
  */
-export function gram(X: Matrix, mean?: ArrayLike<number>): Float64Array {
+export function gramPart(X: Matrix, mean: ArrayLike<number> | undefined, from: number, to: number): Float64Array {
   const n = X.rows;
   const p = X.cols;
   const d = X.data;
   const A = new Float64Array(p * p);
   const B = BLOCK;
   const buf = new Float64Array(B * p);
-  for (let r0 = 0; r0 < n; r0 += B) {
-    const m = Math.min(B, n - r0);
+  for (let r0 = from; r0 < to; r0 += B) {
+    const m = Math.min(B, to - r0);
     for (let j = 0; j < p; j++) {
       const off = j * n + r0;
       const mu = mean ? mean[j]! : 0;
@@ -76,20 +77,57 @@ export function gram(X: Matrix, mean?: ArrayLike<number>): Float64Array {
       }
     }
   }
+  return A;
+}
+
+/**
+ * Rows per chunk: whole-matrix kernels sum their parts over chunks of this many rows, in order, whether one thread
+ * computes them or several workers do, so the result is the same to the last bit however many threads ran it.
+ */
+export const CHUNK = 16384;
+
+/** The chunks [from, to) of n rows. */
+export function chunks(n: number): [number, number][] {
+  const out: [number, number][] = [];
+  for (let r = 0; r < n; r += CHUNK) out.push([r, Math.min(r + CHUNK, n)]);
+  return out;
+}
+
+/** Adds part into total, element by element. */
+export function addInto(total: Float64Array, part: ArrayLike<number>): void {
+  for (let i = 0; i < total.length; i++) total[i]! += part[i]!;
+}
+
+/** Fills the upper triangle of a p × p matrix from its lower one. */
+export function symmetrize(A: Float64Array, p: number): Float64Array {
   for (let j = 0; j < p; j++) for (let k = 0; k < j; k++) A[k * p + j] = A[j * p + k]!;
   return A;
 }
 
-/** (X − mean)ᵀ v: one value per column. */
-export function xtv(X: Matrix, v: ArrayLike<number>, mean?: ArrayLike<number>, out = new Float64Array(X.cols)): Float64Array {
+/** (X − mean)ᵀ (X − mean) over every row: gramPart() summed over the chunks, both triangles filled. */
+export function gram(X: Matrix, mean?: ArrayLike<number>): Float64Array {
+  const A = new Float64Array(X.cols * X.cols);
+  for (const [a, b] of chunks(X.rows)) addInto(A, gramPart(X, mean, a, b));
+  return symmetrize(A, X.cols);
+}
+
+/** (X − mean)ᵀ v over every row: xtvPart() summed over the chunks. */
+export function xtv(X: Matrix, v: ArrayLike<number>, mean?: ArrayLike<number>): Float64Array {
+  const out = new Float64Array(X.cols);
+  for (const [a, b] of chunks(X.rows)) addInto(out, xtvPart(X, v, mean, a, b));
+  return out;
+}
+
+/** (X − mean)ᵀ v over rows `from` to `to`: one value per column. */
+export function xtvPart(X: Matrix, v: ArrayLike<number>, mean: ArrayLike<number> | undefined, from: number, to: number, out = new Float64Array(X.cols)): Float64Array {
   const n = X.rows;
   const p = X.cols;
   const d = X.data;
   out.fill(0);
   let vsum = 0;
-  if (mean) for (let i = 0; i < n; i++) vsum += v[i]!;
-  for (let r0 = 0; r0 < n; r0 += BLOCK) {
-    const m = Math.min(BLOCK, n - r0);
+  if (mean) for (let i = from; i < to; i++) vsum += v[i]!;
+  for (let r0 = from; r0 < to; r0 += BLOCK) {
+    const m = Math.min(BLOCK, to - r0);
     let j = 0;
     for (; j + 3 < p; j += 4) {
       const o0 = j * n + r0;
@@ -115,16 +153,16 @@ export function xtv(X: Matrix, v: ArrayLike<number>, mean?: ArrayLike<number>, o
   return out;
 }
 
-/** (X − mean) w + b: one value per row. */
-export function xw(X: Matrix, w: ArrayLike<number>, b = 0, mean?: ArrayLike<number>, out = new Float64Array(X.rows)): Float64Array {
+/** (X − mean) w + b: one value per row (rows `from` to `to` of `out`). */
+export function xw(X: Matrix, w: ArrayLike<number>, b = 0, mean?: ArrayLike<number>, out = new Float64Array(X.rows), from = 0, to = X.rows): Float64Array {
   const n = X.rows;
   const p = X.cols;
   const d = X.data;
   let shift = b;
   if (mean) for (let j = 0; j < p; j++) shift -= mean[j]! * w[j]!;
-  out.fill(shift);
-  for (let r0 = 0; r0 < n; r0 += BLOCK) {
-    const m = Math.min(BLOCK, n - r0);
+  out.fill(shift, from, to);
+  for (let r0 = from; r0 < to; r0 += BLOCK) {
+    const m = Math.min(BLOCK, to - r0);
     let j = 0;
     // Eight columns per pass over the block's slice of out.
     for (; j + 7 < p; j += 8) {
@@ -167,6 +205,26 @@ function log1pExp(z: number): number {
  * there is an intercept. Returns the mean log loss plus l2 / 2 · ‖w‖².
  */
 export function binaryLogistic(X: Matrix, y: Int32Array, l2: number, intercept: boolean, x: Float64Array, grad: Float64Array): number {
+  return finishLogistic(sumParts(X.rows, grad, (g, a, b) => binaryLogisticPart(X, y, intercept, x, g, a, b)), X, l2, intercept, x, grad, 1);
+}
+
+/** Sums a logistic part over the chunks, in order: the loss returned, the gradient into `grad`. */
+function sumParts(n: number, grad: Float64Array, part: (g: Float64Array, from: number, to: number) => number): number {
+  grad.fill(0);
+  const g = new Float64Array(grad.length);
+  let loss = 0;
+  for (const [a, b] of chunks(n)) {
+    loss += part(g, a, b);
+    addInto(grad, g);
+  }
+  return loss;
+}
+
+/**
+ * binaryLogistic()'s sums over rows `from` to `to`: the log loss (returned) and, in `grad`, Xᵀr, then Σr when there
+ * is an intercept. Parts over disjoint rows add up; finishLogistic() turns the total into the objective.
+ */
+export function binaryLogisticPart(X: Matrix, y: Int32Array, intercept: boolean, x: Float64Array, grad: Float64Array, from: number, to: number): number {
   const n = X.rows;
   const p = X.cols;
   const d = X.data;
@@ -175,8 +233,8 @@ export function binaryLogistic(X: Matrix, y: Int32Array, l2: number, intercept: 
   const b = intercept ? x[p]! : 0;
   let loss = 0;
   let rsum = 0;
-  for (let r0 = 0; r0 < n; r0 += BLOCK) {
-    const m = Math.min(BLOCK, n - r0);
+  for (let r0 = from; r0 < to; r0 += BLOCK) {
+    const m = Math.min(BLOCK, to - r0);
     z.fill(b);
     let j = 0;
     for (; j + 3 < p; j += 4) {
@@ -221,14 +279,8 @@ export function binaryLogistic(X: Matrix, y: Int32Array, l2: number, intercept: 
       grad[j]! += s;
     }
   }
-  let reg = 0;
-  for (let j = 0; j < p; j++) {
-    const w = x[j]!;
-    grad[j] = grad[j]! / n + l2 * w;
-    reg += w * w;
-  }
-  if (intercept) grad[p] = rsum / n;
-  return loss / n + (l2 / 2) * reg;
+  if (intercept) grad[p] = rsum;
+  return loss;
 }
 
 /**
@@ -236,6 +288,11 @@ export function binaryLogistic(X: Matrix, y: Int32Array, l2: number, intercept: 
  * (w, then b when there is an intercept).
  */
 export function multinomialLogistic(X: Matrix, y: Int32Array, K: number, l2: number, intercept: boolean, x: Float64Array, grad: Float64Array): number {
+  return finishLogistic(sumParts(X.rows, grad, (g, a, b) => multinomialLogisticPart(X, y, K, intercept, x, g, a, b)), X, l2, intercept, x, grad, K);
+}
+
+/** multinomialLogistic()'s sums over rows `from` to `to`, as binaryLogisticPart() gives the binary ones. */
+export function multinomialLogisticPart(X: Matrix, y: Int32Array, K: number, intercept: boolean, x: Float64Array, grad: Float64Array, from: number, to: number): number {
   const n = X.rows;
   const p = X.cols;
   const d = X.data;
@@ -243,8 +300,8 @@ export function multinomialLogistic(X: Matrix, y: Int32Array, K: number, l2: num
   const z = new Float64Array(BLOCK * K);
   grad.fill(0);
   let loss = 0;
-  for (let r0 = 0; r0 < n; r0 += BLOCK) {
-    const m = Math.min(BLOCK, n - r0);
+  for (let r0 = from; r0 < to; r0 += BLOCK) {
+    const m = Math.min(BLOCK, to - r0);
     for (let c = 0; c < K; c++) {
       const zc = c * BLOCK;
       z.fill(intercept ? x[c * width + p]! : 0, zc, zc + m);
@@ -304,6 +361,17 @@ export function multinomialLogistic(X: Matrix, y: Int32Array, K: number, l2: num
       }
     }
   }
+  return loss;
+}
+
+/**
+ * The objective from a logistic loss summed over every row, with `grad` holding the summed gradient: both divided by
+ * n, plus the L2 penalty l2 / 2 · ‖w‖² (never on the intercepts) and its gradient.
+ */
+export function finishLogistic(loss: number, X: Matrix, l2: number, intercept: boolean, x: Float64Array, grad: Float64Array, K: number): number {
+  const n = X.rows;
+  const p = X.cols;
+  const width = p + (intercept ? 1 : 0);
   let reg = 0;
   for (let c = 0; c < K; c++) {
     for (let j = 0; j < p; j++) {

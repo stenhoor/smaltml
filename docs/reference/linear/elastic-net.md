@@ -8,7 +8,7 @@ description: 'ElasticNet: linear regression with a mix of L1 and L2 penalties. s
 ```ts
 class ElasticNet implements Predictor {
   constructor(params?: { alpha?: number; l1Ratio?: number; fitIntercept?: boolean; maxIter?: number; tol?: number });
-  fit(X: MatrixInput, y: ArrayLike<number>): Promise<this>;
+  fit(X: MatrixInput, y: ArrayLike<number>, options?: { threads?: number | 'auto' }): Promise<this>;
   predict(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Float64Array>;
   readonly coef: Float64Array;
   readonly intercept: number;

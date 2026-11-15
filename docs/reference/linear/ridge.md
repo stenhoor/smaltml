@@ -8,7 +8,7 @@ description: 'Ridge: linear regression with an L2 penalty, solved in closed form
 ```ts
 class Ridge implements Predictor {
   constructor(params?: { alpha?: number; fitIntercept?: boolean });
-  fit(X: MatrixInput, y: ArrayLike<number>): Promise<this>;
+  fit(X: MatrixInput, y: ArrayLike<number>, options?: { threads?: number | 'auto' }): Promise<this>;
   predict(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Float64Array>;
   readonly coef: Float64Array;
   readonly intercept: number;

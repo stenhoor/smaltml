@@ -70,8 +70,13 @@ export class Pipeline implements Model {
     return Object.fromEntries(this.steps.map(([n, m]) => [n, m.getParams()]));
   }
 
-  async fit(X: TableInput, y?: Labels): Promise<this> {
-    return this.fitSync(X, y);
+  /** Fits each step; the last step's own fit() gets `threads`, so a heavy model at the end runs on several cores. */
+  async fit(X: TableInput, y?: Labels, options: { threads?: number | 'auto' } = {}): Promise<this> {
+    let data = X as MatrixInput;
+    const steps = this.steps.map(([, m]) => m);
+    for (const model of steps.slice(0, -1)) data = (model as Transformer).fitSync(data, y).transformSync(data);
+    await (this.last as unknown as { fit(X: MatrixInput, y?: Labels, o?: object): Promise<unknown> }).fit(data, y, options);
+    return this;
   }
 
   fitSync(X: TableInput, y?: Labels): this {

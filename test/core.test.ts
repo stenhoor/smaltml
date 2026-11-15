@@ -400,3 +400,41 @@ describe('sampleWeight and classWeight on LogisticRegression', () => {
     expect(Array.from((p.last as LogisticRegression).coef.data)).toEqual(Array.from(new LogisticRegression().fitSync(scaled, labels, { sampleWeight: counts }).coef.data));
   });
 });
+
+describe("LogisticRegression's saga solver: L1 and elastic-net penalties", () => {
+  const r = new Random(12);
+  const rows = Array.from({ length: 120 }, () => [r.next() * 2 - 1, r.next() * 2 - 1, r.next() * 2 - 1, r.next() * 2 - 1]);
+  const labels = rows.map((x) => (x[0]! - 0.5 * x[1]! + 0.2 * (r.next() - 0.5) > 0 ? 'yes' : 'no'));
+
+  test('an L1 penalty sets the coefficients of unrelated columns to exactly 0', () => {
+    const m = new LogisticRegression({ solver: 'saga', l1Ratio: 1, C: 0.1, tol: 1e-8, maxIter: 5000, seed: 1 }).fitSync(rows, labels);
+    const coef = Array.from(m.coef.data);
+    expect(coef[0]).not.toBe(0);
+    expect(coef.filter((v) => v === 0).length).toBeGreaterThan(0);
+  });
+
+  test('l1Ratio 0 lands where lbfgs does; a seed repeats the fit; async equals sync', async () => {
+    const sg = new LogisticRegression({ solver: 'saga', tol: 1e-10, maxIter: 20000, seed: 3 }).fitSync(rows, labels);
+    const lb = new LogisticRegression({ tol: 1e-10, maxIter: 10000 }).fitSync(rows, labels);
+    sg.coef.data.forEach((v, i) => expect(v).toBeCloseTo(lb.coef.data[i]!, 5));
+    const again = new LogisticRegression({ solver: 'saga', tol: 1e-10, maxIter: 20000, seed: 3 }).fitSync(rows, labels);
+    expect(Array.from(again.coef.data)).toEqual(Array.from(sg.coef.data));
+    const viaFit = await new LogisticRegression({ solver: 'saga', tol: 1e-10, maxIter: 20000, seed: 3 }).fit(rows, labels, { threads: 2 });
+    expect(Array.from(viaFit.coef.data)).toEqual(Array.from(sg.coef.data));
+  });
+
+  test('saves its solver, l1Ratio and seed', () => {
+    const m = new LogisticRegression({ solver: 'saga', l1Ratio: 0.5, seed: 9 }).fitSync(rows, labels);
+    const back = LogisticRegression.fromJSON(JSON.parse(JSON.stringify(m.toJSON())));
+    expect(back.getParams()).toMatchObject({ solver: 'saga', l1Ratio: 0.5, seed: 9 });
+    expect(Array.from(back.predictProbaSync(rows).data)).toEqual(Array.from(m.predictProbaSync(rows).data));
+  });
+
+  test('l1Ratio above 0 needs saga; and its other errors', async () => {
+    expect(() => new LogisticRegression({ l1Ratio: 1 })).toThrow(expect.objectContaining({ code: 'ML_PARAM' }));
+    expect(() => new LogisticRegression({ solver: 'newton-cholesky', l1Ratio: 0.5 })).toThrow(expect.objectContaining({ code: 'ML_PARAM' }));
+    expect(() => new LogisticRegression({ solver: 'saga', l1Ratio: 1.5 })).toThrow(expect.objectContaining({ code: 'ML_PARAM' }));
+    expect(() => new LogisticRegression({ solver: 'saga', seed: 0.5 })).toThrow(expect.objectContaining({ code: 'ML_PARAM' }));
+    await expect(new LogisticRegression({ solver: 'saga' }).fit(rows, labels, { device: 'gpu' })).rejects.toMatchObject({ code: 'ML_PARAM' });
+  });
+});

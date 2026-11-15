@@ -31,11 +31,12 @@ Settings → Pages → Source must be **GitHub Actions**.
 | `npm run check` | Typecheck, then the tests (vitest): the compare cases, every docs example, the entry points. Before every commit |
 | `npm run test:browser` | In headless Chromium: Run on every playground of the site (`test/browser/docs.mjs`), then WebGPU and the worker against the CPU (`test/browser/hardware.mjs`, WebGPU on SwiftShader). CI runs it |
 | `npm run bench` / `bench:python` / `bench:report` | Times smaltml and scikit-learn on the same data; the report writes docs/research/benchmarks.md. Rerun after performance work |
+| `npm run bench:gpu` | Times WebGPU against the CPU in Chromium on a real GPU (refuses SwiftShader); needs a machine with one. `-- --browser PATH` for a Chromium other than Playwright's |
 | `npm run compare` | Reruns compare/run.py through scikit-learn and rewrites fixtures/compare.json |
 | `npm run docs:dev` / `docs:build` | The site |
 | `npm run build` | `dist/` and type declarations |
 
-Playwright is installed globally in the cloud containers; don't run `playwright install`.
+Playwright is a dev dependency, pinned to CI's version (1.64.1). Its Chromium is preinstalled in the cloud containers; don't run `playwright install` there.
 
 ## Rules
 

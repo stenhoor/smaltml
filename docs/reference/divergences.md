@@ -20,6 +20,20 @@ have something yet, it fails with an error rather than give a different answer. 
 | `OneHotEncoder` names for numbers | Python's (`size_3.0` for floats) | JavaScript's (`size_3`) |
 | Encoders and `ColumnTransformer` output | Sparse by default | Dense always |
 
+## Between JavaScript engines
+
+JavaScript fixes the result of `+`, `−`, `×`, `÷` and `Math.sqrt` to the last bit, but not of `Math.exp`, `Math.log`,
+`Math.log1p` or `Math.hypot`. smaltml uses the engine's own, so a fit can differ between engines. Measured on
+2026-11-15, on 200,000 inputs per function and range, against results computed exactly:
+
+- Node 26.13 got `Math.exp`, `Math.log` and `Math.log1p` one bit off the correctly rounded result in up to 9.6% of
+  the inputs; Chromium 157 got all of them right. Both gave the same `Math.hypot`, up to 2 bits off.
+- A one-bit difference changes where an iterative fit stops. `LogisticRegression` on the benchmark data (unscaled
+  columns), run to the default `tol`: the largest probability difference between Node and Chromium was 1.2e-3 to
+  2.0e-2. With `tol: 1e-12`, 4.2e-6 to 1.7e-4.
+- The GPU computes in 32-bit floats, with its own functions: its fits agree with the CPU's within a tolerance, not to
+  the last bit ([The CPU, WebGPU and workers](../guide/hardware)).
+
 ## Not yet supported
 
 Each of these fails with `ML_PARAM` or isn't a parameter yet:

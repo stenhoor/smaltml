@@ -1,9 +1,10 @@
 import { fail } from '../core/errors.js';
-import { binaryLogistic, multinomialLogistic, xw } from '../core/kernels.js';
+import { binaryLogistic, finishLogistic, multinomialLogistic, xw } from '../core/kernels.js';
+import { logisticOnGpu } from '../gpu/logistic.js';
 import { minimize, minimizeAsync, type MinimizeResult } from '../core/linalg.js';
 import { logisticParallel, threadPool, type ThreadOptions } from '../parallel/index.js';
 import { assertFinite, Matrix, type MatrixInput } from '../core/matrix.js';
-import { matMul, useGpu, type DeviceOptions } from '../gpu/index.js';
+import { gpuAvailable, matMul, useGpu, type DeviceOptions } from '../gpu/index.js';
 import {
   checkColumns,
   checkDocument,
@@ -30,6 +31,11 @@ export interface LogisticRegressionParams {
   fitIntercept?: boolean;
   /** The most L-BFGS iterations. Default 100. */
   maxIter?: number;
+}
+
+/** Where a fit runs: `'gpu'` asks for the GPU; `'auto'` (the default) and `'cpu'` fit on the CPU. */
+export interface FitDeviceOptions {
+  device?: 'auto' | 'cpu' | 'gpu';
 }
 
 /** A fit's prepared inputs. */
@@ -118,10 +124,29 @@ export class LogisticRegression implements Classifier {
 
   /**
    * Fits the model. With `threads` (default `'auto'`), the objective runs on several cores where shared memory allows
-   * and X is large enough, with the same result as fitSync() to the last bit.
+   * and X is large enough, with the same result as fitSync() to the last bit. With `device: 'gpu'`, it runs on the GPU
+   * instead, in 32-bit floats; `'auto'` (the default) keeps fits on the CPU.
    */
-  async fit(X: MatrixInput, y: Labels, options: ThreadOptions = {}): Promise<this> {
+  async fit(X: MatrixInput, y: Labels, options: ThreadOptions & FitDeviceOptions = {}): Promise<this> {
     const m = Matrix.from(X);
+    if (options.device === 'gpu') {
+      // The objective on the GPU, in 32-bit floats: the result is close to the CPU's, not equal to it.
+      if (!(await gpuAvailable())) fail('ML_PARAM', "device 'gpu' needs WebGPU, which isn't available here: leave device out, or use 'cpu'");
+      const job = this.#prepare(m, y);
+      const gpu = await logisticOnGpu(m, job.target, job.k, this.fitIntercept);
+      if (gpu) {
+        try {
+          const intercept = this.fitIntercept;
+          const objective = async (x: Float64Array, g: Float64Array) => finishLogistic(await gpu.sums(x, g), m, job.l2, intercept, x, g, job.k);
+          return this.#finish(job, await minimizeAsync(objective, job.x0, job.options));
+        } finally {
+          gpu.destroy();
+        }
+      }
+      // More classes, or a larger X, than the GPU takes: the CPU.
+    } else if (options.device !== undefined && options.device !== 'cpu' && options.device !== 'auto') {
+      fail('ML_PARAM', `device is 'auto', 'cpu' or 'gpu', not ${String(options.device)}`);
+    }
     const pool = await threadPool(options.threads, m.rows * m.cols);
     if (!pool) return this.fitSync(m, y);
     const job = this.#prepare(m, y);

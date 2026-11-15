@@ -35,6 +35,10 @@ describe('device choice without WebGPU', () => {
     await expect(matMul(A, A)).rejects.toMatchObject({ code: 'ML_SHAPE' });
   });
 
+  test('a fit on the GPU fails where there is none', async () => {
+    await expect(new LogisticRegression().fit([[0], [1], [2], [3]], [0, 0, 1, 1], { device: 'gpu' })).rejects.toMatchObject({ code: 'ML_PARAM' });
+  });
+
   test('async predictions equal the sync ones on the CPU', async () => {
     const X = [[1, 2], [2, 1], [3, 5], [4, 3], [5, 6], [6, 4]];
     const lin = new LinearRegression().fitSync(X, [3, 4, 9, 8, 12, 11]);

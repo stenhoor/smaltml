@@ -56,8 +56,24 @@ await model.predict([[5, 5], [6, 2]], { device: 'auto' })
 | 15 |
 | 10 |
 
-This release runs predictions on the GPU: `predict` and `predictProba` of the linear models and of pipelines that end
-in one, and `matMul`. Fits run on the CPU.
+On the GPU today: `predict` and `predictProba` of the linear models and of pipelines that end in one, `matMul`, and
+`LogisticRegression` fits that ask for it.
+
+### Fits on the GPU
+
+`LogisticRegression.fit` takes `device: 'gpu'`. The loss and its gradient, the step that reads all of X, then run on
+the GPU at each iteration; the optimizer stays on the CPU. Each workgroup sums its rows' gradient in 32-bit floats,
+and the CPU adds the workgroups' sums in 64-bit floats. The fit lands close to the CPU's, not on it: in the browser
+tests, its probabilities are within about 1e-6 of a CPU fit's (the tests allow 2e-3).
+
+<!-- docs:skip -->
+```ts
+const model = await new LogisticRegression().fit(X, y, { device: 'gpu' });
+```
+
+A fit asks for the GPU only with `'gpu'`: `'auto'`, the default, keeps fits on the CPU, where they give exactly what
+`fitSync` gives. More than 8 classes, or an X larger than the GPU's largest buffer, fits on the CPU. Without WebGPU,
+`'gpu'` fails with `ML_PARAM`.
 
 ## What the GPU computes
 

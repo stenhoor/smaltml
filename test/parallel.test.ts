@@ -78,3 +78,19 @@ describe('fits on several threads equal fitSync, bit for bit', () => {
     expect(many.toJSON()).toEqual(one.toJSON());
   });
 });
+
+describe('weighted fits on several threads equal fitSync, bit for bit', () => {
+  const r = new Random(5);
+  const w = Float64Array.from({ length: X.rows }, () => 2 * r.next());
+  for (const [name, make] of [
+    ['LinearRegression', () => new LinearRegression()],
+    ['Ridge', () => new Ridge({ alpha: 3 })],
+    ['Lasso', () => new Lasso({ alpha: 0.01 })],
+  ] as const) {
+    test(name, async () => {
+      const one = make().fitSync(X, y, { sampleWeight: w });
+      const many = await make().fit(X, y, { threads: 4, sampleWeight: w });
+      expect(many.toJSON()).toEqual(one.toJSON());
+    });
+  }
+});

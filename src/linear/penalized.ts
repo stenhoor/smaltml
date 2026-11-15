@@ -2,6 +2,7 @@ import { fail, warn } from '../core/errors.js';
 import { checkedMeans, cholesky, choleskySolve, xw } from '../core/kernels.js';
 import { threadPool, type ThreadOptions } from '../parallel/index.js';
 import { keptMeans, runHere, runOn, type Solver } from './calls.js';
+import { checkedWeights, weightedLeastSquares, weightsSummingToRows, type SampleWeightOptions } from './weights.js';
 import { assertFinite, assertFiniteVector, Matrix, toVector, type MatrixInput, type VectorInput } from '../core/matrix.js';
 import { checkColumns, checkDocument, document, floats, notFitted, numbers, type ModelDocument, type Predictor } from '../core/model.js';
 import { matMul, predictOnGpu, type DeviceOptions } from '../gpu/index.js';
@@ -85,32 +86,47 @@ abstract class PenalizedLinear implements Predictor {
 
   abstract getParams(): object;
 
+  /**
+   * Whether weights are scaled to sum to the number of rows before the fit, as scikit-learn's ElasticNet and Lasso do
+   * (their objective divides by n). Ridge's objective doesn't, so its weights are used as given.
+   */
+  protected readonly weightsSumToRows: boolean = false;
+
   /** The coefficients for X less `mean` (when there is an intercept) and centred y, and the iterations it took. */
   protected abstract solve(X: Matrix, mean: Float64Array | undefined, y: Float64Array): Solver<Solution>;
 
   /**
    * Fits the model. With `threads` (default `'auto'`), the Gram matrix and Xᵀy are computed on several cores where
-   * shared memory allows and X is large enough, with the same result as fitSync() to the last bit.
+   * shared memory allows and X is large enough, with the same result as fitSync() to the last bit. With
+   * `sampleWeight`, each row's squared error counts that many times.
    */
-  async fit(X: MatrixInput, y: VectorInput, options: ThreadOptions = {}): Promise<this> {
+  async fit(X: MatrixInput, y: VectorInput, options: ThreadOptions & SampleWeightOptions = {}): Promise<this> {
     const m = Matrix.from(X);
     const pool = await threadPool(options.threads, m.rows * m.cols);
-    if (!pool) return this.fitSync(m, y);
-    const c = this.#prepare(m, y);
-    return this.#finish(m, c, m.cols === 0 ? { coef: new Float64Array(0), nIter: 0, converged: true } : await runOn(pool, this.solve(m, c.xMean, c.y)));
+    if (!pool) return this.fitSync(m, y, options);
+    const c = this.#prepare(m, y, options.sampleWeight);
+    return this.#finish(m, c, m.cols === 0 ? { coef: new Float64Array(0), nIter: 0, converged: true } : await runOn(pool, this.solve(c.design, c.kernelMean, c.y)));
   }
 
-  fitSync(X: MatrixInput, y: VectorInput): this {
+  fitSync(X: MatrixInput, y: VectorInput, options: SampleWeightOptions = {}): this {
     const m = Matrix.from(X);
-    const c = this.#prepare(m, y);
-    return this.#finish(m, c, m.cols === 0 ? { coef: new Float64Array(0), nIter: 0, converged: true } : runHere(this.solve(m, c.xMean, c.y)));
+    const c = this.#prepare(m, y, options.sampleWeight);
+    return this.#finish(m, c, m.cols === 0 ? { coef: new Float64Array(0), nIter: 0, converged: true } : runHere(this.solve(c.design, c.kernelMean, c.y)));
   }
 
-  #prepare(m: Matrix, y: VectorInput) {
+  /** The design the solver reads (X, or its weighted copy), the means its kernels subtract, and the intercept's means. */
+  #prepare(m: Matrix, y: VectorInput, sampleWeight: VectorInput | undefined) {
     if (m.rows === 0) fail('ML_SHAPE', 'X has no rows');
     const target = toVector(y, m.rows);
     assertFiniteVector(target);
-    return centring(m, target, this.fitIntercept);
+    let weights = checkedWeights(sampleWeight, m.rows);
+    if (weights) {
+      if (this.weightsSumToRows) weights = weightsSummingToRows(weights);
+      const wd = weightedLeastSquares(m, target, weights, this.fitIntercept);
+      return { design: wd.X, kernelMean: undefined, xMean: wd.xMean, yMean: wd.yMean, y: wd.y };
+    }
+    const c = centring(m, target, this.fitIntercept);
+    return { design: m, kernelMean: c.xMean, ...c };
   }
 
   #finish(m: Matrix, c: { xMean: Float64Array | undefined; yMean: number }, { coef, nIter, converged, gap, gapTol }: Solution): this {
@@ -235,6 +251,7 @@ export interface ElasticNetParams {
  */
 export class ElasticNet extends PenalizedLinear {
   readonly kind: string = 'ElasticNet';
+  protected override readonly weightsSumToRows: boolean = true;
   readonly l1Ratio: number;
   readonly maxIter: number;
   readonly tol: number;

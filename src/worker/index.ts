@@ -22,7 +22,7 @@ export interface PredictOptions {
 /** smaltml in a worker: the same models, run off the calling thread. */
 export interface MlWorker {
   /** Fits a copy of `model` in the worker and returns the fitted copy, of the same class. `model` itself is unchanged. */
-  fit<M extends Model>(model: M, X: TableInput, y?: Labels): Promise<M>;
+  fit<M extends Model>(model: M, X: TableInput, y?: Labels, options?: { sampleWeight?: ArrayLike<number> }): Promise<M>;
   /** The fitted model's predictions, computed in the worker. */
   predict(model: Model, X: TableInput, options?: PredictOptions): Promise<Float64Array | Label[]>;
   /** The fitted classifier's probabilities, computed in the worker. */
@@ -60,8 +60,11 @@ export function connect(port: Port & { terminate?(): void }): MlWorker {
     });
   };
   return {
-    async fit<M extends Model>(model: M, X: TableInput, y?: Labels): Promise<M> {
-      const r = await call('fit', model, X, y === undefined ? {} : { y: Array.from(y as ArrayLike<number | string>) as Labels });
+    async fit<M extends Model>(model: M, X: TableInput, y?: Labels, options: { sampleWeight?: ArrayLike<number> } = {}): Promise<M> {
+      const r = await call('fit', model, X, {
+        ...(y === undefined ? {} : { y: Array.from(y as ArrayLike<number | string>) as Labels }),
+        ...(options.sampleWeight === undefined ? {} : { sampleWeight: Array.from(options.sampleWeight) }),
+      });
       if (r.kind !== 'model') fail('ML_FORMAT', 'the worker sent no model back');
       return loadModel(r.model) as M;
     },

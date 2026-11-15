@@ -8,7 +8,8 @@ description: 'LinearRegression: ordinary least squares for one target. scikit-le
 ```ts
 class LinearRegression implements Predictor {
   constructor(params?: { fitIntercept?: boolean });
-  fit(X: MatrixInput, y: ArrayLike<number>, options?: { threads?: number | 'auto' }): Promise<this>;
+  fit(X: MatrixInput, y: ArrayLike<number>, options?: { threads?: number | 'auto'; sampleWeight?: ArrayLike<number> }): Promise<this>;
+  fitSync(X: MatrixInput, y: ArrayLike<number>, options?: { sampleWeight?: ArrayLike<number> }): this;
   predict(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Float64Array>;
   readonly coef: Float64Array;
   readonly intercept: number;
@@ -24,6 +25,9 @@ for one target.
 ## Parameters
 
 - `fitIntercept` (default `true`): fit an intercept. With `false`, the fit passes through the origin.
+
+`fit` and `fitSync` take `sampleWeight`: one weight per row, 0 or more, as scikit-learn's `sample_weight`. A row's
+squared error counts that many times, so whole-number weights fit as the rows repeated would.
 
 ## Returns
 
@@ -59,6 +63,18 @@ const m = await new LinearRegression().fit([[1], [2], [3], [4]], [3, 5, 7, 9]);
 | coef | intercept |
 | --- | --- |
 | [2] | 1 |
+
+The last point is off the line. Weighted 0, it doesn't count at all:
+
+```ts
+const off = [[1], [2], [3], [4], [5]];
+const ys = [3, 5, 7, 9, 20];
+({ plain: new LinearRegression().fitSync(off, ys).coef, weighted: new LinearRegression().fitSync(off, ys, { sampleWeight: [1, 1, 1, 1, 0] }).coef })
+```
+
+| plain | weighted |
+| --- | --- |
+| 3.8 | 2 |
 
 <!-- docs:error ML_SINGULAR -->
 ```ts

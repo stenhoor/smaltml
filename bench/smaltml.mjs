@@ -45,6 +45,7 @@ for (const { name, key, n, p } of SIZES) {
     'Ridge fit': await median(() => fit(new ml.Ridge({ alpha: 1 }), X, y), reps),
     'Lasso fit (alpha 0.1)': await median(() => fit(new ml.Lasso({ alpha: 0.1 }), X, y), reps),
     'LogisticRegression fit, 2 classes': await median(() => fit(new ml.LogisticRegression(), X, y2), reps),
+    'LogisticRegression fit, 2 classes, newton-cholesky': await median(() => fit(new ml.LogisticRegression({ solver: 'newton-cholesky' }), X, y2), reps),
     'LogisticRegression fit, 3 classes': await median(() => fit(new ml.LogisticRegression(), X, y3), reps),
     'LogisticRegression predictProba, 3 classes': await median(() => l3.predictProbaSync(X), reps),
   };

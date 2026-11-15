@@ -37,14 +37,15 @@ faster.
 
 | Operation | smaltml, 1 thread | smaltml, 4 threads | scikit-learn, 1 thread | scikit-learn, 4 threads | smaltml ÷ scikit-learn, 1 thread | smaltml ÷ scikit-learn, 4 threads |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| StandardScaler fit + transform | 1.43 | 1.68 | 1.34 | 1.33 | 1.1× | 1.3× |
-| LinearRegression fit | 3.00 | 3.82 | 3.05 | 3.75 | 1.0× | 1.0× |
-| LinearRegression predict | 0.16 | 0.15 | 0.15 | 0.15 | 1.0× | 1.0× |
-| Ridge fit | 2.28 | 2.20 | 1.24 | 1.25 | 1.8× | 1.8× |
-| Lasso fit (alpha 0.1) | 2.15 | 2.18 | 1.22 | 1.49 | 1.8× | 1.5× |
-| LogisticRegression fit, 2 classes | 72.9 | 68.0 | 41.6 | 41.6 | 1.8× | 1.6× |
-| LogisticRegression fit, 3 classes | 196 | 189 | 102 | 104 | 1.9× | 1.8× |
-| LogisticRegression predictProba, 3 classes | 0.93 | 1.06 | 0.88 | 0.94 | 1.1× | 1.1× |
+| StandardScaler fit + transform | 1.85 | 1.71 | 1.96 | 1.81 | 0.9× | 0.9× |
+| LinearRegression fit | 3.90 | 3.71 | 4.52 | 4.63 | 0.9× | 0.8× |
+| LinearRegression predict | 0.22 | 0.18 | 0.36 | 0.26 | 0.6× | 0.7× |
+| Ridge fit | 2.74 | 2.44 | 1.89 | 1.55 | 1.5× | 1.6× |
+| Lasso fit (alpha 0.1) | 2.51 | 2.39 | 1.80 | 1.60 | 1.4× | 1.5× |
+| LogisticRegression fit, 2 classes | 79.7 | 115 | 60.7 | 66.2 | 1.3× | 1.7× |
+| LogisticRegression fit, 2 classes, newton-cholesky | 21.9 | 37.6 | 14.0 | 24.0 | 1.6× | 1.6× |
+| LogisticRegression fit, 3 classes | 187 | 203 | 133 | 138 | 1.4× | 1.5× |
+| LogisticRegression predictProba, 3 classes | 1.35 | 1.85 | 1.44 | 1.31 | 0.9× | 1.4× |
 
 Iterations: Lasso 5 (scikit-learn 5), logistic regression 100 and 100 (scikit-learn 100 and 100).
 
@@ -52,18 +53,19 @@ Iterations: Lasso 5 (scikit-learn 5), logistic regression 100 and 100 (scikit-le
 
 | Operation | smaltml, 1 thread | smaltml, 4 threads | scikit-learn, 1 thread | scikit-learn, 4 threads | smaltml ÷ scikit-learn, 1 thread | smaltml ÷ scikit-learn, 4 threads |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| StandardScaler fit + transform | 124 | 87.4 | 102 | 145 | 1.2× | 0.6× |
-| LinearRegression fit | 210 | 108 | 415 | 339 | 0.5× | 0.3× |
-| LinearRegression predict | 12.0 | 10.1 | 10.0 | 8.63 | 1.2× | 1.2× |
-| Ridge fit | 193 | 75.5 | 64.2 | 76.9 | 3.0× | 1.0× |
-| Lasso fit (alpha 0.1) | 186 | 81.3 | 97.5 | 65.0 | 1.9× | 1.3× |
-| LogisticRegression fit, 2 classes | 2,825 | 974 | 1,632 | 2,508 | 1.7× | 0.4× |
-| LogisticRegression fit, 3 classes | 7,196 | 2,657 | 3,877 | 8,028 | 1.9× | 0.3× |
-| LogisticRegression predictProba, 3 classes | 48.1 | 42.8 | 30.8 | 22.5 | 1.6× | 1.9× |
+| StandardScaler fit + transform | 114 | 206 | 119 | 123 | 1.0× | 1.7× |
+| LinearRegression fit | 293 | 159 | 501 | 265 | 0.6× | 0.6× |
+| LinearRegression predict | 11.9 | 12.7 | 13.4 | 9.87 | 0.9× | 1.3× |
+| Ridge fit | 202 | 100 | 74.9 | 75.4 | 2.7× | 1.3× |
+| Lasso fit (alpha 0.1) | 276 | 113 | 119 | 64.1 | 2.3× | 1.8× |
+| LogisticRegression fit, 2 classes | 3,274 | 1,457 | 2,121 | 3,026 | 1.5× | 0.5× |
+| LogisticRegression fit, 2 classes, newton-cholesky | 2,016 | 923 | 984 | 605 | 2.0× | 1.5× |
+| LogisticRegression fit, 3 classes | 8,167 | 3,205 | 4,218 | 9,267 | 1.9× | 0.3× |
+| LogisticRegression predictProba, 3 classes | 50.8 | 65.9 | 29.7 | 33.2 | 1.7× | 2.0× |
 
 Iterations: Lasso 4 (scikit-learn 4), logistic regression 100 and 100 (scikit-learn 100 and 100).
 
-Run 2026-11-15: smaltml 0.1.0 on Node 22.23.4; scikit-learn 1.9.1, NumPy 2.5.4 on Python 3.13.18 (openblas 0.3.31.dev, openblas 0.3.34.106.0, openmp). CPU: Intel(R) Xeon(R) Processor @ 2.30GHz, 4 cores. smaltml's runs on several threads use fit() with threads 'auto' (up to that many); predictions and StandardScaler run on one thread in every smaltml column.
+Run 2026-11-15: smaltml 0.1.0 on Node 22.23.4; scikit-learn 1.9.1, NumPy 2.5.4 on Python 3.13.18 (openblas 0.3.31.dev, openblas 0.3.34.106.0, openmp). CPU: Intel(R) Xeon(R) Processor @ 2.10GHz, 4 cores. smaltml's runs on several threads use fit() with threads 'auto' (up to that many); predictions and StandardScaler run on one thread in every smaltml column.
 
 <!-- /bench:results -->
 

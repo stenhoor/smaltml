@@ -1,8 +1,8 @@
 import { fail } from '../core/errors.js';
-import { binaryLogistic, finishLogistic, multinomialLogistic, xw } from '../core/kernels.js';
+import { binaryLogistic, cholesky, choleskySolve, finishLogistic, multinomialLogistic, weightedGram, xw } from '../core/kernels.js';
 import { logisticOnGpu } from '../gpu/logistic.js';
 import { minimize, minimizeAsync, type MinimizeResult } from '../core/linalg.js';
-import { logisticParallel, threadPool, type ThreadOptions } from '../parallel/index.js';
+import { logisticParallel, threadPool, weightedGramParallel, xwParallel, type ThreadOptions } from '../parallel/index.js';
 import { assertFinite, Matrix, type MatrixInput } from '../core/matrix.js';
 import { gpuAvailable, matMul, useGpu, type DeviceOptions } from '../gpu/index.js';
 import {
@@ -29,9 +29,17 @@ export interface LogisticRegressionParams {
   tol?: number;
   /** Fit an intercept (not penalized). Default true. */
   fitIntercept?: boolean;
-  /** The most L-BFGS iterations. Default 100. */
+  /** The most iterations of the solver. Default 100. */
   maxIter?: number;
+  /**
+   * How the fit is solved. `'lbfgs'` (the default) works from the gradient alone. `'newton-cholesky'` takes Newton
+   * steps with the exact Hessian, solved by Cholesky: few, costly iterations, the better choice with many rows and
+   * not many columns (up to a few hundred). It takes two classes so far, and runs on this thread, on the CPU.
+   */
+  solver?: 'lbfgs' | 'newton-cholesky';
 }
+
+const SOLVERS = ['lbfgs', 'newton-cholesky'] as const;
 
 /** Where a fit runs: `'gpu'` asks for the GPU; `'auto'` (the default) and `'cpu'` fit on the CPU. */
 export interface FitDeviceOptions {
@@ -60,6 +68,68 @@ interface State {
   featureNamesIn: readonly string[] | undefined;
 }
 
+/** What the Newton solver asks for: the objective and its gradient at x, the scores X·w + b, or XᵀWX. */
+type NewtonCall =
+  | { k: 'objective'; x: Float64Array; grad: Float64Array }
+  | { k: 'scores'; w: Float64Array; b: number }
+  | { k: 'hessian'; weights: Float64Array };
+
+/**
+ * Newton's method for the binary objective: each step solves H d = −g, with H = X̃ᵀ diag(p(1 − p)) X̃ / n + l2 (the
+ * intercept unpenalized) by Cholesky, then backtracks along d until the objective falls enough (Armijo). It stops, as
+ * scikit-learn's newton-cholesky does, when the largest gradient component and half the Newton decrement dᵀHd are
+ * both at most tol. A generator, like the linear solvers, so fitSync() and fit() (the kernels on a thread pool) share it.
+ */
+function* newtonBinary(n: number, p: number, l2: number, intercept: boolean, tol: number, maxIter: number): Generator<NewtonCall, MinimizeResult, Float64Array | number> {
+  const q = p + (intercept ? 1 : 0);
+  let x = new Float64Array(q);
+  let g = new Float64Array(q);
+  let f = (yield { k: 'objective', x, grad: g }) as number;
+  const weights = new Float64Array(n);
+  let iterations = 0;
+  let decrement = Infinity;
+  let converged = false;
+  for (; iterations < maxIter; iterations++) {
+    let gmax = 0;
+    for (let j = 0; j < q; j++) gmax = Math.max(gmax, Math.abs(g[j]!));
+    if (gmax <= tol && 0.5 * decrement <= tol) {
+      converged = true;
+      break;
+    }
+    // The Hessian at x: each row's weight is p(1 − p) / n, with p the probability of the second class.
+    const z = (yield { k: 'scores', w: x.slice(0, p), b: intercept ? x[p]! : 0 }) as Float64Array;
+    for (let i = 0; i < n; i++) {
+      const pi = 1 / (1 + Math.exp(-z[i]!));
+      weights[i] = (pi * (1 - pi)) / n;
+    }
+    const H = (yield { k: 'hessian', weights }) as Float64Array;
+    for (let j = 0; j < p; j++) H[j * q + j]! += l2;
+    const L = cholesky(H, q);
+    // Where the Hessian is singular to working precision (separable classes, no penalty), stop at the best point so far.
+    if (!L) break;
+    const d = choleskySolve(L, q, Float64Array.from(g, (v) => -v));
+    let slope = 0;
+    for (let j = 0; j < q; j++) slope += g[j]! * d[j]!;
+    decrement = -slope;
+    // Backtracking: the full step first, halved until the objective falls by at least 1e-4 of the slope.
+    let t = 1;
+    let ft = Infinity;
+    let trial = new Float64Array(q);
+    let tg = new Float64Array(q);
+    for (let tries = 0; tries < 40; tries++, t /= 2) {
+      trial = Float64Array.from(x, (v, j) => v + t * d[j]!);
+      tg = new Float64Array(q);
+      ft = (yield { k: 'objective', x: trial, grad: tg }) as number;
+      if (ft <= f + 1e-4 * t * slope) break;
+    }
+    if (!(ft <= f)) break;
+    x = trial;
+    g = tg;
+    f = ft;
+  }
+  return { x, value: f, iterations, converged };
+}
+
 /**
  * Logistic regression: a linear model of each class's log-odds, fitted by L-BFGS to minimize the log loss plus an L2
  * penalty, ‖w‖² / (2 C n). scikit-learn's `LogisticRegression` with its default solver, `lbfgs`: two classes take one
@@ -72,6 +142,7 @@ export class LogisticRegression implements Classifier {
   readonly tol: number;
   readonly fitIntercept: boolean;
   readonly maxIter: number;
+  readonly solver: 'lbfgs' | 'newton-cholesky';
   #state: State | null = null;
 
   constructor(params: LogisticRegressionParams = {}) {
@@ -80,6 +151,8 @@ export class LogisticRegression implements Classifier {
     this.tol = params.tol ?? 1e-4;
     this.fitIntercept = params.fitIntercept ?? true;
     this.maxIter = params.maxIter ?? 100;
+    this.solver = params.solver ?? 'lbfgs';
+    if (!SOLVERS.includes(this.solver)) fail('ML_PARAM', `solver is 'lbfgs' or 'newton-cholesky', not ${String(this.solver)}`);
     if (!(this.C > 0)) fail('ML_PARAM', `C must be greater than 0, not ${this.C}`);
     if (this.l1Ratio !== 0) fail('ML_PARAM', `l1Ratio ${this.l1Ratio} isn't supported yet: only 0 (an L2 penalty)`);
     if (!(this.tol > 0)) fail('ML_PARAM', `tol must be greater than 0, not ${this.tol}`);
@@ -105,7 +178,7 @@ export class LogisticRegression implements Classifier {
     return this.#fitted().intercept;
   }
 
-  /** The L-BFGS iterations the fit took. */
+  /** The solver's iterations. */
   get nIter(): number {
     return this.#fitted().nIter;
   }
@@ -119,7 +192,7 @@ export class LogisticRegression implements Classifier {
   }
 
   getParams(): Required<LogisticRegressionParams> {
-    return { C: this.C, l1Ratio: this.l1Ratio, tol: this.tol, fitIntercept: this.fitIntercept, maxIter: this.maxIter };
+    return { C: this.C, l1Ratio: this.l1Ratio, tol: this.tol, fitIntercept: this.fitIntercept, maxIter: this.maxIter, solver: this.solver };
   }
 
   /**
@@ -129,6 +202,27 @@ export class LogisticRegression implements Classifier {
    */
   async fit(X: MatrixInput, y: Labels, options: ThreadOptions & FitDeviceOptions = {}): Promise<this> {
     const m = Matrix.from(X);
+    if (this.solver === 'newton-cholesky') {
+      if (options.device === 'gpu') fail('ML_PARAM', "solver 'newton-cholesky' runs on the CPU: use solver 'lbfgs' on the GPU");
+      const pool = await threadPool(options.threads, m.rows * m.cols);
+      if (!pool) return this.fitSync(m, y);
+      const job = this.#prepare(m, y);
+      if (job.k !== 1) return this.fitSync(m, y);
+      const objective = logisticParallel(pool, m, job.target, 1, job.l2, this.fitIntercept);
+      const solver = newtonBinary(m.rows, m.cols, job.l2, this.fitIntercept, this.tol, this.maxIter);
+      let r = solver.next();
+      while (!r.done) {
+        const c = r.value;
+        r = solver.next(
+          c.k === 'objective'
+            ? await objective(c.x, c.grad)
+            : c.k === 'scores'
+              ? await xwParallel(pool, m, c.w, c.b)
+              : await weightedGramParallel(pool, m, c.weights, this.fitIntercept),
+        );
+      }
+      return this.#finish(job, r.value);
+    }
     if (options.device === 'gpu') {
       // The objective on the GPU, in 32-bit floats: the result is close to the CPU's, not equal to it.
       if (!(await gpuAvailable())) fail('ML_PARAM', "device 'gpu' needs WebGPU, which isn't available here: leave device out, or use 'cpu'");
@@ -159,6 +253,22 @@ export class LogisticRegression implements Classifier {
     const job = this.#prepare(m, y);
     const { target, k, l2 } = job;
     const withIntercept = this.fitIntercept;
+    if (this.solver === 'newton-cholesky') {
+      if (k !== 1) fail('ML_PARAM', `solver 'newton-cholesky' takes two classes so far, not ${job.classes.length}: use solver 'lbfgs'`);
+      const solver = newtonBinary(m.rows, m.cols, l2, withIntercept, this.tol, this.maxIter);
+      let r = solver.next();
+      while (!r.done) {
+        const c = r.value;
+        r = solver.next(
+          c.k === 'objective'
+            ? binaryLogistic(m, target, l2, withIntercept, c.x, c.grad)
+            : c.k === 'scores'
+              ? xw(m, c.w, c.b)
+              : weightedGram(m, c.weights, withIntercept),
+        );
+      }
+      return this.#finish(job, r.value);
+    }
     const objective =
       k === 1
         ? (x: Float64Array, g: Float64Array) => binaryLogistic(m, target, l2, withIntercept, x, g)

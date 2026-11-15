@@ -202,8 +202,18 @@ async function parts(pool: ThreadPool, n: number, task: (chunks: [number, number
 export async function gramParallel(pool: ThreadPool, X: Matrix, mean?: Float64Array): Promise<Float64Array> {
   const S = share(X);
   const A = new Float64Array(X.cols * X.cols);
-  for (const part of await parts(pool, X.rows, (c) => ({ op: 'gram', X: S, mean: mean ?? null, chunks: c }))) addInto(A, part.values);
+  for (const part of await parts(pool, X.rows, (c) => ({ op: 'gram', X: S, mean: mean ?? null, weights: null, ones: false, chunks: c }))) addInto(A, part.values);
   return symmetrize(A, X.cols);
+}
+
+/** weightedGram() in parallel. */
+export async function weightedGramParallel(pool: ThreadPool, X: Matrix, weights: ArrayLike<number>, ones: boolean): Promise<Float64Array> {
+  const S = share(X);
+  const W = sharedCopy(weights, 'f64');
+  const q = X.cols + (ones ? 1 : 0);
+  const A = new Float64Array(q * q);
+  for (const part of await parts(pool, X.rows, (c) => ({ op: 'gram', X: S, mean: null, weights: W, ones, chunks: c }))) addInto(A, part.values);
+  return symmetrize(A, q);
 }
 
 /** xtv() in parallel. */

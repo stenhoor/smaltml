@@ -26,8 +26,10 @@ function handle(req: Request): Response {
   const X = matrix(t.X);
   const mean = 'mean' in t ? (t.mean ?? undefined) : undefined;
   switch (t.op) {
-    case 'gram':
-      return { id: req.id, ok: true, parts: t.chunks.map(([a, b]) => ({ values: gramPart(X, mean, a, b) })) };
+    case 'gram': {
+      const w = t.weights ? new Float64Array(t.weights) : undefined;
+      return { id: req.id, ok: true, parts: t.chunks.map(([a, b]) => ({ values: gramPart(X, mean, a, b, w, t.ones) })) };
+    }
     case 'xtv': {
       const v = new Float64Array(t.v);
       return { id: req.id, ok: true, parts: t.chunks.map(([a, b]) => ({ values: xtvPart(X, v, mean, a, b) })) };

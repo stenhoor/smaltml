@@ -60,6 +60,7 @@ describe('fits on several threads equal fitSync, bit for bit', () => {
     ['ElasticNet', () => new ElasticNet({ alpha: 0.01, l1Ratio: 0.3 }), () => y],
     ['LogisticRegression, 2 classes', () => new LogisticRegression({ maxIter: 30 }), () => y2],
     ['LogisticRegression, 3 classes', () => new LogisticRegression({ maxIter: 30 }), () => y3],
+    ['LogisticRegression, newton-cholesky', () => new LogisticRegression({ solver: 'newton-cholesky' }), () => y2],
   ] as const;
   for (const [name, make, target] of cases) {
     test(name, async () => {

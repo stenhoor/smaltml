@@ -317,6 +317,20 @@ case("grid search: logistic over C and fit_intercept, f1_macro", "grid", {"X": t
      {"params": g.cv_results_["params"], "mean": tolist(g.cv_results_["mean_test_score"]), "std": tolist(g.cv_results_["std_test_score"]),
       "rank": tolist(g.cv_results_["rank_test_score"]), "best": g.best_params_}, {"rtol": 1e-5, "atol": 1e-6})
 
+# LogisticRegression with solver newton-cholesky (appended, so the cases above keep their data) ------------------
+for name, (X, y), params, tol in [
+    ("logistic newton-cholesky: two classes", classification(300, 4, 2), {"solver": "newton-cholesky", "tol": 1e-10, "max_iter": 100}, {"rtol": 1e-6, "atol": 1e-7}),
+    ("logistic newton-cholesky: C = 0.05", classification(200, 3, 2, 2.0), {"solver": "newton-cholesky", "C": 0.05, "tol": 1e-10}, {"rtol": 1e-6, "atol": 1e-7}),
+    ("logistic newton-cholesky: no intercept", classification(150, 3, 2), {"solver": "newton-cholesky", "fit_intercept": False, "tol": 1e-10}, {"rtol": 1e-6, "atol": 1e-7}),
+    ("logistic newton-cholesky: no penalty", classification(250, 2, 2, 0.5), {"solver": "newton-cholesky", "C": math.inf, "tol": 1e-10}, {"rtol": 1e-6, "atol": 1e-7}),
+    ("logistic newton-cholesky: defaults", classification(400, 6, 2), {"solver": "newton-cholesky"}, {"rtol": 1e-4, "atol": 1e-5}),
+]:
+    m = LogisticRegression(**params).fit(X, y)
+    Xn = rng.normal(size=(12, X.shape[1]))
+    case(name, "LogisticRegression", {"X": tolist(X), "y": tolist(y), "Xnew": tolist(Xn), "params": params},
+         {"classes": tolist(m.classes_), "coef": tolist(m.coef_), "intercept": tolist(m.intercept_),
+          "predict": tolist(m.predict(Xn)), "predictProba": tolist(m.predict_proba(Xn))}, tol)
+
 out = {
     "comment": "Written by compare/run.py (npm run compare); don't edit by hand.",
     "reference": {"scikit-learn": sklearn.__version__, "numpy": np.__version__},

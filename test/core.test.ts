@@ -438,3 +438,43 @@ describe("LogisticRegression's saga solver: L1 and elastic-net penalties", () =>
     await expect(new LogisticRegression({ solver: 'saga' }).fit(rows, labels, { device: 'gpu' })).rejects.toMatchObject({ code: 'ML_PARAM' });
   });
 });
+
+describe("StandardScaler's partialFit", () => {
+  const rows = [[1, 10], [2, 30], [4, NaN], [7, 20], [11, 60], [3, 5]];
+
+  test('batches give the statistics of one fit on every row', async () => {
+    const whole = new StandardScaler().fitSync(rows);
+    const parts = new StandardScaler();
+    for (const b of [rows.slice(0, 2), rows.slice(2, 5), rows.slice(5)]) await parts.partialFit(b);
+    for (const key of ['mean', 'var', 'scale'] as const) {
+      Array.from(parts[key]!).forEach((v, j) => expect(v).toBeCloseTo(whole[key]![j]!, 12));
+    }
+    expect(Array.from(parts.nSamplesSeen as Float64Array)).toEqual([6, 5]);
+  });
+
+  test('before any fit it fits, and fit() starts again', () => {
+    const first = new StandardScaler().partialFitSync(rows.slice(0, 3));
+    expect(Array.from(first.mean!)).toEqual(Array.from(new StandardScaler().fitSync(rows.slice(0, 3)).mean!));
+    first.partialFitSync(rows.slice(3));
+    first.fitSync([[0, 0], [2, 2]]);
+    expect(Array.from(first.mean!)).toEqual([1, 1]);
+    expect(first.nSamplesSeen).toBe(2);
+  });
+
+  test('the asynchronous call equals its twin, and the result saves', async () => {
+    const a = await new StandardScaler().partialFit({ x: [1, 2, 3], y: [4, 4, 9] });
+    await a.partialFit({ x: [8, 9], y: [1, 0] });
+    const b = new StandardScaler().partialFitSync({ x: [1, 2, 3], y: [4, 4, 9] }).partialFitSync({ x: [8, 9], y: [1, 0] });
+    expect(Array.from(a.var!)).toEqual(Array.from(b.var!));
+    const back = loadModel(JSON.parse(JSON.stringify(a))) as StandardScaler;
+    expect(back.nSamplesSeen).toBe(5);
+    expect(Array.from(back.partialFitSync({ x: [5], y: [5] }).mean!)).toEqual(Array.from(a.partialFitSync({ x: [5], y: [5] }).mean!));
+  });
+
+  test('a batch must have the fit\'s columns', () => {
+    const s = new StandardScaler().partialFitSync({ x: [1, 2], y: [3, 4] });
+    expect(code(() => s.partialFitSync([[1, 2, 3]]))).toBe('ML_SHAPE');
+    expect(code(() => s.partialFitSync({ y: [1], x: [2] }))).toBe('ML_SHAPE');
+    expect(code(() => s.partialFitSync([]))).toBe('ML_SHAPE');
+  });
+});

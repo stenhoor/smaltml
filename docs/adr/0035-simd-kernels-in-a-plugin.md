@@ -1,7 +1,7 @@
 # ADR 0035: WebAssembly SIMD kernels, in a plugin: smaltml-simd
 
-- **Status:** proposed, 2026-11-15. The owner's direction of that day is recorded under Decision; the points under
-  "Still to decide" are open.
+- **Status:** proposed, 2026-11-15. The owner's direction and decisions of that day are recorded under Decision (items
+  2 and 10); the points under "Still to decide" are open.
 - **Date:** 2026-11-15
 - **Amends:** [ADR 0024](./0024-smaltml-scope-and-architecture): section 8 ("Where it is hardest") and "Still to
   decide", item 5 (whether smaltml may write its own WebAssembly kernels).
@@ -48,10 +48,33 @@ Node 22.23 (V8 12.4), a 4-core Xeon VM; the median of 11 runs, in three rounds:
   checks the JavaScript engine makes on every array read.
 - **Fused multiply-add** is the relaxed SIMD instruction `f64x2.relaxed_madd` (Chrome 114 and later; not in every
   browser). Whether it fuses depends on the processor, so its results can differ in the last bits from one machine to
-  another.
+  another. How far is measured below ("How far results move").
 - **Noise:** the VM varies by about ±30% between rounds; every round showed the same ratios.
 - **For scale:** XᵀX for 200,000 × 50 in about 35 ms, against scikit-learn's whole Ridge fit (XᵀX, Xᵀy and the solve)
   in 75 ms on one thread.
+
+### How far results move
+
+Any change to the order of the sums moves the last bits, and the solve can magnify that by up to the condition number of
+XᵀX. Measured on the probe (the XᵀX of centred X, then Ridge's Cholesky solve on it), as the largest difference
+relative to each entry's scale (√(A_jj·A_kk)) and to the largest coefficient:
+
+| X | cond(XᵀX) | XᵀX: plugin vs smaltml | XᵀX: fused vs plain | Coefficients: plugin vs smaltml | Coefficients: fused vs plain |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 200,000 × 50, the benchmark data | 9 × 10² | 1.5 × 10⁻¹⁵ | 1.9 × 10⁻¹⁶ | 5.8 × 10⁻¹⁶ | 3.8 × 10⁻¹⁶ |
+| 50,000 × 200, random | 1.3 | 1.1 × 10⁻¹⁵ | 2.2 × 10⁻¹⁶ | 6.4 × 10⁻¹⁶ | 2.6 × 10⁻¹⁶ |
+| 100,000 × 10, two columns 10⁻⁶ apart, alpha 1 | 4 × 10¹² | 1.5 × 10⁻¹⁵ | 2.2 × 10⁻¹⁶ | 2.5 × 10⁻¹² | 9.8 × 10⁻¹⁴ |
+| the same, alpha 0 (no penalty) | 4 × 10¹² | 1.5 × 10⁻¹⁵ | 2.2 × 10⁻¹⁶ | 8.7 × 10⁻⁴ | 5.6 × 10⁻¹² |
+
+- **Fused multiply-add moves results less than the plugin itself does.** Between two machines (one that fuses, one
+  that doesn't), XᵀX differs by about one rounding step (2 × 10⁻¹⁶); turning the plugin on at all moves it about
+  7 times as much, from summing in another order.
+- **On well-conditioned data, coefficients move by under 10⁻¹⁵.** The compare tests' tolerances against scikit-learn
+  are 10⁻⁹ to 10⁻⁵, a million times wider and more.
+- **On nearly collinear data without a penalty, any change of order is magnified.** Coefficients moved by 9 × 10⁻⁴
+  between the plugin and smaltml's own kernel, and 6 × 10⁻¹² between fused and plain. Such a fit has no well-defined
+  answer to more digits than that whichever kernel runs: scikit-learn's own result on it also depends on its BLAS.
+  smaltml's LinearRegression refines its solution and falls back to QR on such data, which the probe didn't.
 
 The probe isn't in the repository. Its code and benchmark move to smaltml-simd as that repository's first pull request
 (below), so the numbers above link to a benchmark anyone can run, as the brand requires.
@@ -65,7 +88,8 @@ The probe isn't in the repository. Its code and benchmark move to smaltml-simd a
 2. **WebAssembly SIMD goes in a plugin, `smaltml-simd`** (owner, 2026-11-15): its own repository,
    `stenhoor/smaltml-simd`, and package, `@smaltworks/smaltml-simd`, as the family's plugins have (smaltdb
    [ADR 0012](https://smaltdb.dev/adr/0012-plugins); the brand's rule that outside code a feature needs goes in a
-   named, optional plugin). An app that doesn't install it runs exactly as today.
+   named, optional plugin). An app that doesn't install it runs exactly as today. It is shown as smaltdb's plugins are
+   (item 10).
 
 3. **smaltml gets one extension point, in TypeScript: replaceable kernels.** The plugin can only swap the CPU kernels
    smaltml already has, with the same signatures:
@@ -110,6 +134,12 @@ The probe isn't in the repository. Its code and benchmark move to smaltml-simd a
 9. **Where WebAssembly SIMD isn't available,** `useSimd()` reports it (it resolves to `false`) and smaltml's own
    kernels stay in use. Node has it; browsers have had it since Chrome 91, Firefox 89 and Safari 16.4.
 
+10. **Shown as smaltdb's plugins are** (owner, 2026-11-15; smalt-brand BRAND.md, "Plugins"). smaltml-simd is an
+    infrastructure plugin: smaltml's brand and a plain name, "smaltml SIMD", with no mark or colour of its own. Its
+    README carries the Official plugin badge with smaltml's mark. Its docs are a plugin site (BRAND.md,
+    "Documentation": guide per plugin, API reference), and smaltml's site lists it on a plugins page, as smaltdb.dev
+    lists smaltdb's.
+
 ## Consequences
 
 - **The fits built on XᵀX should get 2 to 4 times faster** where the app turns the plugin on, by the probe; the
@@ -136,9 +166,11 @@ The probe isn't in the repository. Its code and benchmark move to smaltml-simd a
 
 ## Still to decide
 
-1. **Fused multiply-add:** offered at all (item 6), or plain SIMD only, for one result on every machine.
-2. **The brand:** whether smaltml-simd is a product with its own words and mark, or a plugin page under smaltml's site,
-   as smaltdb's plugins are (smalt-brand DECISIONS.md).
+1. **Fused multiply-add:** offered as an option (item 6), or plain SIMD only, for one result on every machine. Measured
+   ("How far results move"): fused and plain differ by about one rounding step in XᵀX and under 10⁻¹⁵ in
+   well-conditioned coefficients, less than the plugin itself moves them, for 6–30% more speed on the probe. The recommendation is
+   to offer it, off by default.
+2. ~~**The brand**~~: decided 2026-11-15, shown as smaltdb's plugins are (item 10).
 3. **Threads and SIMD together:** the probe ran on one thread. Whether the gains multiply on 4 threads, or memory
    bandwidth caps them, is to be measured in step 4.
 4. **The logistic objective:** whether a SIMD `exp` (a polynomial approximation, results within its own tolerance)

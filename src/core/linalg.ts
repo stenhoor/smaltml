@@ -49,7 +49,7 @@ export function leastSquares(A: Matrix, b: Float64Array): Float64Array {
   const y = b.slice();
   const diag = new Float64Array(p);
   let maxNorm = 0;
-  for (let j = 0; j < p; j++) maxNorm = Math.max(maxNorm, Math.hypot(...A.column(j)));
+  for (let j = 0; j < p; j++) maxNorm = Math.max(maxNorm, norm2(A.column(j)));
   const tol = Math.max(n, p) * Number.EPSILON * maxNorm;
   for (let k = 0; k < p; k++) {
     const ck = k * n;
@@ -95,6 +95,19 @@ export function leastSquares(A: Matrix, b: Float64Array): Float64Array {
     x[k] = s / diag[k]!;
   }
   return x;
+}
+
+/** The Euclidean norm, scaled so it neither overflows nor underflows, in a loop (spreading a long column into Math.hypot overflows the call stack). */
+function norm2(v: Float64Array): number {
+  let scale = 0;
+  for (let i = 0; i < v.length; i++) scale = Math.max(scale, Math.abs(v[i]!));
+  if (scale === 0 || !Number.isFinite(scale)) return scale;
+  let s = 0;
+  for (let i = 0; i < v.length; i++) {
+    const x = v[i]! / scale;
+    s += x * x;
+  }
+  return scale * Math.sqrt(s);
 }
 
 /** An objective for minimize(): its value at x, with its gradient written into `grad`. */

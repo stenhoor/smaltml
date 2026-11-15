@@ -86,6 +86,14 @@ describe('models', () => {
     expect(Array.from(await m.predict([[10, 1]])).map((v) => +v.toFixed(10))).toEqual([23]);
   });
 
+  test('linear regression fits a long column (no spread onto the call stack)', () => {
+    const n = 300_000;
+    const x = Float64Array.from({ length: n }, (_, i) => i / n);
+    const m = new LinearRegression().fitSync({ x }, Float64Array.from(x, (v) => 3 * v + 1));
+    expect(m.coef[0]).toBeCloseTo(3, 9);
+    expect(m.intercept).toBeCloseTo(1, 9);
+  });
+
   test('errors carry codes', () => {
     expect(code(() => new LinearRegression().predictSync(X))).toBe('ML_NOT_FITTED');
     expect(code(() => new LinearRegression().fitSync(X, [1, 2]))).toBe('ML_SHAPE');

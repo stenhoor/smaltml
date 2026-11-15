@@ -242,7 +242,9 @@ for it and reports where it stands, and a model that is behind still ships.
 2. **Importing other models** (such as ONNX) beyond XGBoost's format.
 3. ~~**The outside code for the compare tests**~~: decided 2026-11-14, scikit-learn and NumPy (section 7).
 4. **When phase 2 starts:** after phase 1 is released, or alongside it.
-5. **If a model can't reach Python's speed in TypeScript:** whether smaltml may write its own WebAssembly kernels.
+5. ~~**If a model can't reach Python's speed in TypeScript:** whether smaltml may write its own WebAssembly kernels.~~
+   The owner's direction, 2026-11-15: not in the core, which stays TypeScript; in a plugin, smaltml-simd
+   ([ADR 0035](./0035-simd-kernels-in-a-plugin), proposed).
 6. **How `predict()` reaches the query languages, if at all** (owner, 2026-11-14: "the jury is still out"): a
    TypeScript function only; a function the apps (smaltui, smaltnb, smaltfl) register with a language when they open a
    database; or a language (smaltql, smaltcy, smaltdf) importing smaltml directly, an exception to the layering. The

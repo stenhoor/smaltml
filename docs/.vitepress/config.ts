@@ -201,6 +201,7 @@ export default defineConfig({
               { text: 'Decisions', link: '/adr/' },
               { text: '0024 Scope and architecture', link: '/adr/0024-smaltml-scope-and-architecture' },
               { text: '0034 Where auto runs', link: '/adr/0034-where-auto-runs' },
+              { text: '0035 SIMD in a plugin', link: '/adr/0035-simd-kernels-in-a-plugin' },
             ],
           },
         ],

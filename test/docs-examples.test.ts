@@ -109,6 +109,9 @@ const AREAS = ['core', 'preprocessing', 'linear', 'metrics', 'selection', 'pipel
 const checkTypes = typeChecker({
   files: Object.fromEntries(sources(SRC)),
   packages: { '@smaltworks/smaltml': '/src/index.ts', ...Object.fromEntries(AREAS.map((a) => [`@smaltworks/smaltml/${a}`, `/src/${a}/index.ts`])) },
+  // smaltty 0.15.0's further checks (stenhoor/smaltty#38): a model awaited from fit() has its members checked, an
+  // overloaded function its argument count, and an annotated variable its value.
+  checks: ['this', 'overloads', 'variables'],
 });
 
 /** The code smaltty checks for an example: a module, the setup above it, then the example; repeated imports once. */

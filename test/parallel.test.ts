@@ -61,6 +61,7 @@ describe('fits on several threads equal fitSync, bit for bit', () => {
     ['LogisticRegression, 2 classes', () => new LogisticRegression({ maxIter: 30 }), () => y2],
     ['LogisticRegression, 3 classes', () => new LogisticRegression({ maxIter: 30 }), () => y3],
     ['LogisticRegression, newton-cholesky', () => new LogisticRegression({ solver: 'newton-cholesky' }), () => y2],
+    ['LogisticRegression, newton-cholesky, 3 classes', () => new LogisticRegression({ solver: 'newton-cholesky' }), () => y3],
   ] as const;
   for (const [name, make, target] of cases) {
     test(name, async () => {
@@ -96,6 +97,7 @@ describe('weighted fits on several threads equal fitSync, bit for bit', () => {
   for (const [name, make, target] of [
     ['LogisticRegression, 3 classes, balanced', () => new LogisticRegression({ maxIter: 30, classWeight: 'balanced' }), y3],
     ['LogisticRegression, newton-cholesky', () => new LogisticRegression({ solver: 'newton-cholesky' }), y2],
+    ['LogisticRegression, newton-cholesky, 3 classes, balanced', () => new LogisticRegression({ solver: 'newton-cholesky', classWeight: 'balanced' }), y3],
   ] as const) {
     test(name, async () => {
       const one = make().fitSync(X, target, { sampleWeight: w });

@@ -436,6 +436,20 @@ for name, counts, kw in [
     case(name, "split-stratify", {"y": tolist(labels), "params": params},
          {"classes": tolist(np.unique(labels)), "train": per[0][0], "test": per[0][1]}, {"rtol": 0, "atol": 0})
 
+# LogisticRegression newton-cholesky with more than two classes (appended) --------------------------------------
+for name, (X_, y_), params, tol in [
+    ("logistic newton-cholesky: three classes", classification(300, 4, 3), {"solver": "newton-cholesky", "tol": 1e-10}, {"rtol": 1e-6, "atol": 1e-7}),
+    ("logistic newton-cholesky: five classes", classification(500, 3, 5, 1.5), {"solver": "newton-cholesky", "tol": 1e-10}, {"rtol": 1e-6, "atol": 1e-7}),
+    ("logistic newton-cholesky: three classes, C = 0.05", classification(200, 3, 3), {"solver": "newton-cholesky", "C": 0.05, "tol": 1e-10}, {"rtol": 1e-6, "atol": 1e-7}),
+    ("logistic newton-cholesky: three classes, no intercept", classification(200, 3, 3), {"solver": "newton-cholesky", "fit_intercept": False, "tol": 1e-10}, {"rtol": 1e-6, "atol": 1e-7}),
+    ("logistic newton-cholesky: three classes, defaults", classification(400, 5, 3), {"solver": "newton-cholesky"}, {"rtol": 1e-4, "atol": 1e-5}),
+]:
+    m = LogisticRegression(**params).fit(X_, y_)
+    Xn_ = rng.normal(size=(12, X_.shape[1]))
+    case(name, "LogisticRegression", {"X": tolist(X_), "y": tolist(y_), "Xnew": tolist(Xn_), "params": params},
+         {"classes": tolist(m.classes_), "coef": tolist(m.coef_), "intercept": tolist(m.intercept_),
+          "predict": tolist(m.predict(Xn_)), "predictProba": tolist(m.predict_proba(Xn_)), "nIter": int(m.n_iter_[0])}, tol)
+
 out = {
     "comment": "Written by compare/run.py (npm run compare); don't edit by hand.",
     "reference": {"scikit-learn": sklearn.__version__, "numpy": np.__version__},

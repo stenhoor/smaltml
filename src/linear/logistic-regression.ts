@@ -35,7 +35,8 @@ export interface LogisticRegressionParams {
   /**
    * How the fit is solved. `'lbfgs'` (the default) works from the gradient alone. `'newton-cholesky'` takes Newton
    * steps with the exact Hessian, solved by Cholesky: few, costly iterations, the better choice with many rows and
-   * not many columns (up to a few hundred). It takes two classes so far, and runs on this thread, on the CPU.
+   * not many columns (up to a few hundred), and with few classes: its Hessian grows as the classes squared. It runs
+   * on the CPU.
    */
   solver?: 'lbfgs' | 'newton-cholesky';
   /**
@@ -133,6 +134,111 @@ function* newtonBinary(n: number, p: number, l2: number, intercept: boolean, tol
     for (let tries = 0; tries < 40; tries++, t /= 2) {
       trial = Float64Array.from(x, (v, j) => v + t * d[j]!);
       tg = new Float64Array(q);
+      ft = (yield { k: 'objective', x: trial, grad: tg }) as number;
+      if (ft <= f + 1e-4 * t * slope) break;
+    }
+    if (!(ft <= f)) break;
+    x = trial;
+    g = tg;
+    f = ft;
+  }
+  return { x, value: f, iterations, converged };
+}
+
+/**
+ * Newton's method for the multinomial objective, K classes, x as K rows of (w, then b). The Hessian has a q × q block
+ * for each pair of classes a, b: X̃ᵀ diag(w·p_a(δ_ab − p_b)) X̃ / Σw, plus l2 on the coefficients of the diagonal
+ * blocks. Adding the same vector to every class's row changes no probability, so the full Hessian is singular in that
+ * direction: each step is solved in the subspace where the K rows of the step sum to 0 (the last row is minus the sum
+ * of the others), the subspace L-BFGS keeps to from its start at 0, where the penalized optimum also lies. The line
+ * search and stopping rule are newtonBinary()'s.
+ */
+function* newtonMultinomial(n: number, p: number, K: number, l2: number, intercept: boolean, tol: number, maxIter: number, rowWeights?: Float64Array, total = n): Generator<NewtonCall, MinimizeResult, Float64Array | number> {
+  const q = p + (intercept ? 1 : 0);
+  const size = K * q;
+  const r = (K - 1) * q;
+  let x = new Float64Array(size);
+  let g = new Float64Array(size);
+  let f = (yield { k: 'objective', x, grad: g }) as number;
+  let iterations = 0;
+  let decrement = Infinity;
+  let converged = false;
+  for (; iterations < maxIter; iterations++) {
+    let gmax = 0;
+    for (let j = 0; j < size; j++) gmax = Math.max(gmax, Math.abs(g[j]!));
+    if (gmax <= tol && 0.5 * decrement <= tol) {
+      converged = true;
+      break;
+    }
+    // Each class's scores, then each row's probabilities.
+    const z: Float64Array[] = [];
+    for (let c = 0; c < K; c++) z.push((yield { k: 'scores', w: x.slice(c * q, c * q + p), b: intercept ? x[c * q + p]! : 0 }) as Float64Array);
+    const prob = z.map(() => new Float64Array(n));
+    for (let i = 0; i < n; i++) {
+      let max = -Infinity;
+      for (let c = 0; c < K; c++) max = Math.max(max, z[c]![i]!);
+      let sum = 0;
+      for (let c = 0; c < K; c++) sum += prob[c]![i] = Math.exp(z[c]![i]! - max);
+      for (let c = 0; c < K; c++) prob[c]![i]! /= sum;
+    }
+    // The blocks, a ≤ b: weights w·p_a(1 − p_a) on the diagonal, −w·p_a·p_b off it (as +w·p_a·p_b, then negated, as
+    // the kernel takes weights of 0 or more).
+    const block: Float64Array[][] = Array.from({ length: K }, () => new Array<Float64Array>(K));
+    for (let a = 0; a < K; a++) {
+      for (let b = a; b < K; b++) {
+        const pa = prob[a]!;
+        const pb = prob[b]!;
+        const wts = Float64Array.from(pa, (v, i) => ((rowWeights ? rowWeights[i]! : 1) * v * (a === b ? 1 - v : pb[i]!)) / total);
+        const B = (yield { k: 'hessian', weights: wts }) as Float64Array;
+        if (a === b) {
+          for (let j = 0; j < p; j++) B[j * q + j]! += l2;
+        } else {
+          for (let t = 0; t < B.length; t++) B[t] = -B[t]!;
+        }
+        block[a]![b] = B;
+        block[b]![a] = B;
+      }
+    }
+    // The step in the subspace: d_c = u_c for c < K − 1, d_{K−1} = −Σ u_c. Its Hessian is TᵀHT, its gradient Tᵀg:
+    // H_ab − H_a,last − H_last,b + H_last,last, and g_c − g_last.
+    const last = K - 1;
+    const Hr = new Float64Array(r * r);
+    for (let a = 0; a < last; a++) {
+      for (let b = 0; b < last; b++) {
+        const Bab = block[a]![b]!;
+        const Bal = block[a]![last]!;
+        const Blb = block[last]![b]!;
+        const Bll = block[last]![last]!;
+        for (let i = 0; i < q; i++) {
+          // Every block is a symmetric matrix (a weighted Gram matrix), so block (a, b) is block (b, a).
+          for (let j = 0; j < q; j++) {
+            Hr[(a * q + i) * r + b * q + j] = Bab[i * q + j]! - Bal[i * q + j]! - Blb[i * q + j]! + Bll[i * q + j]!;
+          }
+        }
+      }
+    }
+    const gr = new Float64Array(r);
+    for (let c = 0; c < last; c++) for (let j = 0; j < q; j++) gr[c * q + j] = -(g[c * q + j]! - g[last * q + j]!);
+    const L = cholesky(Hr, r);
+    if (!L) break;
+    const u = choleskySolve(L, r, gr);
+    const d = new Float64Array(size);
+    for (let c = 0; c < last; c++) {
+      for (let j = 0; j < q; j++) {
+        d[c * q + j] = u[c * q + j]!;
+        d[last * q + j]! -= u[c * q + j]!;
+      }
+    }
+    let slope = 0;
+    for (let j = 0; j < size; j++) slope += g[j]! * d[j]!;
+    decrement = -slope;
+    let t = 1;
+    let ft = Infinity;
+    let trial = new Float64Array(size);
+    let tg = new Float64Array(size);
+    for (let tries = 0; tries < 40; tries++, t /= 2) {
+      trial = Float64Array.from(x, (v, j) => v + t * d[j]!);
+      tg = new Float64Array(size);
       ft = (yield { k: 'objective', x: trial, grad: tg }) as number;
       if (ft <= f + 1e-4 * t * slope) break;
     }
@@ -247,9 +353,11 @@ export class LogisticRegression implements Classifier {
       const pool = await threadPool(options.threads, m.rows * m.cols);
       if (!pool) return this.fitSync(m, y, sync);
       const job = this.#prepare(m, y, options.sampleWeight);
-      if (job.k !== 1) return this.fitSync(m, y, sync);
-      const objective = logisticParallel(pool, m, job.target, 1, job.l2, this.fitIntercept, job.weights, job.total);
-      const solver = newtonBinary(m.rows, m.cols, job.l2, this.fitIntercept, this.tol, this.maxIter, job.weights, job.total);
+      const objective = logisticParallel(pool, m, job.target, job.k, job.l2, this.fitIntercept, job.weights, job.total);
+      const solver =
+        job.k === 1
+          ? newtonBinary(m.rows, m.cols, job.l2, this.fitIntercept, this.tol, this.maxIter, job.weights, job.total)
+          : newtonMultinomial(m.rows, m.cols, job.k, job.l2, this.fitIntercept, this.tol, this.maxIter, job.weights, job.total);
       let r = solver.next();
       while (!r.done) {
         const c = r.value;
@@ -296,14 +404,18 @@ export class LogisticRegression implements Classifier {
     const { target, k, l2, weights, total } = job;
     const withIntercept = this.fitIntercept;
     if (this.solver === 'newton-cholesky') {
-      if (k !== 1) fail('ML_PARAM', `solver 'newton-cholesky' takes two classes so far, not ${job.classes.length}: use solver 'lbfgs'`);
-      const solver = newtonBinary(m.rows, m.cols, l2, withIntercept, this.tol, this.maxIter, weights, total);
+      const solver =
+        k === 1
+          ? newtonBinary(m.rows, m.cols, l2, withIntercept, this.tol, this.maxIter, weights, total)
+          : newtonMultinomial(m.rows, m.cols, k, l2, withIntercept, this.tol, this.maxIter, weights, total);
       let r = solver.next();
       while (!r.done) {
         const c = r.value;
         r = solver.next(
           c.k === 'objective'
-            ? binaryLogistic(m, target, l2, withIntercept, c.x, c.grad, weights, total)
+            ? k === 1
+              ? binaryLogistic(m, target, l2, withIntercept, c.x, c.grad, weights, total)
+              : multinomialLogistic(m, target, k, l2, withIntercept, c.x, c.grad, weights, total)
             : c.k === 'scores'
               ? xw(m, c.w, c.b)
               : weightedGram(m, c.weights, withIntercept),

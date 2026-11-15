@@ -37,8 +37,9 @@ with the solvers `lbfgs` (the default) and `newton-cholesky`.
 - `maxIter` (default `100`): the most iterations of the solver.
 - `solver` (default `'lbfgs'`): how the fit is solved. `'lbfgs'` works from the gradient alone: many cheap
   iterations. `'newton-cholesky'` takes Newton steps with the exact Hessian, solved by Cholesky: a few costly ones,
-  usually the faster fit with many rows and up to a few hundred columns. It takes two classes so far, and runs on the
-  CPU (on several threads, as `lbfgs` does).
+  usually the faster fit with many rows, up to a few hundred columns and few classes: its Hessian has a block for
+  each pair of classes, so each iteration costs about as many passes over X as there are pairs. It runs on the CPU
+  (on several threads, as `lbfgs` does).
 - `classWeight` (default: every class 1): weights for the classes, scikit-learn's `class_weight`. `'balanced'` gives
   each class n / (classes × its rows), counting rows by their sample weights, so every class counts as much in all: the
   usual remedy when one class is rare. An object gives a class's weight by its label, `{ yes: 5 }`; classes it leaves
@@ -68,7 +69,7 @@ take `sampleWeight`, one weight per row: each row's loss counts that many times,
 - `ML_LABELS`: one class only, or labels that mix numbers and strings.
 - `ML_PARAM`: `C` ≤ 0, `l1Ratio` other than 0, `tol` ≤ 0, `maxIter` below 1, a `solver` it doesn't know,
   `device: 'gpu'` where there is no WebGPU, or with weights (`sampleWeight`, `classWeight`), `'newton-cholesky'` with
-  more than two classes or with `device: 'gpu'`, a `classWeight` that isn't `'balanced'` or an object of weights 0 or
+  `device: 'gpu'`, a `classWeight` that isn't `'balanced'` or an object of weights 0 or
   more, or one that names a class y doesn't have.
 - `ML_SHAPE`, `ML_VALUE`: `sampleWeight` of the wrong length, or with a negative or non-finite weight; every row
   weighing 0.
@@ -80,7 +81,8 @@ Two classes fit one row of coefficients; more classes fit the multinomial (softm
 to convergence, the coefficients agree with scikit-learn's within 1e-5 (relative) in the compare tests; with the
 default `tol` both stop early, and agree within about 2e-3 there. `newton-cholesky` stops as scikit-learn's does, when
 the largest gradient component and half the Newton decrement are both at most `tol`: it takes the same number of
-iterations and agrees within 1e-6, at the default `tol` as well. With `lbfgs` on data with unscaled columns, the
+iterations and agrees within 1e-6, at the default `tol` as well, with two classes or more. With more than two, the
+classes' coefficients and intercepts each sum to 0, as scikit-learn's do. With `lbfgs` on data with unscaled columns, the
 default `tol` stops further from the minimum, and fits differ more: by up to 1.5e-2 in probability from
 scikit-learn, and up to 2.0e-2 between JavaScript engines, on the benchmark data
 ([Where smaltml differs](../divergences#between-javascript-engines)). Scale the columns first (`StandardScaler`), or

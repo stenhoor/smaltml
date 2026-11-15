@@ -8,7 +8,7 @@ description: 'LogisticRegression: classes and their probabilities from a linear 
 ```ts
 class LogisticRegression implements Classifier {
   constructor(params?: { C?: number; l1Ratio?: number; tol?: number; fitIntercept?: boolean; maxIter?: number });
-  fit(X: MatrixInput, y: Labels, options?: { threads?: number | 'auto' }): Promise<this>;
+  fit(X: MatrixInput, y: Labels, options?: { threads?: number | 'auto'; device?: 'auto' | 'cpu' | 'gpu' }): Promise<this>;
   predict(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Label[]>;
   predictProba(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Matrix>;
   decisionFunction(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Matrix>;
@@ -34,6 +34,10 @@ with its default solver, `lbfgs`.
 - `fitIntercept` (default `true`): fit an intercept, which is never penalized.
 - `maxIter` (default `100`): the most L-BFGS iterations.
 
+`fit` takes `threads` ([On several cores](../../guide/hardware#on-several-cores)) and `device`: `'gpu'` runs the loss
+and its gradient on the GPU in 32-bit floats, for a fit close to the CPU's ([Fits on the
+GPU](../../guide/hardware#fits-on-the-gpu)); `'auto'` (the default) and `'cpu'` fit on the CPU.
+
 ## Returns
 
 - `predict`: the most probable class for each row.
@@ -47,7 +51,8 @@ with its default solver, `lbfgs`.
 ## Errors
 
 - `ML_LABELS`: one class only, or labels that mix numbers and strings.
-- `ML_PARAM`: `C` ≤ 0, `l1Ratio` other than 0, `tol` ≤ 0, or `maxIter` below 1.
+- `ML_PARAM`: `C` ≤ 0, `l1Ratio` other than 0, `tol` ≤ 0, `maxIter` below 1, or `device: 'gpu'` where there is no
+  WebGPU.
 - `ML_VALUE`, `ML_SHAPE`, `ML_NOT_FITTED`: as for every model.
 
 ## Notes

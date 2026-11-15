@@ -63,6 +63,17 @@ window.results = (async () => {
   const same = gl.filter((v, i) => v === cl[i]).length / cl.length;
   check(same > 0.999, 'pipeline labels on the GPU: ' + (same * 100).toFixed(2) + '% the same as the CPU');
 
+  // Fits on the GPU: the objective in 32-bit floats, so close to the CPU's fit, not equal to it.
+  for (const [what, labels_] of [['2 classes', labels.map((l) => (l === 'high' ? 'high' : 'other'))], ['3 classes', labels]]) {
+    const onGpu = await new ml.LogisticRegression({ maxIter: 200 }).fit(X, labels_, { device: 'gpu' });
+    const onCpu = new ml.LogisticRegression({ maxIter: 200 }).fitSync(X, labels_);
+    const pg = onGpu.predictProbaSync(X).data;
+    const pc = onCpu.predictProbaSync(X).data;
+    let worstP = 0;
+    for (let i = 0; i < pc.length; i++) worstP = Math.max(worstP, Math.abs(pg[i] - pc[i]));
+    check(worstP < 2e-3, 'LogisticRegression fit on the GPU, ' + what + ': probabilities within ' + worstP.toExponential(2) + ' of the CPU fit');
+  }
+
   // Threads: the page is cross-origin isolated, so fits run on a pool of workers sharing X, and equal fitSync.
   const par = await import('/dist/parallel.js');
   check(ml.sharedMemoryAvailable(), 'shared memory on a cross-origin isolated page');

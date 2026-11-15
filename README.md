@@ -16,7 +16,7 @@ save to JSON and load back the same.
 > scalers (standard, min–max, robust), `SimpleImputer`, `OneHotEncoder`, `OrdinalEncoder`, `ColumnTransformer`,
 > `LinearRegression`, `Ridge`, `Lasso`, `ElasticNet`, `LogisticRegression`, `pipeline`, regression and classification
 > metrics, `trainTestSplit`, k-fold and stratified folds, `crossValScore`, `GridSearchCV`, saving and loading models,
-> fits on several threads, predictions on WebGPU, a Web Worker for fits, and `predict()` by model name from a model registry, in memory or in a
+> fits on several threads, predictions and logistic regression fits on WebGPU, a Web Worker for fits, and `predict()` by model name from a model registry, in memory or in a
 > smaltdb table.
 
 ## Install

@@ -71,5 +71,6 @@ Run 2026-11-15: smaltml 0.1.0 on Node 22.23.4; scikit-learn 1.9.1, NumPy 2.5.4 o
 
 - One machine and one run: timings move by about 10% between runs on a shared virtual machine. Compare the ratios
   more than the milliseconds.
-- WebGPU isn't timed here: these are CPU timings, and the machine has no GPU. smaltml's GPU path is for predictions
-  today ([The CPU, WebGPU and workers](../guide/hardware)).
+- WebGPU isn't timed here: these are CPU timings, and the machine has no GPU (the browser tests run WebGPU on
+  SwiftShader, a CPU emulation, for correctness only). smaltml's GPU path covers predictions and `LogisticRegression`
+  fits ([The CPU, WebGPU and workers](../guide/hardware)).

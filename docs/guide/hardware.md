@@ -38,10 +38,10 @@ move it, and the most threads `'auto'` uses.
 
 The asynchronous calls that can use the GPU take a `device` option:
 
-- `'auto'` (the default) uses the GPU when the browser has WebGPU and the work is large enough to gain from it
-  (`GPU_MIN_WORK` multiply-adds). Small work stays on the CPU, where moving data to the GPU would cost more than it
-  saves.
-- `'cpu'` always runs on the CPU, and gives exactly what the `*Sync` call gives.
+- `'auto'` (the default) runs predictions and fits on the CPU: in the benchmarks, the CPU was faster for every
+  prediction measured ([ADR 0034](../adr/0034-where-auto-runs)). `matMul` uses the GPU when the browser has WebGPU and
+  the product is at least `GPU_MIN_WORK` multiply-adds.
+- `'cpu'` always runs on the CPU, and gives exactly what the `*Sync` call gives; so does `'auto'` for predictions.
 - `'gpu'` always runs on the GPU, and fails with `ML_PARAM` where there is none.
 
 ```ts
@@ -56,8 +56,8 @@ await model.predict([[5, 5], [6, 2]], { device: 'auto' })
 | 15 |
 | 10 |
 
-On the GPU today: `predict` and `predictProba` of the linear models and of pipelines that end in one, `matMul`, and
-`LogisticRegression` fits that ask for it.
+With `'gpu'`: `predict` and `predictProba` of the linear models and of pipelines that end in one, `matMul`, and
+`LogisticRegression` fits.
 
 ### Fits on the GPU
 

@@ -47,8 +47,8 @@ try {
   which give numbers. `y` is numbers (regression) or labels,
   numbers or strings (classification). `NaN` is a missing value; most models reject it with `ML_VALUE`.
 - **Calls are asynchronous** (`await model.fit(X, y)`); `fitSync`, `predictSync` and the others are the synchronous
-  twins. `predict` and `predictProba` take `{ device: 'auto' | 'cpu' | 'gpu' }`: the GPU computes in 32-bit floats, and
-  `'cpu'` gives exactly the synchronous result. `startWorker()` (from `@smaltworks/smaltml/worker`) fits and predicts in
+  twins. `predict` and `predictProba` take `{ device: 'auto' | 'cpu' | 'gpu' }`: `'gpu'` computes in 32-bit floats, and
+  `'auto'` (the default) and `'cpu'` give exactly the synchronous result. `startWorker()` (from `@smaltworks/smaltml/worker`) fits and predicts in
   a Web Worker and returns ordinary fitted models.
 - **Models by name:** `registry.save('churn', model)` keeps a version; `predict('churn', X, { registry })` predicts with
   the latest (`version` picks one). `new ModelRegistry(new TableStore(db))` keeps them in a smaltdb table.

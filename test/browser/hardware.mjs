@@ -63,6 +63,13 @@ window.results = (async () => {
   const same = gl.filter((v, i) => v === cl[i]).length / cl.length;
   check(same > 0.999, 'pipeline labels on the GPU: ' + (same * 100).toFixed(2) + '% the same as the CPU');
 
+  // 'auto' predicts on the CPU even with WebGPU here and X above GPU_MIN_WORK: exactly the *Sync result (ADR 0034).
+  const big = matrix(Math.ceil(ml.GPU_MIN_WORK / 20) + 1000, 20, 3);
+  const [autoLin, syncLin] = [await lin.predict(big), lin.predictSync(big)];
+  check(autoLin.every((v, i) => v === syncLin[i]), "LinearRegression.predict with 'auto', above GPU_MIN_WORK: the CPU's result, bit for bit");
+  const [autoProba, syncProba] = [(await log.predictProba(big, { device: 'auto' })).data, log.predictProbaSync(big).data];
+  check(autoProba.every((v, i) => v === syncProba[i]), "LogisticRegression.predictProba with 'auto', above GPU_MIN_WORK: the CPU's result, bit for bit");
+
   // Fits on the GPU: the objective in 32-bit floats, so close to the CPU's fit, not equal to it.
   for (const [what, labels_] of [['2 classes', labels.map((l) => (l === 'high' ? 'high' : 'other'))], ['3 classes', labels]]) {
     const onGpu = await new ml.LogisticRegression({ maxIter: 200 }).fit(X, labels_, { device: 'gpu' });

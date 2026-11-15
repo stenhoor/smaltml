@@ -85,7 +85,8 @@ smaltml matches its references' behaviour and writes its own code (owner, 2026-1
   tolerance per model, and the tests check it. Where 32-bit error matters (solving the normal equations, for example),
   that step stays on the CPU.
 - **Choosing:** `device: 'auto'` (the default) uses the GPU when one is present and the data is large enough to gain;
-  `'cpu'` and `'gpu'` force one.
+  `'cpu'` and `'gpu'` force one. Amended by [ADR 0034](./0034-where-auto-runs): `'auto'` predictions run on the CPU, and
+  `'auto'` fits move to the GPU only where it is measured at least 2× faster.
 
 ### 4. Placement: a library over the engine
 

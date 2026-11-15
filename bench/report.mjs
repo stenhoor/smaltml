@@ -57,9 +57,10 @@ if (files.includes('gpu.json')) {
     }
     gpuLines.push('', 'The timed fits stop at the default 100 iterations, before they converge on this data; the last two columns fit again with `maxIter: 20000`, and compare the answers once both have finished.', '');
   }
-  gpuLines.push('### LogisticRegression fits by rows, 20 columns, up to 30 iterations', '');
-  gpuLines.push('| Rows | Classes | CPU, 1 thread (ms) | CPU, 4 threads (ms) | GPU (ms) | GPU ÷ CPU, 4 threads | Iterations, CPU / GPU |', '| ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
-  for (const f of g.fits) gpuLines.push(`| ${work(f.n)} | ${f.classes} | ${fmt(f.cpu)} | ${fmt(f.threads4)} | ${fmt(f.gpu)} | ${ratio(f.gpu, f.threads4)} | ${f.iterations.cpu} / ${f.iterations.gpu} |`);
+  gpuLines.push('### LogisticRegression fits by size, default parameters, columns of one scale', '');
+  gpuLines.push(`The CPU column runs as \`'auto'\` would, on up to every core (${g.cores} here). Work is rows × columns × classes (1 for two classes): the multiply-adds of one evaluation.`, '');
+  gpuLines.push('| Rows | Columns | Classes | Work | CPU, every core (ms) | GPU (ms) | GPU speed-up | Iterations, CPU / GPU |', '| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |');
+  for (const f of [...g.fits].sort((a, b) => a.work - b.work)) gpuLines.push(`| ${work(f.n)} | ${f.p} | ${f.classes} | ${work(f.work)} | ${fmt(f.cpuAll)} | ${fmt(f.gpu)} | ${(f.cpuAll / f.gpu).toFixed(1)}× | ${f.iterations.cpu} / ${f.iterations.gpu} |`);
   const a = g.adapter;
   gpuLines.push('', `Run ${g.date}: ${g.library} in ${g.browser}. GPU: WebGPU adapter ${[a.vendor, a.architecture, a.description].filter(Boolean).join(' ')}. CPU: ${g.cpu}. Not the machine of the tables above.`);
 }

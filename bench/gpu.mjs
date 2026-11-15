@@ -120,27 +120,39 @@ window.bench = async (sizes) => {
     models[name] = row;
   }
 
-  // 3. LogisticRegression fits by rows, up to 30 iterations with tol 1e-12, so neither side stops on the gradient. The
-  // line search can still stop either side early, and the GPU's 32-bit objective takes its own path: both iteration
-  // counts are recorded.
+  // 3. LogisticRegression fits by size, with its default parameters, on columns of one scale (as after StandardScaler),
+  // as most fits run: rows × columns × classes. The CPU runs as 'auto' would, on up to every core (threads 'auto');
+  // the GPU with device 'gpu'. Iterations are recorded for both: each side stops on its own.
   const fits = [];
-  for (const n of [10_000, 50_000, 200_000, 1_000_000]) {
-    const p = 20;
-    const X = matrix(n, p, r);
-    const w = Float64Array.from({ length: p }, r);
-    const score = Array.from({ length: n }, (_, i) => { let s = 0; for (let j = 0; j < p; j++) s += X.data[j * n + i] * w[j]; return s + 0.5 * r(); });
-    for (const [classes, labels] of [[2, score.map((s) => (s > 0 ? 1 : 0))], [3, score.map((s) => (s < -0.6 ? 0 : s < 0.6 ? 1 : 2))]]) {
-      const make = () => new ml.LogisticRegression({ maxIter: 30, tol: 1e-12 });
-      const iterations = { cpu: make().fitSync(X, labels).nIter, gpu: (await make().fit(X, labels, { device: 'gpu' })).nIter };
-      const cpu = await time(() => make().fitSync(X, labels));
-      const threads4 = await time(() => make().fit(X, labels, { threads: 4 }));
-      const gpu = await time(() => make().fit(X, labels, { device: 'gpu' }));
-      fits.push({ n, p, classes, cpu, threads4, gpu, iterations });
-      say('fit', n + '×' + p, classes, 'classes', 'cpu', cpu.toFixed(1), '4 threads', threads4.toFixed(1), 'gpu', gpu.toFixed(1), 'iterations', iterations.cpu + '/' + iterations.gpu);
+  for (const p of [10, 50, 100]) {
+    for (const n of [10_000, 50_000, 100_000, 200_000, 500_000, 1_000_000]) {
+      if (n * p > 20_000_000) continue;
+      const X = matrix(n, p, r);
+      for (const classes of [2, 3, 8]) {
+        // Each class a linear score plus noise; the label is the highest.
+        const W = Array.from({ length: classes }, () => Float64Array.from({ length: p }, r));
+        const labels = Array.from({ length: n }, (_, i) => {
+          let best = 0;
+          let top = -Infinity;
+          for (let c = 0; c < classes; c++) {
+            let s = 0.5 * r();
+            for (let j = 0; j < p; j++) s += X.data[j * n + i] * W[c][j];
+            if (s > top) [top, best] = [s, c];
+          }
+          return best;
+        });
+        const make = () => new ml.LogisticRegression();
+        const iterations = { cpu: make().fitSync(X, labels).nIter, gpu: (await make().fit(X, labels, { device: 'gpu' })).nIter };
+        const cpuAll = await time(() => make().fit(X, labels, { device: 'cpu', threads: 'auto' }));
+        const gpu = await time(() => make().fit(X, labels, { device: 'gpu' }));
+        const work = n * p * (classes === 2 ? 1 : classes);
+        fits.push({ n, p, classes, work, cpuAll, gpu, iterations });
+        say('fit', n + '×' + p, classes, 'classes', 'cpu (all threads)', cpuAll.toFixed(1), 'gpu', gpu.toFixed(1), 'speed-up', (cpuAll / gpu).toFixed(2) + '×', 'iterations', iterations.cpu + '/' + iterations.gpu);
+      }
     }
   }
   await ml.stopThreads();
-  return { adapter, gpuMinWork: ml.GPU_MIN_WORK, library: 'smaltml ' + ml.VERSION, matMul, models, fits };
+  return { adapter, gpuMinWork: ml.GPU_MIN_WORK, library: 'smaltml ' + ml.VERSION, cores: navigator.hardwareConcurrency, matMul, models, fits };
 };
 </script>`;
 

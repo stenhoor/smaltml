@@ -80,8 +80,9 @@ smaltml's GPU path, timed against its CPU path in the same browser page, on a ma
   A GPU call is timed end to end: converting to 32-bit floats, uploading, the shader and reading the result back.
 - **Cases:** `matMul` over a grid of shapes, the product behind every prediction on the GPU, beside the device
   `'auto'` picks for it. The predictions and `LogisticRegression` fits of the CPU benchmark, on its data and
-  parameters. `LogisticRegression` fits by rows, up to 30 iterations. The CPU column is one thread; fits also run on 4
-  (`fit(X, y, { threads: 4 })`).
+  parameters; there the CPU column is one thread, and fits also run on 4 (`fit(X, y, { threads: 4 })`).
+  `LogisticRegression` fits by size, with the default parameters on columns of one scale, against the CPU on every
+  core (`threads: 'auto'`).
 - **Rerun:** `npm run bench:gpu` (Playwright's Chromium: `npx playwright install chromium` first), or
   `npm run bench:gpu -- --browser /usr/bin/chromium` for another one; then `npm run bench:report`.
 
@@ -93,45 +94,45 @@ smaltml's GPU path, timed against its CPU path in the same browser page, on a ma
 
 | A · B | Multiply-adds | CPU (ms) | GPU (ms) | GPU ÷ CPU | `auto` picks |
 | --- | ---: | ---: | ---: | ---: | --- |
-| 1,000 × 16 · 16 × 1 | 16,000 | 0.05 | 4.41 | 88.1× | cpu |
-| 1,000 × 16 · 16 × 3 | 48,000 | 0.28 | 4.16 | 15.1× | cpu |
-| 1,000 × 16 · 16 × 8 | 128,000 | 0.57 | 4.66 | 8.2× | cpu |
-| 1,000 × 64 · 64 × 1 | 64,000 | 0.25 | 5.10 | 20.4× | cpu |
-| 1,000 × 64 · 64 × 3 | 192,000 | 0.45 | 4.77 | 10.6× | cpu |
-| 1,000 × 64 · 64 × 8 | 512,000 | 0.67 | 5.14 | 7.7× | cpu |
-| 4,000 × 16 · 16 × 1 | 64,000 | 0.10 | 4.27 | 42.6× | cpu |
-| 4,000 × 16 · 16 × 3 | 192,000 | 0.74 | 4.50 | 6.1× | cpu |
-| 4,000 × 16 · 16 × 8 | 512,000 | 1.08 | 4.04 | 3.7× | cpu |
-| 4,000 × 64 · 64 × 1 | 256,000 | 0.33 | 5.15 | 15.6× | cpu |
-| 4,000 × 64 · 64 × 3 | 768,000 | 1.08 | 6.55 | 6.1× | cpu |
-| 4,000 × 64 · 64 × 8 | 2,048,000 | 2.71 | 4.76 | 1.8× | cpu |
-| 16,000 × 16 · 16 × 1 | 256,000 | 0.36 | 6.63 | 18.2× | cpu |
-| 16,000 × 16 · 16 × 3 | 768,000 | 1.13 | 5.04 | 4.5× | cpu |
-| 16,000 × 16 · 16 × 8 | 2,048,000 | 3.03 | 6.92 | 2.3× | cpu |
-| 16,000 × 64 · 64 × 1 | 1,024,000 | 1.32 | 7.21 | 5.5× | cpu |
-| 16,000 × 64 · 64 × 3 | 3,072,000 | 3.97 | 7.51 | 1.9× | cpu |
-| 16,000 × 64 · 64 × 8 | 8,192,000 | 10.7 | 8.32 | 0.8× | gpu |
-| 64,000 × 16 · 16 × 1 | 1,024,000 | 1.45 | 7.19 | 5.0× | cpu |
-| 64,000 × 16 · 16 × 3 | 3,072,000 | 4.47 | 8.42 | 1.9× | cpu |
-| 64,000 × 16 · 16 × 8 | 8,192,000 | 11.8 | 11.5 | 1.0× | gpu |
-| 64,000 × 64 · 64 × 1 | 4,096,000 | 5.76 | 23.7 | 4.1× | cpu |
-| 64,000 × 64 · 64 × 3 | 12,288,000 | 17.6 | 25.8 | 1.5× | gpu, **slower** |
-| 64,000 × 64 · 64 × 8 | 32,768,000 | 46.7 | 39.7 | 0.9× | gpu |
-| 256,000 × 16 · 16 × 1 | 4,096,000 | 6.25 | 26.2 | 4.2× | cpu |
-| 256,000 × 16 · 16 × 3 | 12,288,000 | 18.2 | 31.5 | 1.7× | gpu, **slower** |
-| 256,000 × 16 · 16 × 8 | 32,768,000 | 46.9 | 38.5 | 0.8× | gpu |
-| 256,000 × 64 · 64 × 1 | 16,384,000 | 23.8 | 86.5 | 3.6× | gpu, **slower** |
-| 256,000 × 64 · 64 × 3 | 49,152,000 | 69.4 | 83.6 | 1.2× | gpu, **slower** |
-| 256,000 × 64 · 64 × 8 | 131,072,000 | 199 | 89.1 | 0.4× | gpu |
+| 1,000 × 16 · 16 × 1 | 16,000 | 0.05 | 3.53 | 78.3× | cpu |
+| 1,000 × 16 · 16 × 3 | 48,000 | 0.16 | 3.58 | 23.1× | cpu |
+| 1,000 × 16 · 16 × 8 | 128,000 | 0.20 | 3.52 | 17.6× | cpu |
+| 1,000 × 64 · 64 × 1 | 64,000 | 0.09 | 3.59 | 39.9× | cpu |
+| 1,000 × 64 · 64 × 3 | 192,000 | 0.27 | 3.60 | 13.3× | cpu |
+| 1,000 × 64 · 64 × 8 | 512,000 | 0.73 | 3.80 | 5.2× | cpu |
+| 4,000 × 16 · 16 × 1 | 64,000 | 0.11 | 2.99 | 27.2× | cpu |
+| 4,000 × 16 · 16 × 3 | 192,000 | 0.30 | 3.19 | 10.8× | cpu |
+| 4,000 × 16 · 16 × 8 | 512,000 | 0.75 | 4.19 | 5.6× | cpu |
+| 4,000 × 64 · 64 × 1 | 256,000 | 0.36 | 4.49 | 12.5× | cpu |
+| 4,000 × 64 · 64 × 3 | 768,000 | 1.03 | 4.08 | 3.9× | cpu |
+| 4,000 × 64 · 64 × 8 | 2,048,000 | 2.75 | 4.92 | 1.8× | cpu |
+| 16,000 × 16 · 16 × 1 | 256,000 | 0.37 | 5.23 | 14.1× | cpu |
+| 16,000 × 16 · 16 × 3 | 768,000 | 1.16 | 5.28 | 4.6× | cpu |
+| 16,000 × 16 · 16 × 8 | 2,048,000 | 3.13 | 5.28 | 1.7× | cpu |
+| 16,000 × 64 · 64 × 1 | 1,024,000 | 1.36 | 7.17 | 5.3× | cpu |
+| 16,000 × 64 · 64 × 3 | 3,072,000 | 4.59 | 6.97 | 1.5× | cpu |
+| 16,000 × 64 · 64 × 8 | 8,192,000 | 11.1 | 8.36 | 0.8× | gpu |
+| 64,000 × 16 · 16 × 1 | 1,024,000 | 1.49 | 7.86 | 5.3× | cpu |
+| 64,000 × 16 · 16 × 3 | 3,072,000 | 4.55 | 8.90 | 2.0× | cpu |
+| 64,000 × 16 · 16 × 8 | 8,192,000 | 12.4 | 11.4 | 0.9× | gpu |
+| 64,000 × 64 · 64 × 1 | 4,096,000 | 5.62 | 22.8 | 4.1× | cpu |
+| 64,000 × 64 · 64 × 3 | 12,288,000 | 18.0 | 24.5 | 1.4× | gpu, **slower** |
+| 64,000 × 64 · 64 × 8 | 32,768,000 | 45.8 | 36.0 | 0.8× | gpu |
+| 256,000 × 16 · 16 × 1 | 4,096,000 | 6.31 | 26.7 | 4.2× | cpu |
+| 256,000 × 16 · 16 × 3 | 12,288,000 | 19.5 | 30.1 | 1.5× | gpu, **slower** |
+| 256,000 × 16 · 16 × 8 | 32,768,000 | 48.5 | 39.1 | 0.8× | gpu |
+| 256,000 × 64 · 64 × 1 | 16,384,000 | 23.5 | 118 | 5.0× | gpu, **slower** |
+| 256,000 × 64 · 64 × 3 | 49,152,000 | 71.5 | 88.3 | 1.2× | gpu, **slower** |
+| 256,000 × 64 · 64 × 8 | 131,072,000 | 211 | 86.1 | 0.4× | gpu |
 
 ### 10k × 20, the CPU benchmark's data and parameters
 
 | Operation | CPU, 1 thread (ms) | CPU, 4 threads (ms) | GPU (ms) | GPU ÷ CPU, 1 thread | Iterations, CPU / GPU | Run to the end: iterations, CPU / GPU | Run to the end: largest probability difference |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| LinearRegression predict | 0.20 |  | 5.22 | 26.1× |  |  |  |
-| LogisticRegression predictProba, 3 classes | 1.01 |  | 5.55 | 5.5× |  |  |  |
-| LogisticRegression fit, 2 classes | 78.4 | 88.7 | 281 | 3.6× | 100 / 100 | 144 / 157 | 8.0e-4 |
-| LogisticRegression fit, 3 classes | 158 | 185 | 291 | 1.8× | 100 / 100 | 511 / 363 | 3.4e-2 |
+| LinearRegression predict | 0.27 |  | 4.77 | 18.0× |  |  |  |
+| LogisticRegression predictProba, 3 classes | 1.09 |  | 5.48 | 5.0× |  |  |  |
+| LogisticRegression fit, 2 classes | 77.0 | 96.6 | 287 | 3.7× | 100 / 100 | 144 / 157 | 8.0e-4 |
+| LogisticRegression fit, 3 classes | 157 | 179 | 294 | 1.9× | 100 / 100 | 511 / 363 | 3.4e-2 |
 
 The timed fits stop at the default 100 iterations, before they converge on this data; the last two columns fit again with `maxIter: 20000`, and compare the answers once both have finished.
 
@@ -139,25 +140,61 @@ The timed fits stop at the default 100 iterations, before they converge on this 
 
 | Operation | CPU, 1 thread (ms) | CPU, 4 threads (ms) | GPU (ms) | GPU ÷ CPU, 1 thread | Iterations, CPU / GPU | Run to the end: iterations, CPU / GPU | Run to the end: largest probability difference |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| LinearRegression predict | 7.26 |  | 76.4 | 10.5× |  |  |  |
-| LogisticRegression predictProba, 3 classes | 29.8 |  | 61.3 | 2.1× |  |  |  |
-| LogisticRegression fit, 2 classes | 2,409 | 974 | 492 | 0.2× | 100 / 100 | 287 / 335 | 1.4e-3 |
-| LogisticRegression fit, 3 classes | 6,076 | 2,301 | 776 | 0.1× | 100 / 100 | 432 / 629 | 8.8e-3 |
+| LinearRegression predict | 7.17 |  | 75.6 | 10.5× |  |  |  |
+| LogisticRegression predictProba, 3 classes | 29.4 |  | 60.8 | 2.1× |  |  |  |
+| LogisticRegression fit, 2 classes | 2,385 | 961 | 507 | 0.2× | 100 / 100 | 287 / 335 | 1.4e-3 |
+| LogisticRegression fit, 3 classes | 6,036 | 2,299 | 775 | 0.1× | 100 / 100 | 432 / 629 | 8.8e-3 |
 
 The timed fits stop at the default 100 iterations, before they converge on this data; the last two columns fit again with `maxIter: 20000`, and compare the answers once both have finished.
 
-### LogisticRegression fits by rows, 20 columns, up to 30 iterations
+### LogisticRegression fits by size, default parameters, columns of one scale
 
-| Rows | Classes | CPU, 1 thread (ms) | CPU, 4 threads (ms) | GPU (ms) | GPU ÷ CPU, 4 threads | Iterations, CPU / GPU |
-| ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 10,000 | 2 | 15.8 | 18.0 | 368 | 20.4× | 18 / 18 |
-| 10,000 | 3 | 42.7 | 47.8 | 395 | 8.3× | 26 / 23 |
-| 50,000 | 2 | 70.9 | 36.3 | 299 | 8.3× | 18 / 18 |
-| 50,000 | 3 | 205 | 90.9 | 416 | 4.6× | 26 / 22 |
-| 200,000 | 2 | 302 | 134 | 459 | 3.4× | 18 / 20 |
-| 200,000 | 3 | 912 | 360 | 364 | 1.0× | 29 / 23 |
-| 1,000,000 | 2 | 1,573 | 556 | 813 | 1.5× | 18 / 19 |
-| 1,000,000 | 3 | 4,376 | 1,452 | 1,114 | 0.8× | 28 / 25 |
+The CPU column runs as `'auto'` would, on up to every core (16 here). Work is rows × columns × classes (1 for two classes): the multiply-adds of one evaluation.
+
+| Rows | Columns | Classes | Work | CPU, every core (ms) | GPU (ms) | GPU speed-up | Iterations, CPU / GPU |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 10,000 | 10 | 2 | 100,000 | 8.90 | 42.6 | 0.2× | 13 / 13 |
+| 10,000 | 10 | 3 | 300,000 | 17.9 | 46.3 | 0.4× | 14 / 14 |
+| 50,000 | 10 | 2 | 500,000 | 33.7 | 53.0 | 0.6× | 10 / 10 |
+| 10,000 | 50 | 2 | 500,000 | 17.9 | 49.0 | 0.4× | 13 / 13 |
+| 10,000 | 10 | 8 | 800,000 | 58.9 | 65.5 | 0.9× | 19 / 19 |
+| 100,000 | 10 | 2 | 1,000,000 | 67.3 | 55.9 | 1.2× | 10 / 10 |
+| 10,000 | 100 | 2 | 1,000,000 | 29.1 | 50.5 | 0.6× | 14 / 14 |
+| 50,000 | 10 | 3 | 1,500,000 | 92.2 | 73.4 | 1.3× | 16 / 16 |
+| 10,000 | 50 | 3 | 1,500,000 | 39.5 | 51.5 | 0.8× | 13 / 13 |
+| 200,000 | 10 | 2 | 2,000,000 | 41.4 | 71.0 | 0.6× | 10 / 10 |
+| 50,000 | 50 | 2 | 2,500,000 | 44.0 | 83.6 | 0.5× | 14 / 14 |
+| 100,000 | 10 | 3 | 3,000,000 | 195 | 72.5 | 2.7× | 17 / 17 |
+| 10,000 | 100 | 3 | 3,000,000 | 83.0 | 57.8 | 1.4× | 15 / 15 |
+| 50,000 | 10 | 8 | 4,000,000 | 287 | 70.2 | 4.1× | 19 / 19 |
+| 10,000 | 50 | 8 | 4,000,000 | 135 | 62.0 | 2.2× | 18 / 18 |
+| 500,000 | 10 | 2 | 5,000,000 | 133 | 118 | 1.1× | 12 / 12 |
+| 100,000 | 50 | 2 | 5,000,000 | 59.8 | 95.6 | 0.6× | 15 / 15 |
+| 50,000 | 100 | 2 | 5,000,000 | 67.7 | 80.6 | 0.8× | 14 / 14 |
+| 200,000 | 10 | 3 | 6,000,000 | 78.6 | 82.6 | 1.0× | 12 / 12 |
+| 50,000 | 50 | 3 | 7,500,000 | 101 | 76.6 | 1.3× | 15 / 15 |
+| 100,000 | 10 | 8 | 8,000,000 | 558 | 82.3 | 6.8× | 16 / 16 |
+| 10,000 | 100 | 8 | 8,000,000 | 263 | 88.6 | 3.0× | 20 / 20 |
+| 1,000,000 | 10 | 2 | 10,000,000 | 224 | 242 | 0.9× | 11 / 11 |
+| 200,000 | 50 | 2 | 10,000,000 | 113 | 145 | 0.8× | 14 / 14 |
+| 100,000 | 100 | 2 | 10,000,000 | 101 | 151 | 0.7× | 15 / 15 |
+| 500,000 | 10 | 3 | 15,000,000 | 224 | 177 | 1.3× | 15 / 15 |
+| 100,000 | 50 | 3 | 15,000,000 | 147 | 117 | 1.3× | 17 / 17 |
+| 50,000 | 100 | 3 | 15,000,000 | 184 | 133 | 1.4× | 15 / 15 |
+| 200,000 | 10 | 8 | 16,000,000 | 286 | 103 | 2.8× | 20 / 20 |
+| 50,000 | 50 | 8 | 20,000,000 | 290 | 120 | 2.4× | 20 / 20 |
+| 200,000 | 100 | 2 | 20,000,000 | 156 | 142 | 1.1× | 13 / 13 |
+| 1,000,000 | 10 | 3 | 30,000,000 | 356 | 242 | 1.5× | 10 / 10 |
+| 200,000 | 50 | 3 | 30,000,000 | 248 | 186 | 1.3× | 15 / 15 |
+| 100,000 | 100 | 3 | 30,000,000 | 220 | 237 | 0.9× | 16 / 16 |
+| 500,000 | 10 | 8 | 40,000,000 | 551 | 193 | 2.9× | 16 / 16 |
+| 100,000 | 50 | 8 | 40,000,000 | 402 | 211 | 1.9× | 20 / 20 |
+| 50,000 | 100 | 8 | 40,000,000 | 414 | 238 | 1.7× | 15 / 15 |
+| 200,000 | 100 | 3 | 60,000,000 | 478 | 466 | 1.0× | 17 / 17 |
+| 1,000,000 | 10 | 8 | 80,000,000 | 1,067 | 255 | 4.2× | 17 / 17 |
+| 200,000 | 50 | 8 | 80,000,000 | 520 | 295 | 1.8× | 15 / 15 |
+| 100,000 | 100 | 8 | 80,000,000 | 639 | 233 | 2.7× | 20 / 20 |
+| 200,000 | 100 | 8 | 160,000,000 | 1,287 | 482 | 2.7× | 21 / 21 |
 
 Run 2026-11-15: smaltml 0.1.0 in Chromium 157.0.8103.38. GPU: WebGPU adapter nvidia ampere. CPU: 11th Gen Intel(R) Core(TM) i9-11900H @ 2.50GHz, 16 cores. Not the machine of the tables above.
 

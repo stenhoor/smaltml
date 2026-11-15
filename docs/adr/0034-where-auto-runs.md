@@ -18,9 +18,15 @@ i9-11900H, in Chromium 157, with GPU calls timed end to end:
   and uploads it; most likely that cost outweighs the GPU's speed (it wasn't timed on its own).
 - **`matMul`:** the GPU was faster only with 8 output columns and at least about 8 million multiply-adds. `'auto'`
   picked the slower device in 4 of the 30 shapes measured.
-- **Fits** (`LogisticRegression`, which `'auto'` keeps on the CPU): on 200,000 × 50, the GPU was 2.0× (2 classes)
-  and 3.0× (3 classes) faster than the CPU on 4 threads. Below about 200,000 rows the CPU was faster: each GPU fit
-  starts with about 300 ms of overhead. A fit keeps X on the GPU for every iteration, so its upload is paid once.
+- **Fits** (`LogisticRegression`, which `'auto'` keeps on the CPU). A fit keeps X on the GPU for every iteration, so
+  its upload is paid once. With the default parameters, on columns of one scale, against the CPU on every core (16
+  threads):
+  - 2 classes: the GPU was at most 1.2× faster.
+  - 3 classes: 2× or more in 1 of 14 sizes (10,000 to 1,000,000 rows, 10 to 100 columns).
+  - 8 classes: 2× or more in 10 of 14 sizes, up to 6.8×.
+
+  On the unscaled benchmark data, 200,000 × 50, the GPU was 2.0× (2 classes) and 3.0× (3 classes) faster than 4
+  threads.
 
 ## Decision
 
@@ -40,5 +46,5 @@ i9-11900H, in Chromium 157, with GPU calls timed end to end:
   browsers without it.
 - The browser tests check that an `'auto'` prediction above `GPU_MIN_WORK` equals the `*Sync` result bit for bit.
 - The GPU prediction code stays, for `'gpu'` and for later work that may make it pay.
-- A fit threshold needs the GPU fit's fixed overhead understood first, and the CPU measured with all its threads, not
-  only 4.
+- Measured so far, 8-class fits mostly reach 2× against every core, and 2- and 3-class fits mostly don't: no single
+  data size separates them. Until the follow-up sets the line, `'auto'` fits stay on the CPU.

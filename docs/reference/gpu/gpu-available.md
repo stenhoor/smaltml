@@ -17,7 +17,8 @@ once and shares it. From `@smaltworks/smaltml/gpu`.
 ## Returns
 
 `true` where WebGPU works (most Chrome and Edge, Firefox on Windows, Safari in part), `false` elsewhere, in Node and in
-browsers without it. `GPU_MIN_WORK` is the number of multiply-adds below which `device: 'auto'` stays on the CPU.
+browsers without it. `GPU_MIN_WORK` is the number of multiply-adds below which `matMul` with `device: 'auto'` stays on the CPU;
+predictions with `'auto'` always run on the CPU.
 
 ## Errors
 

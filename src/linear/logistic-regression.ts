@@ -4,7 +4,7 @@ import { logisticOnGpu } from '../gpu/logistic.js';
 import { minimize, minimizeAsync, type MinimizeResult } from '../core/linalg.js';
 import { logisticParallel, threadPool, weightedGramParallel, xwParallel, type ThreadOptions } from '../parallel/index.js';
 import { assertFinite, Matrix, type MatrixInput } from '../core/matrix.js';
-import { gpuAvailable, matMul, useGpu, type DeviceOptions } from '../gpu/index.js';
+import { gpuAvailable, matMul, predictOnGpu, type DeviceOptions } from '../gpu/index.js';
 import {
   checkColumns,
   checkDocument,
@@ -304,7 +304,7 @@ export class LogisticRegression implements Classifier {
     return this;
   }
 
-  /** The most probable class for each row; the scores on the GPU when `device` chooses it. */
+  /** The most probable class for each row; the scores on the GPU only with `device: 'gpu'`. */
   async predict(X: MatrixInput, options: DeviceOptions = {}): Promise<Label[]> {
     return this.#labels(await this.decisionFunction(X, options));
   }
@@ -330,7 +330,7 @@ export class LogisticRegression implements Classifier {
     return out;
   }
 
-  /** Each class's probability; the scores on the GPU when `device` chooses it. */
+  /** Each class's probability; the scores on the GPU only with `device: 'gpu'`. */
   async predictProba(X: MatrixInput, options: DeviceOptions = {}): Promise<Matrix> {
     return this.#proba(await this.decisionFunction(X, options));
   }
@@ -363,14 +363,14 @@ export class LogisticRegression implements Classifier {
     return new Matrix(n, K, out, s.classes.map(String));
   }
 
-  /** Each row's score, X·wᵀ + b, as decisionFunctionSync(); the product on the GPU when `device` chooses it. */
+  /** Each row's score, X·wᵀ + b, as decisionFunctionSync(); the product on the GPU only with `device: 'gpu'`. */
   async decisionFunction(X: MatrixInput, options: DeviceOptions = {}): Promise<Matrix> {
     const s = this.#fitted();
     const m = Matrix.from(X);
     checkColumns(m, s.nFeaturesIn, this.kind);
     const k = s.coef.rows;
     // On the CPU, exactly decisionFunctionSync()'s result.
-    if (!(await useGpu(options.device, m.rows * m.cols * k))) return this.decisionFunctionSync(m);
+    if (!(await predictOnGpu(options.device))) return this.decisionFunctionSync(m);
     const p = s.coef.cols;
     // coefᵀ, p × k: column c is coef's row c.
     const wT = new Float64Array(p * k);

@@ -4,7 +4,7 @@ import { threadPool, type ThreadOptions } from '../parallel/index.js';
 import { keptMeans, runHere, runOn, type Solver } from './calls.js';
 import { leastSquares } from '../core/linalg.js';
 import { assertFinite, assertFiniteVector, Matrix, toVector, type MatrixInput, type VectorInput } from '../core/matrix.js';
-import { matMul, useGpu, type DeviceOptions } from '../gpu/index.js';
+import { matMul, predictOnGpu, type DeviceOptions } from '../gpu/index.js';
 import { checkColumns, checkDocument, document, floats, notFitted, numbers, type ModelDocument, type Predictor } from '../core/model.js';
 
 export interface LinearRegressionParams {
@@ -111,13 +111,13 @@ export class LinearRegression implements Predictor {
     return this;
   }
 
-  /** X·w + b, one prediction per row; on the GPU when `device` chooses it (32-bit floats there). */
+  /** X·w + b, one prediction per row; on the GPU only with `device: 'gpu'` (32-bit floats there). */
   async predict(X: MatrixInput, options: DeviceOptions = {}): Promise<Float64Array> {
     const s = this.#fitted();
     const m = Matrix.from(X);
     checkColumns(m, s.nFeaturesIn, this.kind);
     // On the CPU, exactly predictSync()'s result.
-    if (!(await useGpu(options.device, m.rows * m.cols))) return this.predictSync(m);
+    if (!(await predictOnGpu(options.device))) return this.predictSync(m);
     const product = await matMul(m, new Matrix(s.coef.length, 1, s.coef), { device: 'gpu' });
     const out = product.data;
     for (let i = 0; i < out.length; i++) out[i]! += s.intercept;

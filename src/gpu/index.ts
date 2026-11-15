@@ -65,6 +65,16 @@ export async function useGpu(choice: Device | undefined, work: number): Promise<
 }
 
 /**
+ * Whether a prediction runs on the GPU: only with `device: 'gpu'`. `'auto'` (the default) keeps predictions on the CPU,
+ * which was faster for every prediction measured, at every size (ADR 0034, `npm run bench:gpu`). So on the CPU an
+ * asynchronous prediction gives exactly what its `*Sync` twin gives, with or without WebGPU.
+ */
+export async function predictOnGpu(choice: Device | undefined): Promise<boolean> {
+  if (choice === undefined || choice === 'auto') return false;
+  return useGpu(choice, 0);
+}
+
+/**
  * The matrix product A · B: A is n × p, B is p × k, the result n × k. On the CPU in 64-bit floats, or on the GPU in
  * 32-bit floats (relative error around 1e-6 of the terms' size), as `device` chooses.
  */

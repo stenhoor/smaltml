@@ -12,6 +12,7 @@ import {
   matMul,
   matMulSync,
   pipeline,
+  predictOnGpu,
   useGpu,
 } from '../src/index.js';
 import { connect, serve, type Port } from '../src/worker/index.js';
@@ -25,6 +26,14 @@ describe('device choice without WebGPU', () => {
     expect(await useGpu('cpu', 1e12)).toBe(false);
     await expect(useGpu('gpu', 1)).rejects.toMatchObject({ code: 'ML_PARAM' });
     await expect(useGpu('tpu' as 'gpu', 1)).rejects.toMatchObject({ code: 'ML_PARAM' });
+  });
+
+  test("predictions: 'auto' and 'cpu' on the CPU, whatever the size; 'gpu' fails without WebGPU", async () => {
+    expect(await predictOnGpu(undefined)).toBe(false);
+    expect(await predictOnGpu('auto')).toBe(false);
+    expect(await predictOnGpu('cpu')).toBe(false);
+    await expect(predictOnGpu('gpu')).rejects.toMatchObject({ code: 'ML_PARAM' });
+    await expect(predictOnGpu('tpu' as 'gpu')).rejects.toMatchObject({ code: 'ML_PARAM' });
   });
 
   test('matMul on the CPU', async () => {

@@ -44,7 +44,6 @@ Each of these fails with `ML_PARAM` or isn't a parameter yet:
 - `Lasso` and `ElasticNet`: several targets, `positive`, `selection='random'`, `warm_start`, `precompute`.
 - `LogisticRegression`: L1 and elastic-net penalties (`l1Ratio` other than 0), solvers other than `lbfgs` and
   `newton-cholesky`, `newton-cholesky` with more than two classes, `warm_start`, and weights in a fit on the GPU.
-- `trainTestSplit`: `stratify`.
 - `StratifiedKFold`: the same guarantees as scikit-learn's, but its own allocation, so the folds can differ.
 - `crossValScore` and `GridSearchCV`: weights or other fit parameters (`params`), `groups`, `n_jobs`, `error_score`,
   `return_train_score`, several scorers at once, and a `refit` that names a scorer.

@@ -138,6 +138,16 @@ function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol:
       expect(p.predictSync(inp.Xnew)).toEqual(exp.predict as Label[]);
       return;
     }
+    case 'split-stratify': {
+      // The rows chosen differ (smaltml's own shuffle); each class's count in each set is the same rule's.
+      const y = inp.y as Label[];
+      const X = y.map((_, i) => [i]);
+      const { yTrain, yTest } = trainTestSplit(X, y as unknown as string[], { ...inp.params, stratify: y as unknown as string[], seed: 3 });
+      const count = (ys: readonly Label[]) => (exp.classes as Label[]).map((c) => ys.filter((v) => v === c).length);
+      expect(count(yTrain as Label[]), 'training counts').toEqual(exp.train);
+      expect(count(yTest as Label[]), 'test counts').toEqual(exp.test);
+      return;
+    }
     case 'regression-metrics':
       close(meanSquaredError(inp.yTrue, inp.yPred), exp.meanSquaredError, tol, 'meanSquaredError');
       close(r2Score(inp.yTrue, inp.yPred), exp.r2Score, tol, 'r2Score');

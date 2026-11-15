@@ -14,6 +14,7 @@ import {
   crossValScore,
   loadModel,
   parameterGrid,
+  trainTestSplit,
   pipeline,
   saveModel,
 } from '../src/index.js';
@@ -151,5 +152,30 @@ describe('GridSearchCV keeps XᵀX per fold', () => {
     search.cvResults.params.forEach((_, c) => {
       expect(Array.from(search.cvResults.splitTestScores, (row) => row[c])).toEqual(Array.from(each[c]!));
     });
+  });
+});
+
+describe('trainTestSplit with stratify', () => {
+  const y = Array.from({ length: 60 }, (_, i) => (i % 6 === 0 ? 'rare' : i % 2 ? 'odd' : 'even'));
+  const X = y.map((_, i) => [i]);
+
+  test('keeps the classes in proportion, with no row twice, the same for a seed', () => {
+    const a = trainTestSplit(X, y, { stratify: y, testSize: 0.3, seed: 7 });
+    const b = trainTestSplit(X, y, { stratify: y, testSize: 0.3, seed: 7 });
+    expect(Array.from(a.XTrain.data)).toEqual(Array.from(b.XTrain.data));
+    const rows = [...a.XTrain.data, ...a.XTest.data];
+    expect(new Set(rows).size).toBe(rows.length);
+    expect(a.XTest.rows).toBe(18);
+    // rare is 10 of 60 rows: 3 of the 18 test rows.
+    expect(a.yTest.filter((v) => v === 'rare').length).toBe(3);
+    a.yTest.forEach((v, i) => expect(y[a.XTest.data[i]!]).toBe(v));
+  });
+
+  test('fails where it can\'t keep the classes in proportion', () => {
+    const one = [...y.slice(0, 59), 'single'];
+    expect(() => trainTestSplit(X, one, { stratify: one })).toThrow(expect.objectContaining({ code: 'ML_LABELS' }));
+    expect(() => trainTestSplit(X, y, { stratify: y, shuffle: false })).toThrow(expect.objectContaining({ code: 'ML_PARAM' }));
+    expect(() => trainTestSplit(X, y, { stratify: y, testSize: 2 })).toThrow(expect.objectContaining({ code: 'ML_PARAM' }));
+    expect(() => trainTestSplit(X, y, { stratify: y.slice(1) })).toThrow(expect.objectContaining({ code: 'ML_SHAPE' }));
   });
 });

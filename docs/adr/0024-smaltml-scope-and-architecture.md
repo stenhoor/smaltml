@@ -96,11 +96,13 @@ layer confirmed 2026-11-14):
 - **Data in:** a smaltdf frame, a smaltdb query result read as columns, or plain typed arrays. smaltml holds data as a
   column-major `Float64Array` matrix, the shape the engine's columnar results already have.
 - **Results out:** predictions and transformed columns as typed arrays, which smaltdf or SQL write back as tables.
-- **The engine is not changed.**
+- **The engine knows nothing of machine learning.** Its one change for smaltml is general: user-defined functions that
+  plugins register (smaltdb ADR 0036).
 - **`predict()` is a TypeScript function** (owner, 2026-11-14): `await predict(model, X)`, or by name,
   `await predict('churn', X)`, through a model registry (section 6). Notebooks and flows train models; apps and
-  notebooks call `predict()`. How it reaches the query languages, if it does, is open ("Still to decide", item 6). The
-  2026-11-09 text named a smaltdb plugin for scoring rows inside a query; that is now one of the options, not the plan.
+  notebooks call `predict()`. In queries, every language calls `predict` and `predict_proba` through a predict
+  plugin, a smaltdb plugin that wraps smaltml ("Still to decide", item 6, decided 2026-11-15 by smaltdb ADR 0036).
+  smaltml itself stays a library, not a plugin.
 
 ### 5. API: scikit-style estimators, asynchronous calls over a synchronous core
 
@@ -245,7 +247,10 @@ for it and reports where it stands, and a model that is behind still ships.
 5. ~~**If a model can't reach Python's speed in TypeScript:** whether smaltml may write its own WebAssembly kernels.~~
    The owner's direction, 2026-11-15: not in the core, which stays TypeScript; in a plugin, smaltml-simd
    ([ADR 0035](./0035-simd-kernels-in-a-plugin), proposed).
-6. **How `predict()` reaches the query languages, if at all** (owner, 2026-11-14: "the jury is still out"): a
+6. ~~**How `predict()` reaches the query languages, if at all**~~ (owner, 2026-11-14: "the jury is still out"): a
    TypeScript function only; a function the apps (smaltui, smaltnb, smaltfl) register with a language when they open a
-   database; or a language (smaltql, smaltcy, smaltdf) importing smaltml directly, an exception to the layering. The
-   core is the same in every case; only the caller differs. To be decided once phase 1a can be tried in smaltnb.
+   database; or a language (smaltql, smaltcy, smaltdf) importing smaltml directly, an exception to the layering.
+   Decided 2026-11-15 ([smaltdb ADR 0036](https://github.com/stenhoor/smaltdb/blob/main/docs/adr/0036-user-defined-functions.md),
+   accepted): none of these. The engine gains user-defined functions that plugins register, and a predict plugin
+   that wraps smaltml registers `predict` and `predict_proba`, reading models from the database's `smaltml_models`
+   table. Every language calls them in any expression. The engine doesn't import smaltml, and smaltml stays a library.

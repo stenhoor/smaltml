@@ -12,3 +12,11 @@ export * from './pipeline/index.js';
 export * from './io/index.js';
 export * from './gpu/index.js';
 export * from './registry/index.js';
+export {
+  configureThreads,
+  sharedMemoryAvailable,
+  stopThreads,
+  PARALLEL_MIN_VALUES,
+  type ThreadOptions,
+  type Threads,
+} from './parallel/index.js';

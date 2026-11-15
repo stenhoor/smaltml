@@ -8,7 +8,7 @@ description: 'Lasso: linear regression with an L1 penalty, which sets some coeff
 ```ts
 class Lasso implements Predictor {
   constructor(params?: { alpha?: number; fitIntercept?: boolean; maxIter?: number; tol?: number });
-  fit(X: MatrixInput, y: ArrayLike<number>): Promise<this>;
+  fit(X: MatrixInput, y: ArrayLike<number>, options?: { threads?: number | 'auto' }): Promise<this>;
   predict(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Float64Array>;
   readonly coef: Float64Array;
   readonly intercept: number;

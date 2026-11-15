@@ -1,6 +1,7 @@
 import { fail } from '../core/errors.js';
 import { binaryLogistic, multinomialLogistic, xw } from '../core/kernels.js';
-import { minimize } from '../core/linalg.js';
+import { minimize, minimizeAsync, type MinimizeResult } from '../core/linalg.js';
+import { logisticParallel, threadPool, type ThreadOptions } from '../parallel/index.js';
 import { assertFinite, Matrix, type MatrixInput } from '../core/matrix.js';
 import { matMul, useGpu, type DeviceOptions } from '../gpu/index.js';
 import {
@@ -29,6 +30,18 @@ export interface LogisticRegressionParams {
   fitIntercept?: boolean;
   /** The most L-BFGS iterations. Default 100. */
   maxIter?: number;
+}
+
+/** A fit's prepared inputs. */
+interface Job {
+  m: Matrix;
+  classes: Label[];
+  target: Int32Array;
+  l2: number;
+  k: number;
+  width: number;
+  x0: Float64Array;
+  options: { gtol: number; maxIter: number; ftolFactor: number };
 }
 
 interface State {
@@ -103,12 +116,33 @@ export class LogisticRegression implements Classifier {
     return { C: this.C, l1Ratio: this.l1Ratio, tol: this.tol, fitIntercept: this.fitIntercept, maxIter: this.maxIter };
   }
 
-  async fit(X: MatrixInput, y: Labels): Promise<this> {
-    return this.fitSync(X, y);
+  /**
+   * Fits the model. With `threads` (default `'auto'`), the objective runs on several cores where shared memory allows
+   * and X is large enough, with the same result as fitSync() to the last bit.
+   */
+  async fit(X: MatrixInput, y: Labels, options: ThreadOptions = {}): Promise<this> {
+    const m = Matrix.from(X);
+    const pool = await threadPool(options.threads, m.rows * m.cols);
+    if (!pool) return this.fitSync(m, y);
+    const job = this.#prepare(m, y);
+    const objective = logisticParallel(pool, m, job.target, job.k, job.l2, this.fitIntercept);
+    return this.#finish(job, await minimizeAsync(objective, job.x0, job.options));
   }
 
   fitSync(X: MatrixInput, y: Labels): this {
     const m = Matrix.from(X);
+    const job = this.#prepare(m, y);
+    const { target, k, l2 } = job;
+    const withIntercept = this.fitIntercept;
+    const objective =
+      k === 1
+        ? (x: Float64Array, g: Float64Array) => binaryLogistic(m, target, l2, withIntercept, x, g)
+        : (x: Float64Array, g: Float64Array) => multinomialLogistic(m, target, k, l2, withIntercept, x, g);
+    return this.#finish(job, minimize(objective, job.x0, job.options));
+  }
+
+  /** What a fit needs before the optimizer: the checked data, class indexes, the penalty and the starting point. */
+  #prepare(m: Matrix, y: Labels): Job {
     if (m.rows === 0) fail('ML_SHAPE', 'X has no rows');
     assertFinite(m);
     const labels = toLabels(y, m.rows);
@@ -116,17 +150,15 @@ export class LogisticRegression implements Classifier {
     if (classes.length < 2) fail('ML_LABELS', `y has one class only (${String(classes[0])}): a classifier needs at least two`);
     const index = new Map(classes.map((c, k) => [c, k]));
     const target = Int32Array.from(labels, (l) => index.get(l)!);
-    const n = m.rows;
-    const p = m.cols;
-    const l2 = Number.isFinite(this.C) ? 1 / (this.C * n) : 0;
+    const l2 = Number.isFinite(this.C) ? 1 / (this.C * m.rows) : 0;
     const k = classes.length === 2 ? 1 : classes.length;
-    const width = p + (this.fitIntercept ? 1 : 0);
-    const withIntercept = this.fitIntercept;
-    const objective =
-      k === 1
-        ? (x: Float64Array, g: Float64Array) => binaryLogistic(m, target, l2, withIntercept, x, g)
-        : (x: Float64Array, g: Float64Array) => multinomialLogistic(m, target, k, l2, withIntercept, x, g);
-    const result = minimize(objective, new Float64Array(k * width), { gtol: this.tol, maxIter: this.maxIter, ftolFactor: 64 });
+    const width = m.cols + (this.fitIntercept ? 1 : 0);
+    return { m, classes, target, l2, k, width, x0: new Float64Array(k * width), options: { gtol: this.tol, maxIter: this.maxIter, ftolFactor: 64 } };
+  }
+
+  #finish(job: Job, result: MinimizeResult): this {
+    const { m, classes, k, width } = job;
+    const p = m.cols;
     const coef = new Matrix(k, p);
     const intercept = new Float64Array(k);
     for (let c = 0; c < k; c++) {

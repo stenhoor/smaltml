@@ -1,11 +1,38 @@
 ---
-description: 'Run on the hardware you have: the CPU everywhere, WebGPU where the browser has it, and a Web Worker so long fits leave the page free.'
+description: 'Run on the hardware you have: the CPU everywhere, on several cores where memory can be shared, WebGPU where the browser has it, and a Web Worker so long fits leave the page free.'
 ---
 
 # The CPU, WebGPU and workers
 
-Every model runs on the CPU, in 64-bit floats, in every browser and in Node. Where the browser has WebGPU, smaltml can
-run the heavy steps on the GPU, and a Web Worker keeps long fits off the page's main thread.
+Every model runs on the CPU, in 64-bit floats, in every browser and in Node. Large fits use several cores where memory
+can be shared. Where the browser has WebGPU, smaltml can run the heavy steps on the GPU, and a Web Worker keeps long
+fits off the page's main thread.
+
+## On several cores
+
+The asynchronous `fit` of the linear models takes a `threads` option. The heavy steps (XᵀX, Xᵀy, the logistic loss
+and its gradient) then run in workers that share X's memory, each on its own rows:
+
+- `'auto'` (the default) uses every core when X holds at least `PARALLEL_MIN_VALUES` numbers (about a million).
+  Smaller fits stay on one thread, where messages to the workers would cost more than they save.
+- A number asks for that many threads; `1` keeps the fit on this thread.
+
+Each worker sums its rows in the same chunks, and the parts are added up in the same order as on one thread. A fit
+on any number of threads therefore gives exactly what `fitSync` gives, to the last bit. A pipeline passes `threads`
+to its last step.
+
+<!-- docs:skip -->
+```ts
+import { LogisticRegression } from '@smaltworks/smaltml';
+
+const model = await new LogisticRegression().fit(X, y, { threads: 'auto' }); // 2 to 3 times faster on 4 cores
+```
+
+Threads need shared memory. Node always has it. A browser has it only on a page that is cross-origin isolated (served
+with the headers `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`).
+Elsewhere, fits run on one thread with the same result. `sharedMemoryAvailable()` says which.
+[`configureThreads`](../reference/parallel/configure-threads) sets where the workers' script is, for bundlers that
+move it, and the most threads `'auto'` uses.
 
 ## Choosing the device
 
@@ -73,4 +100,5 @@ the worker is the same code as a fit on the page, so it gives the same result, b
 ## See also
 
 - [`matMul`](../reference/gpu/mat-mul), [`gpuAvailable`](../reference/gpu/gpu-available),
+  [`configureThreads`](../reference/parallel/configure-threads),
   [`startWorker`](../reference/worker/start-worker), [`connect`](../reference/worker/connect)

@@ -30,7 +30,7 @@
     "docs:dev": "vitepress dev docs",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs",
-    "bench": "npm run build && node bench/smaltml.mjs",
+    "bench": "npm run build && node bench/smaltml.mjs && node bench/smaltml.mjs --threads 4",
     "bench:python": "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python3 bench/reference.py && python3 bench/reference.py",
     "bench:report": "node bench/report.mjs"
   },
@@ -80,6 +80,11 @@
       "types": "./dist/types/registry/index.d.ts",
       "default": "./dist/registry.js"
     },
+    "./parallel": {
+      "types": "./dist/types/parallel/index.d.ts",
+      "default": "./dist/parallel.js"
+    },
+    "./threads-script": "./dist/smaltml-threads.js",
     "./package.json": "./package.json"
   },
   "files": [

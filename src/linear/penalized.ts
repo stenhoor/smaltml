@@ -1,5 +1,7 @@
 import { fail } from '../core/errors.js';
-import { checkedMeans, cholesky, choleskySolve, gram, xtv, xw } from '../core/kernels.js';
+import { checkedMeans, cholesky, choleskySolve, xw } from '../core/kernels.js';
+import { threadPool, type ThreadOptions } from '../parallel/index.js';
+import { runHere, runOn, type Solver } from './calls.js';
 import { assertFinite, assertFiniteVector, Matrix, toVector, type MatrixInput, type VectorInput } from '../core/matrix.js';
 import { checkColumns, checkDocument, document, floats, notFitted, numbers, type ModelDocument, type Predictor } from '../core/model.js';
 import { matMul, useGpu, type DeviceOptions } from '../gpu/index.js';
@@ -66,19 +68,34 @@ abstract class PenalizedLinear implements Predictor {
   abstract getParams(): object;
 
   /** The coefficients for X less `mean` (when there is an intercept) and centred y, and the iterations it took. */
-  protected abstract solve(X: Matrix, mean: Float64Array | undefined, y: Float64Array): { coef: Float64Array; nIter: number };
+  protected abstract solve(X: Matrix, mean: Float64Array | undefined, y: Float64Array): Solver<{ coef: Float64Array; nIter: number }>;
 
-  async fit(X: MatrixInput, y: VectorInput): Promise<this> {
-    return this.fitSync(X, y);
+  /**
+   * Fits the model. With `threads` (default `'auto'`), the Gram matrix and Xᵀy are computed on several cores where
+   * shared memory allows and X is large enough, with the same result as fitSync() to the last bit.
+   */
+  async fit(X: MatrixInput, y: VectorInput, options: ThreadOptions = {}): Promise<this> {
+    const m = Matrix.from(X);
+    const pool = await threadPool(options.threads, m.rows * m.cols);
+    if (!pool) return this.fitSync(m, y);
+    const c = this.#prepare(m, y);
+    return this.#finish(m, c, m.cols === 0 ? { coef: new Float64Array(0), nIter: 0 } : await runOn(pool, this.solve(m, c.xMean, c.y)));
   }
 
   fitSync(X: MatrixInput, y: VectorInput): this {
     const m = Matrix.from(X);
+    const c = this.#prepare(m, y);
+    return this.#finish(m, c, m.cols === 0 ? { coef: new Float64Array(0), nIter: 0 } : runHere(this.solve(m, c.xMean, c.y)));
+  }
+
+  #prepare(m: Matrix, y: VectorInput) {
     if (m.rows === 0) fail('ML_SHAPE', 'X has no rows');
     const target = toVector(y, m.rows);
     assertFiniteVector(target);
-    const c = centring(m, target, this.fitIntercept);
-    const { coef, nIter } = m.cols === 0 ? { coef: new Float64Array(0), nIter: 0 } : this.solve(m, c.xMean, c.y);
+    return centring(m, target, this.fitIntercept);
+  }
+
+  #finish(m: Matrix, c: { xMean: Float64Array | undefined; yMean: number }, { coef, nIter }: { coef: Float64Array; nIter: number }): this {
     let intercept = 0;
     if (c.xMean) {
       intercept = c.yMean;
@@ -157,14 +174,14 @@ export class Ridge extends PenalizedLinear {
     return { alpha: this.alpha, fitIntercept: this.fitIntercept };
   }
 
-  protected solve(X: Matrix, mean: Float64Array | undefined, y: Float64Array) {
+  protected *solve(X: Matrix, mean: Float64Array | undefined, y: Float64Array): Solver<{ coef: Float64Array; nIter: number }> {
     const p = X.cols;
     // (XᵀX + alpha·I) w = Xᵀy, on X less its means.
-    const A = gram(X, mean);
+    const A: Float64Array = yield { k: 'gram', X, mean };
     for (let j = 0; j < p; j++) A[j * p + j]! += this.alpha;
     const L = cholesky(A, p);
     if (!L) fail('ML_SINGULAR', "the columns don't determine one answer (one is a combination of others): use alpha > 0");
-    return { coef: choleskySolve(L, p, xtv(X, y, mean)), nIter: 0 };
+    return { coef: choleskySolve(L, p, yield { k: 'xtv', X, v: y, mean }), nIter: 0 };
   }
 
   static fromJSON(doc: ModelDocument): Ridge {
@@ -212,11 +229,15 @@ export class ElasticNet extends PenalizedLinear {
     return { alpha: this.alpha, l1Ratio: this.l1Ratio, fitIntercept: this.fitIntercept, maxIter: this.maxIter, tol: this.tol };
   }
 
-  protected solve(X: Matrix, mean: Float64Array | undefined, y: Float64Array) {
+  protected *solve(X: Matrix, mean: Float64Array | undefined, y: Float64Array): Solver<{ coef: Float64Array; nIter: number }> {
     const l1 = this.alpha * this.l1Ratio * X.rows;
     const l2 = this.alpha * (1 - this.l1Ratio) * X.rows;
     // With more rows than columns, descend on the Gram matrix: a pass costs p², not a read of X.
-    if (X.rows >= X.cols && X.cols <= GRAM_MAX) return gramDescent(gram(X, mean), xtv(X, y, mean), dotSelf(y), X.cols, l1, l2, this.maxIter, this.tol);
+    if (X.rows >= X.cols && X.cols <= GRAM_MAX) {
+      const G: Float64Array = yield { k: 'gram', X, mean };
+      const q: Float64Array = yield { k: 'xtv', X, v: y, mean };
+      return gramDescent(G, q, dotSelf(y), X.cols, l1, l2, this.maxIter, this.tol);
+    }
     return coordinateDescent(mean ? centredCopy(X, mean) : X, y, l1, l2, this.maxIter, this.tol);
   }
 

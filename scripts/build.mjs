@@ -20,7 +20,14 @@ export const entries = {
   gpu: 'src/gpu/index.ts',
   registry: 'src/registry/index.ts',
   worker: 'src/worker/index.ts',
+  parallel: 'src/parallel/index.ts',
+};
+
+// The scripts workers run, each one self-contained file, written beside the entry points and beside the shared
+// chunks: the code that starts them may sit in either, and finds them beside itself.
+export const workerScripts = {
   'smaltml-worker': 'src/worker/worker.ts',
+  'smaltml-threads': 'src/parallel/worker.ts',
 };
 
 await esbuild.build({
@@ -37,5 +44,19 @@ await esbuild.build({
   logLevel: 'warning',
 });
 
+for (const outdir of ['dist', 'dist/chunks']) {
+  await esbuild.build({
+    entryPoints: workerScripts,
+    outdir,
+    bundle: true,
+    format: 'esm',
+    target: 'es2022',
+    platform: 'neutral',
+    minify,
+    sourcemap: true,
+    logLevel: 'warning',
+  });
+}
+
 execFileSync('node_modules/.bin/tsc', ['-p', 'tsconfig.build.json'], { stdio: 'inherit' });
-console.log(`built dist/ (${Object.keys(entries).length} entry points${minify ? ', minified' : ''})`);
+console.log(`built dist/ (${Object.keys(entries).length} entry points and ${Object.keys(workerScripts).length} worker scripts${minify ? ', minified' : ''})`);

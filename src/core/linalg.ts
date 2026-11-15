@@ -137,12 +137,34 @@ export interface MinimizeResult {
  * decrease of the objective below `ftolFactor` × epsilon (scikit-learn passes 64).
  */
 export function minimize(f: Objective, x0: Float64Array, options: MinimizeOptions): MinimizeResult {
+  const steps = lbfgs(x0, options);
+  let r = steps.next();
+  while (!r.done) r = steps.next(f(r.value.x, r.value.grad));
+  return r.value;
+}
+
+/** minimize() with an objective that answers asynchronously, such as one computed by workers. The same steps. */
+export async function minimizeAsync(f: (x: Float64Array, grad: Float64Array) => Promise<number>, x0: Float64Array, options: MinimizeOptions): Promise<MinimizeResult> {
+  const steps = lbfgs(x0, options);
+  let r = steps.next();
+  while (!r.done) r = steps.next(await f(r.value.x, r.value.grad));
+  return r.value;
+}
+
+/** A point the optimizer needs the objective at: the value is sent back, the gradient written into `grad`. */
+interface Evaluation {
+  x: Float64Array;
+  grad: Float64Array;
+}
+
+/** L-BFGS as a generator of the evaluations it needs, so one algorithm serves synchronous and asynchronous objectives. */
+function* lbfgs(x0: Float64Array, options: MinimizeOptions): Generator<Evaluation, MinimizeResult, number> {
   const m = options.memory ?? 10;
   const ftol = (options.ftolFactor ?? 64) * Number.EPSILON;
   const p = x0.length;
   let x: Float64Array = x0.slice();
   let g: Float64Array = new Float64Array(p);
-  let fx = f(x, g);
+  let fx: number = yield { x, grad: g };
   const S: Float64Array[] = [];
   const Y: Float64Array[] = [];
   const rho: number[] = [];
@@ -182,7 +204,7 @@ export function minimize(f: Objective, x0: Float64Array, options: MinimizeOption
       for (let i = 0; i < p; i++) d[i] = -g[i]! / gn;
       slope = dot(g, d);
     }
-    const step = lineSearch(f, x, fx, g, d, slope);
+    const step: Step | null = yield* lineSearch(x, fx, g, d, slope);
     iter++;
     if (!step) break;
     const s = new Float64Array(p);
@@ -220,25 +242,25 @@ interface Step {
   g: Float64Array;
 }
 
-function lineSearch(f: Objective, x: Float64Array, f0: number, g0: Float64Array, d: Float64Array, slope0: number): Step | null {
+function* lineSearch(x: Float64Array, f0: number, _g0: Float64Array, d: Float64Array, slope0: number): Generator<Evaluation, Step | null, number> {
   const c1 = 1e-4;
   const c2 = 0.9;
   const p = x.length;
-  const at = (a: number): Step & { slope: number } => {
+  function* at(a: number): Generator<Evaluation, Step & { slope: number }, number> {
     const xa = new Float64Array(p);
     for (let i = 0; i < p; i++) xa[i] = x[i]! + a * d[i]!;
     const ga = new Float64Array(p);
-    const fa = f(xa, ga);
+    const fa: number = yield { x: xa, grad: ga };
     return { x: xa, f: fa, g: ga, slope: dot(ga, d) };
-  };
-  const zoom = (lo: number, hi: number, flo: number, slo: number, fhi: number): Step | null => {
+  }
+  function* zoom(lo: number, hi: number, flo: number, slo: number, fhi: number): Generator<Evaluation, Step | null, number> {
     for (let k = 0; k < 40; k++) {
       // Quadratic interpolation in the bracket, kept away from its ends.
       let a = quadraticMin(lo, flo, slo, hi, fhi);
       const lowEnd = Math.min(lo, hi);
       const width = Math.abs(hi - lo);
       if (!Number.isFinite(a) || a < lowEnd + 0.1 * width || a > lowEnd + 0.9 * width) a = (lo + hi) / 2;
-      const s = at(a);
+      const s = yield* at(a);
       if (s.f > f0 + c1 * a * slope0 || s.f >= flo) {
         hi = a;
         fhi = s.f;
@@ -252,23 +274,23 @@ function lineSearch(f: Objective, x: Float64Array, f0: number, g0: Float64Array,
         flo = s.f;
         slo = s.slope;
       }
-      if (Math.abs(hi - lo) < 1e-16) return lo > 0 ? at(lo) : null;
+      if (Math.abs(hi - lo) < 1e-16) return lo > 0 ? yield* at(lo) : null;
     }
-    return lo > 0 ? at(lo) : null;
-  };
+    return lo > 0 ? yield* at(lo) : null;
+  }
   let aPrev = 0;
   let fPrev = f0;
   let sPrev = slope0;
   let a = 1;
   for (let k = 0; k < 40; k++) {
-    const s = at(a);
+    const s = yield* at(a);
     if (!Number.isFinite(s.f)) {
       a = (aPrev + a) / 2;
       continue;
     }
-    if (s.f > f0 + c1 * a * slope0 || (k > 0 && s.f >= fPrev)) return zoom(aPrev, a, fPrev, sPrev, s.f);
+    if (s.f > f0 + c1 * a * slope0 || (k > 0 && s.f >= fPrev)) return yield* zoom(aPrev, a, fPrev, sPrev, s.f);
     if (Math.abs(s.slope) <= -c2 * slope0) return s;
-    if (s.slope >= 0) return zoom(a, aPrev, s.f, s.slope, fPrev);
+    if (s.slope >= 0) return yield* zoom(a, aPrev, s.f, s.slope, fPrev);
     aPrev = a;
     fPrev = s.f;
     sPrev = s.slope;

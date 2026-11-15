@@ -8,14 +8,15 @@
 
 **smaltml** trains models on tables and predicts with them, in TypeScript, in the browser and in Node. It follows
 scikit-learn: the same models, parameters, defaults and results, checked against scikit-learn on the same data. Every
-model runs on the CPU in 64-bit floats; WebGPU will speed up the heavy steps where the browser has it. Fitted models
+model runs on the CPU in 64-bit floats, large fits on several cores where memory can be shared, and WebGPU speeds up
+the heavy steps where the browser has it. Fitted models
 save to JSON and load back the same.
 
 > **Status: 0.1.0, work in progress.** [ADR 0024](docs/adr/0024-smaltml-scope-and-architecture.md)'s phase 1:
 > scalers (standard, min–max, robust), `SimpleImputer`, `OneHotEncoder`, `OrdinalEncoder`, `ColumnTransformer`,
 > `LinearRegression`, `Ridge`, `Lasso`, `ElasticNet`, `LogisticRegression`, `pipeline`, regression and classification
 > metrics, `trainTestSplit`, k-fold and stratified folds, `crossValScore`, `GridSearchCV`, saving and loading models,
-> predictions on WebGPU, a Web Worker for fits, and `predict()` by model name from a model registry, in memory or in a
+> fits on several threads, predictions on WebGPU, a Web Worker for fits, and `predict()` by model name from a model registry, in memory or in a
 > smaltdb table.
 
 ## Install

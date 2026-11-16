@@ -2,6 +2,7 @@ import { fail } from '../core/errors.js';
 import { checkedMeans, cholesky, choleskySolve, xw } from '../core/kernels.js';
 import { threadPool, type ThreadOptions } from '../parallel/index.js';
 import { keptMeans, runHere, runOn, type Solver } from './calls.js';
+import { nonNegativeLeastSquares } from './nnls.js';
 import { checkedWeights, weightedLeastSquares, type SampleWeightOptions } from './weights.js';
 import { leastSquares } from '../core/linalg.js';
 import { assertFinite, assertFiniteVector, Matrix, toVector, type MatrixInput, type VectorInput } from '../core/matrix.js';
@@ -11,6 +12,8 @@ import { checkColumns, checkDocument, document, floats, notFitted, numbers, type
 export interface LinearRegressionParams {
   /** Fit an intercept. With false, the line passes through the origin. Default true. */
   fitIntercept?: boolean;
+  /** Hold every coefficient at 0 or more: non-negative least squares. Default false. */
+  positive?: boolean;
 }
 
 interface State {
@@ -22,16 +25,20 @@ interface State {
 
 /**
  * Ordinary least squares: the coefficients w and intercept b that minimize the sum of (y − X·w − b)².
- * scikit-learn's `LinearRegression`, for one target. Solved by QR on centred data, on the CPU in 64-bit floats.
+ * scikit-learn's `LinearRegression`, for one target. Solved by QR on centred data, on the CPU in 64-bit floats; with
+ * `positive`, by non-negative least squares (Lawson and Hanson's active set).
  */
 export class LinearRegression implements Predictor {
   readonly kind = 'LinearRegression';
   readonly fitIntercept: boolean;
+  readonly positive: boolean;
   #state: State | null = null;
 
   constructor(params: LinearRegressionParams = {}) {
     this.fitIntercept = params.fitIntercept ?? true;
     if (typeof this.fitIntercept !== 'boolean') fail('ML_PARAM', 'fitIntercept is true or false');
+    this.positive = params.positive ?? false;
+    if (typeof this.positive !== 'boolean') fail('ML_PARAM', 'positive is true or false');
   }
 
   get fitted(): boolean {
@@ -57,7 +64,7 @@ export class LinearRegression implements Predictor {
   }
 
   getParams(): LinearRegressionParams {
-    return { fitIntercept: this.fitIntercept };
+    return { fitIntercept: this.fitIntercept, ...(this.positive ? { positive: true } : {}) };
   }
 
   /**
@@ -70,14 +77,20 @@ export class LinearRegression implements Predictor {
     const pool = await threadPool(options.threads, m.rows * m.cols);
     if (!pool) return this.fitSync(m, y, options);
     const job = this.#prepare(m, y, options.sampleWeight);
-    const coef = job.p === 0 ? new Float64Array(0) : ((await runOn(pool, seminormal(job.design, job.kernelMean, job.b))) ?? householder(job.design, job.kernelMean, job.b));
+    const coef =
+      job.p === 0 ? new Float64Array(0)
+      : this.positive ? (await runOn(pool, nonNegativeLeastSquares(job.design, job.kernelMean, job.b, 0))).coef
+      : ((await runOn(pool, seminormal(job.design, job.kernelMean, job.b))) ?? householder(job.design, job.kernelMean, job.b));
     return this.#finish(job, coef);
   }
 
   fitSync(X: MatrixInput, y: VectorInput, options: SampleWeightOptions = {}): this {
     const m = Matrix.from(X);
     const job = this.#prepare(m, y, options.sampleWeight);
-    const coef = job.p === 0 ? new Float64Array(0) : (runHere(seminormal(job.design, job.kernelMean, job.b)) ?? householder(job.design, job.kernelMean, job.b));
+    const coef =
+      job.p === 0 ? new Float64Array(0)
+      : this.positive ? runHere(nonNegativeLeastSquares(job.design, job.kernelMean, job.b, 0)).coef
+      : (runHere(seminormal(job.design, job.kernelMean, job.b)) ?? householder(job.design, job.kernelMean, job.b));
     return this.#finish(job, coef);
   }
 

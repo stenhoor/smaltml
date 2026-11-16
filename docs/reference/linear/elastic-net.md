@@ -7,7 +7,7 @@ description: 'ElasticNet: linear regression with a mix of L1 and L2 penalties. s
 <!-- docs:skip -->
 ```ts
 class ElasticNet implements Predictor {
-  constructor(params?: { alpha?: number; l1Ratio?: number; fitIntercept?: boolean; maxIter?: number; tol?: number });
+  constructor(params?: { alpha?: number; l1Ratio?: number; fitIntercept?: boolean; maxIter?: number; tol?: number; positive?: boolean });
   fit(X: MatrixInput, y: ArrayLike<number>, options?: { threads?: number | 'auto'; sampleWeight?: ArrayLike<number> }): Promise<this>;
   fitSync(X: MatrixInput, y: ArrayLike<number>, options?: { sampleWeight?: ArrayLike<number> }): this;
   predict(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Float64Array>;
@@ -26,7 +26,7 @@ Linear regression with a mix of the lasso's and ridge's penalties: minimizes
 
 - `alpha` (default `1`): the penalty's strength.
 - `l1Ratio` (default `0.5`): the L1 share, from 0 (all L2) to 1 (the lasso).
-- `fitIntercept`, `maxIter`, `tol`: as for [`Lasso`](./lasso).
+- `fitIntercept`, `maxIter`, `tol`, `positive`: as for [`Lasso`](./lasso).
 
 `fit` and `fitSync` take `sampleWeight`, as [`Lasso`](./lasso) does.
 

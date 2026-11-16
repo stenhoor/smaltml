@@ -508,6 +508,43 @@ for name, X_, sizes in [
               "nSamplesSeen": tolist(seen) if isinstance(seen, np.ndarray) else int(seen), "transform": tolist(s.transform(X_))},
              {"rtol": 1e-10, "atol": 1e-12}, note)
 
+# positive: coefficients held at 0 or more (appended) -------------------------------------------------------------
+Xp = features(150, 6, rng.uniform(0.5, 5, 6), rng.uniform(-3, 3, 6))
+yp = Xp @ np.array([2.0, -1.5, 0.7, -0.3, 1.2, 0.0]) + 4 + rng.normal(scale=0.5, size=150)
+Xpn = features(10, 6, rng.uniform(0.5, 5, 6), rng.uniform(-3, 3, 6))
+swp = rng.uniform(0.2, 2.0, size=150)
+for name, cls, kind, params, ours, weights, tol in [
+    ("linear positive", LinearRegression, "LinearRegression", {"positive": True}, None, None, {"rtol": 1e-9, "atol": 1e-9}),
+    ("linear positive, no intercept", LinearRegression, "LinearRegression", {"positive": True, "fit_intercept": False}, None, None, {"rtol": 1e-9, "atol": 1e-9}),
+    ("linear positive, sample weights", LinearRegression, "LinearRegression", {"positive": True}, None, swp, {"rtol": 1e-9, "atol": 1e-9}),
+    # scikit-learn's Ridge solves positive by L-BFGS-B, to its tol; ours exactly, so the agreement is lbfgs's.
+    ("ridge positive", Ridge, "Ridge", {"positive": True, "alpha": 10.0, "tol": 1e-12, "max_iter": 100000}, {"positive": True, "alpha": 10.0}, None, {"rtol": 1e-6, "atol": 1e-6}),
+    ("ridge positive, no intercept", Ridge, "Ridge", {"positive": True, "alpha": 1.0, "fit_intercept": False, "tol": 1e-12, "max_iter": 100000},
+     {"positive": True, "alpha": 1.0, "fit_intercept": False}, None, {"rtol": 1e-6, "atol": 1e-6}),
+    ("lasso positive", Lasso, "Lasso", {"positive": True, "alpha": 0.1, "tol": 1e-12, "max_iter": 100000}, None, None, {"rtol": 1e-8, "atol": 1e-8}),
+    ("lasso positive, sample weights", Lasso, "Lasso", {"positive": True, "alpha": 0.1, "tol": 1e-12, "max_iter": 100000}, None, swp, {"rtol": 1e-8, "atol": 1e-8}),
+    ("elasticnet positive", ElasticNet, "ElasticNet", {"positive": True, "alpha": 0.2, "l1_ratio": 0.4, "tol": 1e-12, "max_iter": 100000}, None, None, {"rtol": 1e-8, "atol": 1e-8}),
+    ("elasticnet positive, l1_ratio 0", ElasticNet, "ElasticNet", {"positive": True, "alpha": 0.2, "l1_ratio": 0.0, "tol": 1e-12, "max_iter": 100000}, None, None, {"rtol": 1e-8, "atol": 1e-8}),
+]:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)  # ElasticNet with l1_ratio 0 warns that it isn't the lasso
+        m = cls(**params).fit(Xp, yp, sample_weight=weights)
+    inputs = {"X": tolist(Xp), "y": tolist(yp), "Xnew": tolist(Xpn), "params": ours if ours is not None else params}
+    if weights is not None:
+        inputs["sampleWeight"] = tolist(weights)
+    assert (m.coef_ >= 0).all() and (m.coef_ == 0).any(), name  # the constraint binds somewhere
+    case(name, kind, inputs, {"coef": tolist(m.coef_), "intercept": float(m.intercept_), "predict": tolist(m.predict(Xpn)),
+                              **({"zero": [bool(v == 0) for v in m.coef_]} if kind in ("Lasso", "ElasticNet") else {})}, tol)
+
+# Two identical columns: many answers; scikit-learn's nnls (Lawson and Hanson's too) gives all to the first.
+xt = rng.uniform(0, 3, 50)
+Xt = np.column_stack([xt, xt, rng.normal(size=50)])
+yt = 2 * xt - 0.5 * Xt[:, 2] + 1 + rng.normal(scale=0.1, size=50)
+m = LinearRegression(positive=True).fit(Xt, yt)
+assert m.coef_[1] == 0 and m.coef_[0] > 0
+case("linear positive, two identical columns", "LinearRegression", {"X": tolist(Xt), "y": tolist(yt), "Xnew": tolist(Xt[:5]), "params": {"positive": True}},
+     {"coef": tolist(m.coef_), "intercept": float(m.intercept_), "predict": tolist(m.predict(Xt[:5]))}, {"rtol": 1e-9, "atol": 1e-9})
+
 out = {
     "comment": "Written by compare/run.py (npm run compare); don't edit by hand.",
     "reference": {"scikit-learn": sklearn.__version__, "numpy": np.__version__},

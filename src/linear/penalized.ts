@@ -2,6 +2,7 @@ import { fail, warn } from '../core/errors.js';
 import { checkedMeans, cholesky, choleskySolve, xw } from '../core/kernels.js';
 import { threadPool, type ThreadOptions } from '../parallel/index.js';
 import { keptMeans, runHere, runOn, type Solver } from './calls.js';
+import { nonNegativeLeastSquares } from './nnls.js';
 import { checkedWeights, weightedLeastSquares, weightsSummingToRows, type SampleWeightOptions } from './weights.js';
 import { assertFinite, assertFiniteVector, Matrix, toVector, type MatrixInput, type VectorInput } from '../core/matrix.js';
 import { checkColumns, checkDocument, document, floats, notFitted, numbers, type ModelDocument, type Predictor } from '../core/model.js';
@@ -46,11 +47,15 @@ abstract class PenalizedLinear implements Predictor {
   abstract readonly kind: string;
   readonly alpha: number;
   readonly fitIntercept: boolean;
+  /** Hold every coefficient at 0 or more. */
+  readonly positive: boolean;
   #state: State | null = null;
 
-  constructor(alpha: number, fitIntercept: boolean) {
+  constructor(alpha: number, fitIntercept: boolean, positive: boolean) {
     this.alpha = alpha;
     this.fitIntercept = fitIntercept;
+    this.positive = positive;
+    if (typeof positive !== 'boolean') fail('ML_PARAM', 'positive is true or false');
     if (!(alpha >= 0) || !Number.isFinite(alpha)) fail('ML_PARAM', `alpha must be 0 or more, not ${alpha}`);
     if (typeof fitIntercept !== 'boolean') fail('ML_PARAM', 'fitIntercept is true or false');
   }
@@ -197,24 +202,31 @@ export interface RidgeParams {
   alpha?: number;
   /** Fit an intercept (not penalized). Default true. */
   fitIntercept?: boolean;
+  /** Hold every coefficient at 0 or more. Default false. */
+  positive?: boolean;
 }
 
 /**
  * Linear regression with an L2 penalty: minimizes ‖y − X·w − b‖² + alpha · ‖w‖². scikit-learn's `Ridge`, for one
- * target. Solved in closed form, (XᵀX + alpha·I) w = Xᵀy on centred data, by Cholesky in 64-bit floats.
+ * target. Solved in closed form, (XᵀX + alpha·I) w = Xᵀy on centred data, by Cholesky in 64-bit floats; with
+ * `positive`, by non-negative least squares on the same equations (Lawson and Hanson's active set).
  */
 export class Ridge extends PenalizedLinear {
   readonly kind = 'Ridge';
 
   constructor(params: RidgeParams = {}) {
-    super(params.alpha ?? 1, params.fitIntercept ?? true);
+    super(params.alpha ?? 1, params.fitIntercept ?? true, params.positive ?? false);
   }
 
-  getParams(): Required<RidgeParams> {
-    return { alpha: this.alpha, fitIntercept: this.fitIntercept };
+  getParams(): RidgeParams {
+    return { alpha: this.alpha, fitIntercept: this.fitIntercept, ...(this.positive ? { positive: true } : {}) };
   }
 
   protected *solve(X: Matrix, mean: Float64Array | undefined, y: Float64Array): Solver<Solution> {
+    if (this.positive) {
+      const { coef } = yield* nonNegativeLeastSquares(X, mean, y, this.alpha);
+      return { coef, nIter: 0, converged: true };
+    }
     const p = X.cols;
     // (XᵀX + alpha·I) w = Xᵀy, on X less its means.
     const A: Float64Array = yield { k: 'gram', X, mean };
@@ -241,6 +253,8 @@ export interface ElasticNetParams {
   maxIter?: number;
   /** The stopping tolerance on the coefficient updates and the duality gap. Default 1e-4. */
   tol?: number;
+  /** Hold every coefficient at 0 or more. Default false. */
+  positive?: boolean;
 }
 
 /**
@@ -257,7 +271,7 @@ export class ElasticNet extends PenalizedLinear {
   readonly tol: number;
 
   constructor(params: ElasticNetParams = {}) {
-    super(params.alpha ?? 1, params.fitIntercept ?? true);
+    super(params.alpha ?? 1, params.fitIntercept ?? true, params.positive ?? false);
     this.l1Ratio = params.l1Ratio ?? 0.5;
     this.maxIter = params.maxIter ?? 1000;
     this.tol = params.tol ?? 1e-4;
@@ -267,7 +281,14 @@ export class ElasticNet extends PenalizedLinear {
   }
 
   getParams(): ElasticNetParams {
-    return { alpha: this.alpha, l1Ratio: this.l1Ratio, fitIntercept: this.fitIntercept, maxIter: this.maxIter, tol: this.tol };
+    return {
+      alpha: this.alpha,
+      l1Ratio: this.l1Ratio,
+      fitIntercept: this.fitIntercept,
+      maxIter: this.maxIter,
+      tol: this.tol,
+      ...(this.positive ? { positive: true } : {}),
+    };
   }
 
   protected *solve(X: Matrix, mean: Float64Array | undefined, y: Float64Array): Solver<Solution> {
@@ -278,9 +299,9 @@ export class ElasticNet extends PenalizedLinear {
     if (X.rows >= X.cols && X.cols <= GRAM_MAX) {
       const G: Float64Array = yield { k: 'gram', X, mean };
       const q: Float64Array = yield { k: 'xtv', X, v: y, mean };
-      return gramDescent(G, q, dotSelf(y), X.cols, l1, l2, this.maxIter, this.tol);
+      return gramDescent(G, q, dotSelf(y), X.cols, l1, l2, this.maxIter, this.tol, this.positive);
     }
-    return coordinateDescent(X, mean, y, l1, l2, this.maxIter, this.tol);
+    return coordinateDescent(X, mean, y, l1, l2, this.maxIter, this.tol, this.positive);
   }
 
   static fromJSON(doc: ModelDocument): ElasticNet {
@@ -318,7 +339,7 @@ export class Lasso extends ElasticNet {
  * duality gap of the lasso on X augmented by √l2 · I, which this objective is. X less `mean` is the design: column j is
  * read as xⱼ − μⱼ, with no copy of X, which matters on wide data.
  */
-function coordinateDescent(X: Matrix, mean: Float64Array | undefined, y: Float64Array, l1: number, l2: number, maxIter: number, tol: number) {
+function coordinateDescent(X: Matrix, mean: Float64Array | undefined, y: Float64Array, l1: number, l2: number, maxIter: number, tol: number, positive: boolean) {
   const n = X.rows;
   const p = X.cols;
   const d = X.data;
@@ -359,7 +380,7 @@ function coordinateDescent(X: Matrix, mean: Float64Array | undefined, y: Float64
       let rho = 0;
       for (let i = 0; i < n; i++) rho += d[o + i]! * r[i]!;
       rho += norms[j]! * old - m * rsum;
-      const next = Math.sign(rho) * Math.max(Math.abs(rho) - l1, 0) / (norms[j]! + l2);
+      const next = shrink(rho, l1, positive) / (norms[j]! + l2);
       if (next !== old) {
         const step = next - old;
         const shift = m * step;
@@ -371,7 +392,7 @@ function coordinateDescent(X: Matrix, mean: Float64Array | undefined, y: Float64
       maxW = Math.max(maxW, Math.abs(next));
     }
     if (maxW === 0 || maxStep / maxW <= tol || iter === maxIter - 1) {
-      gap = dualityGap(X, mean, y, w, r, rsum, l1, l2);
+      gap = dualityGap(X, mean, y, w, r, rsum, l1, l2, positive);
       if (gap <= gapTol) {
         converged = true;
         iter++;
@@ -383,7 +404,17 @@ function coordinateDescent(X: Matrix, mean: Float64Array | undefined, y: Float64
 }
 
 /** The duality gap of the elastic net, as the lasso on [X; √l2 I] with target [y; 0]; X less `mean`, as above. */
-function dualityGap(X: Matrix, mean: Float64Array | undefined, y: Float64Array, w: Float64Array, r: Float64Array, rsum: number, l1: number, l2: number): number {
+function dualityGap(
+  X: Matrix,
+  mean: Float64Array | undefined,
+  y: Float64Array,
+  w: Float64Array,
+  r: Float64Array,
+  rsum: number,
+  l1: number,
+  l2: number,
+  positive: boolean,
+): number {
   const n = X.rows;
   const p = X.cols;
   const d = X.data;
@@ -402,8 +433,8 @@ function dualityGap(X: Matrix, mean: Float64Array | undefined, y: Float64Array, 
     let g = 0;
     for (let i = 0; i < n; i++) g += d[o + i]! * r[i]!;
     if (mean) g -= mean[j]! * rsum;
-    dualNorm = Math.max(dualNorm, Math.abs(g - l2 * w[j]!));
-    xtr2 += g * g;
+    dualNorm = Math.max(dualNorm, positive ? g - l2 * w[j]! : Math.abs(g - l2 * w[j]!));
+    xtr2 += positive ? Math.max(g, 0) ** 2 : g * g;
     ww += w[j]! * w[j]!;
     w1 += Math.abs(w[j]!);
   }
@@ -425,6 +456,15 @@ function ridgeGap(rr: number, ry: number, ww: number, xtr2: number, l2: number):
   return 0.5 * rr + 0.5 * l2 * ww - (ry - 0.5 * rr - xtr2 / (2 * l2));
 }
 
+/**
+ * The coordinate update's soft-threshold: ρ moved l1 towards 0, and 0 within l1 of it. With `positive`, a coefficient
+ * the update would make negative is 0, as the constraint w ≥ 0 asks.
+ */
+function shrink(rho: number, l1: number, positive: boolean): number {
+  if (positive) return Math.max(rho - l1, 0);
+  return Math.sign(rho) * Math.max(Math.abs(rho) - l1, 0);
+}
+
 /** Above this many columns, the p × p Gram matrix is too big to be worth it, and descent reads X instead. */
 const GRAM_MAX = 2048;
 
@@ -438,7 +478,7 @@ function dotSelf(v: Float64Array): number {
  * coordinateDescent() on the Gram matrix G = XᵀX, with q = Xᵀy and yy = yᵀy: the same updates in the same order,
  * with Xᵀr kept as c = q − G w, and ‖r‖² and rᵀy from G, q and yy for the duality gap.
  */
-function gramDescent(G: Float64Array, q: Float64Array, yy: number, p: number, l1: number, l2: number, maxIter: number, tol: number) {
+function gramDescent(G: Float64Array, q: Float64Array, yy: number, p: number, l1: number, l2: number, maxIter: number, tol: number, positive: boolean) {
   const w = new Float64Array(p);
   const c = q.slice();
   const gapTol = tol * yy;
@@ -453,7 +493,7 @@ function gramDescent(G: Float64Array, q: Float64Array, yy: number, p: number, l1
       if (gjj === 0) continue;
       const old = w[j]!;
       const rho = c[j]! + gjj * old;
-      const next = Math.sign(rho) * Math.max(Math.abs(rho) - l1, 0) / (gjj + l2);
+      const next = shrink(rho, l1, positive) / (gjj + l2);
       if (next !== old) {
         const d = next - old;
         const row = j * p;
@@ -464,7 +504,7 @@ function gramDescent(G: Float64Array, q: Float64Array, yy: number, p: number, l1
       maxW = Math.max(maxW, Math.abs(next));
     }
     if (maxW === 0 || maxStep / maxW <= tol || iter === maxIter - 1) {
-      gap = gramGap(G, q, yy, w, c, l1, l2);
+      gap = gramGap(G, q, yy, w, c, l1, l2, positive);
       if (gap <= gapTol) {
         converged = true;
         iter++;
@@ -476,7 +516,7 @@ function gramDescent(G: Float64Array, q: Float64Array, yy: number, p: number, l1
 }
 
 /** dualityGap() from the Gram matrix: ‖r‖² = yy − 2 wᵀq + wᵀGw, rᵀy = yy − wᵀq, Xᵀr = c. */
-function gramGap(G: Float64Array, q: Float64Array, yy: number, w: Float64Array, c: Float64Array, l1: number, l2: number): number {
+function gramGap(G: Float64Array, q: Float64Array, yy: number, w: Float64Array, c: Float64Array, l1: number, l2: number, positive: boolean): number {
   const p = w.length;
   let wq = 0;
   let wGw = 0;
@@ -490,8 +530,8 @@ function gramGap(G: Float64Array, q: Float64Array, yy: number, w: Float64Array, 
     wGw += w[j]! * (q[j]! - c[j]!);
     ww += w[j]! * w[j]!;
     w1 += Math.abs(w[j]!);
-    dualNorm = Math.max(dualNorm, Math.abs(c[j]! - l2 * w[j]!));
-    xtr2 += c[j]! * c[j]!;
+    dualNorm = Math.max(dualNorm, positive ? c[j]! - l2 * w[j]! : Math.abs(c[j]! - l2 * w[j]!));
+    xtr2 += positive ? Math.max(c[j]!, 0) ** 2 : c[j]! * c[j]!;
   }
   const rr = Math.max(yy - 2 * wq + wGw, 0);
   const ry = yy - wq;

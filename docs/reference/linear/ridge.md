@@ -7,7 +7,7 @@ description: 'Ridge: linear regression with an L2 penalty, solved in closed form
 <!-- docs:skip -->
 ```ts
 class Ridge implements Predictor {
-  constructor(params?: { alpha?: number; fitIntercept?: boolean });
+  constructor(params?: { alpha?: number; fitIntercept?: boolean; positive?: boolean });
   fit(X: MatrixInput, y: ArrayLike<number>, options?: { threads?: number | 'auto'; sampleWeight?: ArrayLike<number> }): Promise<this>;
   fitSync(X: MatrixInput, y: ArrayLike<number>, options?: { sampleWeight?: ArrayLike<number> }): this;
   predict(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Float64Array>;
@@ -25,6 +25,7 @@ Linear regression with an L2 penalty: minimizes `‖y − X·w − b‖² + alph
 
 - `alpha` (default `1`): the penalty's strength. `0` is ordinary least squares.
 - `fitIntercept` (default `true`): fit an intercept, which is never penalized.
+- `positive` (default `false`): hold every coefficient at 0 or more.
 
 `fit` and `fitSync` take `sampleWeight`: one weight per row, 0 or more, as scikit-learn's `sample_weight`. A row's
 squared error counts that many times, so whole-number weights fit as the rows repeated would. The penalty isn't weighted: it is `alpha·‖w‖²` whatever the weights add up to, as in
@@ -38,7 +39,7 @@ smaltml before it recorded this).
 
 ## Errors
 
-- `ML_PARAM`: a negative `alpha`.
+- `ML_PARAM`: a negative `alpha`, or `positive` that isn't `true` or `false`.
 - `ML_SINGULAR`: `alpha` 0 with columns that don't determine one answer. Any `alpha` above 0 has one.
 - `ML_VALUE`, `ML_SHAPE`, `ML_NOT_FITTED`: as for every model.
 
@@ -46,7 +47,9 @@ smaltml before it recorded this).
 
 Solved as `(XᵀX + alpha·I) w = Xᵀy` on centred data, by Cholesky, in 64-bit floats; XᵀX takes one blocked pass over
 X, centred as it is read. Results agree with scikit-learn's
-within 1e-9 in the compare tests.
+within 1e-9 in the compare tests. With `positive`, the same equations are solved with w ≥ 0 by Lawson and Hanson's
+active set, exactly ([`LinearRegression`](./linear-regression#notes)). scikit-learn solves that case by L-BFGS-B
+(`solver='lbfgs'`, which `positive=True` chooses), to its `tol`: run with `tol` 1e-12 there, the two agree within 1e-6.
 
 ## Examples
 

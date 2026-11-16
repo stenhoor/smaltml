@@ -40,9 +40,10 @@ JavaScript fixes the result of `+`, `−`, `×`, `÷` and `Math.sqrt` to the las
 
 Each of these fails with `ML_PARAM` or isn't a parameter yet:
 
-- `LinearRegression`: several targets at once, `positive`.
-- `Ridge`: several targets, solvers other than Cholesky (`solver`), `positive`.
-- `Lasso` and `ElasticNet`: several targets, `positive`, `selection='random'`, `warm_start`, `precompute`.
+- `LinearRegression`: several targets at once.
+- `Ridge`: several targets, solvers other than Cholesky (`solver`; `positive` is solved exactly, where scikit-learn
+  uses `lbfgs`).
+- `Lasso` and `ElasticNet`: several targets, `selection='random'`, `warm_start`, `precompute`.
 - `LogisticRegression`: the solvers `liblinear`, `newton-cg` and `sag` (`lbfgs`, `newton-cholesky` and `saga` are
   here), `warm_start`, and weights in a fit on the GPU. `saga` takes the same row order for a seed every time, but not
   scikit-learn's for the same `random_state`: run to convergence, both reach the one optimum.

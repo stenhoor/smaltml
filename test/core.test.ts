@@ -478,3 +478,45 @@ describe("StandardScaler's partialFit", () => {
     expect(code(() => s.partialFitSync([]))).toBe('ML_SHAPE');
   });
 });
+
+describe('positive: coefficients held at 0 or more', () => {
+  const r = new Random(4);
+  const rows = Array.from({ length: 50 }, () => [r.next() * 3, r.next() * 2 - 1, r.next() + 1]);
+  const y = rows.map((x) => 2 * x[0]! - 4 * x[1]! + 0.5 * x[2]! + 1 + 0.1 * (r.next() - 0.5));
+  const models = [
+    ['LinearRegression', (positive: boolean) => new LinearRegression({ positive })],
+    ['Ridge', (positive: boolean) => new Ridge({ alpha: 0.5, positive })],
+    ['Lasso', (positive: boolean) => new Lasso({ alpha: 0.01, positive, tol: 1e-12, maxIter: 100000 })],
+    ['ElasticNet', (positive: boolean) => new ElasticNet({ alpha: 0.01, l1Ratio: 0.5, positive, tol: 1e-12, maxIter: 100000 })],
+  ] as const;
+
+  test.each(models)('%s: no coefficient below 0, and the negative one at exactly 0', (_, make) => {
+    const free = make(false).fitSync(rows, y);
+    expect(free.coef[1]).toBeLessThan(0);
+    const held = make(true).fitSync(rows, y);
+    expect(Array.from(held.coef).every((v) => v >= 0)).toBe(true);
+    expect(held.coef[1]).toBe(0);
+    expect(held.coef[0]).toBeGreaterThan(0);
+  });
+
+  test.each(models)('%s: with every coefficient positive anyway, the same fit as without', (_, make) => {
+    const up = rows.map((x) => 2 * x[0]! + 3 * x[1]! + 0.5 * x[2]! + 1);
+    const free = make(false).fitSync(rows, up);
+    const held = make(true).fitSync(rows, up);
+    Array.from(held.coef).forEach((v, j) => expect(v).toBeCloseTo(free.coef[j]!, 8));
+  });
+
+  test.each(models)('%s: positive saves and loads back', (_, make) => {
+    const m = make(true).fitSync(rows, y);
+    const back = loadModel(JSON.parse(JSON.stringify(m))) as typeof m;
+    expect(back.positive).toBe(true);
+    expect((back.getParams() as { positive?: boolean }).positive).toBe(true);
+    expect(Array.from(back.predictSync(rows))).toEqual(Array.from(m.predictSync(rows)));
+  });
+
+  test('positive is true or false', () => {
+    expect(code(() => new LinearRegression({ positive: 1 as unknown as boolean }))).toBe('ML_PARAM');
+    expect(code(() => new Ridge({ positive: 'yes' as unknown as boolean }))).toBe('ML_PARAM');
+    expect(code(() => new Lasso({ positive: 0 as unknown as boolean }))).toBe('ML_PARAM');
+  });
+});

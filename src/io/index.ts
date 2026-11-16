@@ -30,7 +30,8 @@ const LOADERS: Record<string, (doc: ModelDocument) => Model> = {
 
 /**
  * Teaches loadModel() a model class from outside this module (GridSearchCV registers itself when
- * `@smaltworks/smaltml/selection` loads, as io can't import selection without a cycle).
+ * `@smaltworks/smaltml/selection` loads, and MultiOutputRegressor when `@smaltworks/smaltml/multioutput` does, as io
+ * can't import either without a cycle).
  */
 export function registerLoader(kind: string, load: (doc: ModelDocument) => Model): void {
   LOADERS[kind] = load;
@@ -57,6 +58,6 @@ export function loadModel(json: string | ModelDocument): Model {
 function loadDocument(doc: ModelDocument): Model {
   const d = checkDocument(doc);
   const load = LOADERS[d.model];
-  if (!load) fail('ML_FORMAT', `this smaltml can't load a ${d.model} model${d.model === 'GridSearchCV' ? ': import @smaltworks/smaltml/selection first' : ''}`);
+  if (!load) fail('ML_FORMAT', `this smaltml can't load a ${d.model} model${d.model === 'GridSearchCV' ? ': import @smaltworks/smaltml/selection first' : d.model === 'MultiOutputRegressor' ? ': import @smaltworks/smaltml/multioutput first' : ''}`);
   return load(d);
 }

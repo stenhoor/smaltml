@@ -26,6 +26,7 @@ uses:
 | `@smaltworks/smaltml/metrics` | `meanSquaredError`, `meanAbsoluteError`, `r2Score`, `accuracyScore`, `precisionScore`, `recallScore`, `f1Score`, `rocAucScore`, `confusionMatrix`, `logLoss` |
 | `@smaltworks/smaltml/selection` | `trainTestSplit`, `KFold`, `StratifiedKFold`, `crossValScore`, `cloneModel`, `GridSearchCV` |
 | `@smaltworks/smaltml/pipeline` | `pipeline`, `Pipeline`, `ColumnTransformer` |
+| `@smaltworks/smaltml/multioutput` | `MultiOutputRegressor` |
 | `@smaltworks/smaltml/io` | `saveModel`, `loadModel` |
 | `@smaltworks/smaltml/registry` | `predict`, `predictProba`, `ModelRegistry`, `MemoryStore`, `TableStore`, `useRegistry` |
 | `@smaltworks/smaltml/gpu` | `matMul`, `matMulSync`, `gpuAvailable`, `gpuDevice`, `GPU_MIN_WORK` |

@@ -146,6 +146,11 @@ export default defineConfig({
             ],
           },
           {
+            text: 'Several targets',
+            collapsed: false,
+            items: [{ text: 'MultiOutputRegressor', link: '/reference/multioutput/multi-output-regressor' }],
+          },
+          {
             text: 'Metrics',
             collapsed: false,
             link: '/reference/metrics/',

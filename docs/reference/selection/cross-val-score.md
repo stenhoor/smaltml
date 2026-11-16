@@ -29,7 +29,8 @@ A Float64Array with one score per fold.
 
 ## Notes
 
-`cloneModel(model, params)` is the copy it fits: unfitted, with parameters changed, as `{ C: 10 }` or `{ step__param: v }` for a step of a pipeline or a ColumnTransformer.
+`cloneModel(model, params)` is the copy it fits: unfitted, with parameters changed, as `{ C: 10 }`, `{ step__param: v }` for a step of a pipeline or a ColumnTransformer, or `{ estimator__param: v }`
+for a [`MultiOutputRegressor`](../multioutput/multi-output-regressor)'s model.
 
 ## Examples
 

@@ -14,6 +14,7 @@ const ALLOWED: Record<string, string[]> = {
   metrics: ['core', 'metrics'],
   selection: ['core', 'selection', 'io', 'metrics', 'preprocessing', 'linear', 'pipeline', 'gpu', 'parallel'],
   pipeline: ['core', 'pipeline'],
+  multioutput: ['core', 'multioutput', 'io', 'preprocessing', 'linear', 'pipeline', 'gpu', 'parallel'],
   io: ['core', 'io', 'preprocessing', 'linear', 'pipeline', 'gpu', 'parallel'],
   gpu: ['core', 'gpu'],
   parallel: ['core', 'parallel'],

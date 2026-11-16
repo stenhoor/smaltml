@@ -45,6 +45,11 @@ From `@smaltworks/smaltml/selection`:
 - [`ColumnTransformer`](./pipeline/column-transformer): different steps on different columns, side by side.
   `@smaltworks/smaltml/pipeline`
 
+## Several targets
+
+- [`MultiOutputRegressor`](./multioutput/multi-output-regressor): a regressor per column of Y.
+  `@smaltworks/smaltml/multioutput`
+
 ## Metrics
 
 [Metrics](./metrics/), from `@smaltworks/smaltml/metrics`:

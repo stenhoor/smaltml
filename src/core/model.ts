@@ -94,6 +94,21 @@ export function checkDocument(doc: unknown, kind?: string): ModelDocument {
   return d as ModelDocument;
 }
 
+/**
+ * The document of the same model unfitted: its parameters without what it learned. The steps of a pipeline and a
+ * ColumnTransformer, and a MultiOutputRegressor's estimator, are unfitted too.
+ */
+export function unfitDocument(doc: ModelDocument): ModelDocument {
+  if (doc.model === 'Pipeline') return { ...doc, state: { steps: (doc.state!.steps as ModelDocument[]).map(unfitDocument) } };
+  if (doc.model === 'ColumnTransformer') {
+    return { ...doc, state: { parts: (doc.state!.parts as (ModelDocument | string)[]).map((p) => (typeof p === 'string' ? p : unfitDocument(p))) } };
+  }
+  if (doc.model === 'MultiOutputRegressor') {
+    return { ...doc, params: { ...doc.params, estimator: unfitDocument(doc.params.estimator as ModelDocument) }, state: null };
+  }
+  return { ...doc, state: null };
+}
+
 export function notFitted(kind: string): never {
   return fail('ML_NOT_FITTED', `this ${kind} isn't fitted yet: call fit() first`);
 }

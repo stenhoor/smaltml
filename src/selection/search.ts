@@ -1,7 +1,7 @@
 import { fail } from '../core/errors.js';
 import { withKernelCache } from '../linear/calls.js';
 import { Matrix, type MatrixInput } from '../core/matrix.js';
-import { checkDocument, document, isClassifier, isPredictor, type Label, type Labels, type Model, type ModelDocument } from '../core/model.js';
+import { checkDocument, document, isClassifier, isPredictor, unfitDocument, type Label, type Labels, type Model, type ModelDocument } from '../core/model.js';
 import { numericMatrix, toTable, type TableInput } from '../core/table.js';
 import { loadModel, registerLoader } from '../io/index.js';
 import {
@@ -73,6 +73,8 @@ const SCORERS: Record<ScorerName, Scorer> = {
 
 /** A scorer from its name, or the function given; by default, accuracy for a classifier and R² for anything else. */
 function scorerFor(model: Model, scoring: ScorerName | Scorer | undefined): Scorer {
+  // Scoring takes one target so far; scikit-learn averages R² over several.
+  if (model.kind === 'MultiOutputRegressor') fail('ML_PARAM', "crossValScore and GridSearchCV don't take several targets yet: fit a model per target, or MultiOutputRegressor on its own");
   if (typeof scoring === 'function') return scoring;
   if (scoring === undefined) return classifies(model) ? SCORERS.accuracy : SCORERS.r2;
   const s = SCORERS[scoring];
@@ -113,23 +115,32 @@ function labelsOf(y: Labels, index: Uint32Array): Labels {
   return y instanceof Float64Array ? Float64Array.from(index, (i) => y[i]!) : (Array.from(index, (i) => (y as ArrayLike<Label>)[i]!) as Labels);
 }
 
-/** A fresh, unfitted copy of a model with some parameters changed: `{ C: 10 }`, or `{ step__param: v }` inside a pipeline or a ColumnTransformer. */
+/**
+ * A fresh, unfitted copy of a model with some parameters changed: `{ C: 10 }`, `{ step__param: v }` inside a pipeline or
+ * a ColumnTransformer, or `{ estimator__param: v }` inside a MultiOutputRegressor.
+ */
 export function cloneModel<M extends Model>(model: M, params: Record<string, unknown> = {}): M {
   const doc = structuredClone(model.toJSON());
   for (const [key, value] of Object.entries(params)) setParam(doc, key, value);
-  return loadModel(unfit(doc)) as M;
+  return loadModel(unfitDocument(doc)) as M;
 }
 
 function setParam(doc: ModelDocument, key: string, value: unknown): void {
   const cut = key.indexOf('__');
   if (cut < 0) {
     if (doc.model === 'Pipeline' || doc.model === 'ColumnTransformer') fail('ML_PARAM', `${doc.model} has no parameter ${key}: name a step, as step__${key}`);
+    if (doc.model === 'MultiOutputRegressor') fail('ML_PARAM', `MultiOutputRegressor has no parameter ${key}: name its model's, as estimator__${key}`);
     if (!(key in doc.params) && !Object.keys(doc.params).length) fail('ML_PARAM', `${doc.model} has no parameter ${key}`);
     doc.params[key] = value;
     return;
   }
   const head = key.slice(0, cut);
   const rest = key.slice(cut + 2);
+  if (doc.model === 'MultiOutputRegressor') {
+    if (head !== 'estimator') fail('ML_PARAM', `MultiOutputRegressor has no part named ${head}: its model's parameters are estimator__name`);
+    setParam(doc.params.estimator as ModelDocument, rest, value);
+    return;
+  }
   const names = doc.model === 'Pipeline' ? (doc.params.steps as string[]) : doc.model === 'ColumnTransformer' ? (doc.params.parts as { name: string }[]).map((p) => p.name) : null;
   if (!names) fail('ML_PARAM', `${doc.model} has no steps: ${key} names one`);
   const k = names.indexOf(head);
@@ -140,14 +151,6 @@ function setParam(doc: ModelDocument, key: string, value: unknown): void {
 }
 
 /** The document with every fitted state removed. */
-function unfit(doc: ModelDocument): ModelDocument {
-  if (doc.model === 'Pipeline') return { ...doc, state: { steps: (doc.state!.steps as ModelDocument[]).map(unfit) } };
-  if (doc.model === 'ColumnTransformer') {
-    return { ...doc, state: { parts: (doc.state!.parts as (ModelDocument | string)[]).map((p) => (typeof p === 'string' ? p : unfit(p))) } };
-  }
-  return { ...doc, state: null };
-}
-
 export interface CrossValOptions {
   /** The folds: a number (default 5; stratified for a classifier), a splitter such as KFold, or a list of folds. */
   cv?: number | Splitter | readonly Fold[];

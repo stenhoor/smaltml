@@ -24,6 +24,7 @@ import {
   LogisticRegression,
   Matrix,
   StandardScaler,
+  MultiOutputRegressor,
   accuracyScore,
   logLoss,
   meanSquaredError,
@@ -125,6 +126,16 @@ function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol:
       if (typeof exp.nSamplesSeen === 'number') expect(seen).toBe(exp.nSamplesSeen);
       else close(seen as Float64Array, exp.nSamplesSeen, tol, 'nSamplesSeen');
       close(rowsOf(s.transformSync(nan(inp.batches.flat()) as number[][])), exp.transform, tol, 'transform');
+      return;
+    }
+    case 'MultiOutputRegressor': {
+      const models = { LinearRegression: (p: object) => new LinearRegression(p), Ridge: (p: object) => new Ridge(p), Lasso: (p: object) => new Lasso(p), ElasticNet: (p: object) => new ElasticNet(p) };
+      const m = new MultiOutputRegressor(models[inp.model as keyof typeof models](camel(inp.params))).fitSync(inp.X, inp.Y, inp.sampleWeight ? { sampleWeight: inp.sampleWeight } : {});
+      m.estimators.forEach((e, k) => {
+        close((e as LinearRegression).coef, exp.coef[k], tol, `coef ${k}`);
+        close([(e as LinearRegression).intercept], [exp.intercept[k]], tol, `intercept ${k}`);
+      });
+      close(rowsOf(m.predictSync(inp.Xnew)), exp.predict, tol, 'predict');
       return;
     }
     case 'LinearRegression': {

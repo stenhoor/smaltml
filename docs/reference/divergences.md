@@ -19,6 +19,7 @@ have something yet, it fails with an error rather than give a different answer. 
 | Encoders: `None` and `NaN` in a column of numbers | Two different values | Both missing, one category |
 | `OneHotEncoder` names for numbers | Python's (`size_3.0` for floats) | JavaScript's (`size_3`) |
 | Encoders and `ColumnTransformer` output | Sparse by default | Dense always |
+| `StandardScaler.partialFit`, a column with no value in the first batch | `NaN` for that column from then on | The column's statistics over the values seen, as `fit` on every row gives |
 | A fit that stops before it converges | A `ConvergenceWarning` | A console warning, `ML_CONVERGENCE`, and `converged` `false`: an attribute scikit-learn doesn't have |
 
 ## Between JavaScript engines
@@ -50,7 +51,7 @@ Each of these fails with `ML_PARAM` or isn't a parameter yet:
   `return_train_score`, several scorers at once, and a `refit` that names a scorer.
 - `rocAucScore`: `'ovo'` and `max_fpr`. The classification metrics: `sample_weight`, and the warning on a zero
   denominator.
-- `StandardScaler`: `partial_fit`, `sample_weight`.
+- `StandardScaler`: `sample_weight`.
 - `SimpleImputer`: text columns, `missing_values` other than `NaN`, `add_indicator`.
 - `OneHotEncoder` and `OrdinalEncoder`: categories given in advance (`categories`), infrequent categories
   (`min_frequency`, `max_categories`), `handle_unknown='infrequent_if_exist'`, sparse output.

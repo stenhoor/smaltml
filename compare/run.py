@@ -479,6 +479,35 @@ for name, X_, y_, params, weights in [
           "predict": tolist(m.predict(Xn_)), "predictProba": tolist(m.predict_proba(Xn_)),
           "zero": [[bool(v == 0) for v in row] for row in m.coef_]}, {"rtol": 1e-5, "atol": 1e-6})
 
+# StandardScaler partial_fit over batches (appended) ------------------------------------------------------------
+for name, X_, sizes in [
+    ("scaler partial_fit: three batches", features(90, 3, [1, 50, 0.1], [2, -40, 7]), [30, 45, 15]),
+    ("scaler partial_fit: batches of one row", features(12, 2, [3, 1], [1, 9]), [1] * 12),
+    ("scaler partial_fit: missing values", np.where(rng.random((60, 3)) < 0.2, np.nan, features(60, 3)), [20, 25, 15]),
+    ("scaler partial_fit: a column missing in the first batch",
+     np.column_stack([features(40, 2), np.concatenate([np.full(15, np.nan), rng.normal(size=25)])]), [15, 25]),
+]:
+    for params in [{}, {"with_mean": False}, {"with_std": False}]:
+        s = StandardScaler(**params)
+        batches = np.split(X_, np.cumsum(sizes)[:-1])
+        for b in batches:
+            s.partial_fit(b)
+        seen = s.n_samples_seen_
+        note = ""
+        if "first batch" in name:
+            # A column with no value in the first batch stays NaN in scikit-learn's partial_fit for good (its update
+            # multiplies the NaN mean by a count of 0). smaltml gives the column's statistics over the rows that have
+            # them: the same as fit() on every row, which is what this case expects.
+            assert np.isnan(s.mean_[2]), "scikit-learn's partial_fit no longer gives NaN here: drop the divergence"
+            s = StandardScaler(**params).fit(X_)
+            note = "deliberate: scikit-learn's partial_fit gives NaN for this column; expected is fit() on every row"
+        case(f"{name} {params or ''}".strip(), "StandardScaler-partial",
+             {"batches": [tolist(b) for b in batches], "params": params},
+             {"mean": tolist(s.mean_) if s.mean_ is not None else None, "var": tolist(s.var_) if s.var_ is not None else None,
+              "scale": tolist(s.scale_) if s.scale_ is not None else None,
+              "nSamplesSeen": tolist(seen) if isinstance(seen, np.ndarray) else int(seen), "transform": tolist(s.transform(X_))},
+             {"rtol": 1e-10, "atol": 1e-12}, note)
+
 out = {
     "comment": "Written by compare/run.py (npm run compare); don't edit by hand.",
     "reference": {"scikit-learn": sklearn.__version__, "numpy": np.__version__},

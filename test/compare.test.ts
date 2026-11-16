@@ -115,6 +115,18 @@ function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol:
       close(rowsOf(s.transformSync(X)), exp.transform, tol, 'transform');
       return;
     }
+    case 'StandardScaler-partial': {
+      const s = new StandardScaler(camel(inp.params));
+      for (const b of inp.batches) s.partialFitSync(nan(b) as number[][]);
+      if (exp.mean) close(s.mean!, exp.mean, tol, 'mean');
+      if (exp.var) close(s.var!, exp.var, tol, 'var');
+      if (exp.scale) close(s.scale!, exp.scale, tol, 'scale');
+      const seen = s.nSamplesSeen;
+      if (typeof exp.nSamplesSeen === 'number') expect(seen).toBe(exp.nSamplesSeen);
+      else close(seen as Float64Array, exp.nSamplesSeen, tol, 'nSamplesSeen');
+      close(rowsOf(s.transformSync(nan(inp.batches.flat()) as number[][])), exp.transform, tol, 'transform');
+      return;
+    }
     case 'LinearRegression': {
       const m = new LinearRegression(camel(inp.params)).fitSync(inp.X, inp.y, inp.sampleWeight ? { sampleWeight: inp.sampleWeight } : {});
       close(m.coef, exp.coef, tol, 'coef');

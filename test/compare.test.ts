@@ -128,6 +128,8 @@ function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol:
       close(rowsOf(m.coef), exp.coef, tol, 'coef');
       close(m.intercept, exp.intercept, tol, 'intercept');
       close(rowsOf(m.predictProbaSync(inp.Xnew)), exp.predictProba, tol, 'predictProba');
+      // An L1 penalty sets coefficients to exactly 0: the same ones as scikit-learn.
+      if (exp.zero) expect(m.coef.toRows().map((row) => row.map((v) => v === 0)), 'which coefficients are 0').toEqual(exp.zero);
       expect(m.predictSync(inp.Xnew)).toEqual(exp.predict as Label[]);
       if ('converged' in exp) expect(m.converged, 'converged, as scikit-learn (no ConvergenceWarning)').toBe(exp.converged);
       return;

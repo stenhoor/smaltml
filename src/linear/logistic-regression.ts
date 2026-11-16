@@ -5,6 +5,7 @@ import { minimize, minimizeAsync, type MinimizeResult } from '../core/linalg.js'
 import { logisticParallel, threadPool, weightedGramParallel, xwParallel, type ThreadOptions } from '../parallel/index.js';
 import { assertFinite, Matrix, type MatrixInput } from '../core/matrix.js';
 import { checkedWeights, type SampleWeightOptions } from './weights.js';
+import { saga } from './saga.js';
 import { gpuAvailable, matMul, predictOnGpu, type DeviceOptions } from '../gpu/index.js';
 import {
   checkColumns,
@@ -24,7 +25,10 @@ import {
 export interface LogisticRegressionParams {
   /** The inverse of the penalty's strength: smaller is a stronger L2 penalty. `Infinity` turns the penalty off. Default 1. */
   C?: number;
-  /** The mix of L1 in the penalty. Only 0, an L2 penalty, is supported so far. Default 0. */
+  /**
+   * The L1 share of the penalty, from 0 (all L2, the default) to 1 (all L1, which sets some coefficients to exactly 0);
+   * between, the elastic net. Above 0 it needs solver `'saga'`, as in scikit-learn.
+   */
   l1Ratio?: number;
   /** Stop when the largest gradient component is at most this. Default 1e-4. */
   tol?: number;
@@ -36,9 +40,12 @@ export interface LogisticRegressionParams {
    * How the fit is solved. `'lbfgs'` (the default) works from the gradient alone. `'newton-cholesky'` takes Newton
    * steps with the exact Hessian, solved by Cholesky: few, costly iterations, the better choice with many rows and
    * not many columns (up to a few hundred), and with few classes: its Hessian grows as the classes squared. It runs
-   * on the CPU.
+   * on the CPU. `'saga'` takes one row at a time (stochastic), and is the solver for an L1 or elastic-net penalty
+   * (`l1Ratio` above 0); it converges fastest on scaled columns.
    */
-  solver?: 'lbfgs' | 'newton-cholesky';
+  solver?: 'lbfgs' | 'newton-cholesky' | 'saga';
+  /** The seed for `'saga'`'s order of rows: the same seed gives the same fit. Default: a new order each fit. scikit-learn's `random_state`. */
+  seed?: number;
   /**
    * Weights for the classes, multiplying each row's weight by its class's: `'balanced'` gives each class
    * n / (classes × its rows), its rows counted by their sample weights, so every class counts as much in all; an object gives a class's weight by its label
@@ -47,7 +54,7 @@ export interface LogisticRegressionParams {
   classWeight?: 'balanced' | Readonly<Record<string, number>>;
 }
 
-const SOLVERS = ['lbfgs', 'newton-cholesky'] as const;
+const SOLVERS = ['lbfgs', 'newton-cholesky', 'saga'] as const;
 
 /** Where a fit runs: `'gpu'` asks for the GPU; `'auto'` (the default) and `'cpu'` fit on the CPU. */
 export interface FitDeviceOptions {
@@ -262,7 +269,8 @@ export class LogisticRegression implements Classifier {
   readonly tol: number;
   readonly fitIntercept: boolean;
   readonly maxIter: number;
-  readonly solver: 'lbfgs' | 'newton-cholesky';
+  readonly solver: 'lbfgs' | 'newton-cholesky' | 'saga';
+  readonly seed: number | undefined;
   readonly classWeight: 'balanced' | Readonly<Record<string, number>> | undefined;
   #state: State | null = null;
 
@@ -273,7 +281,9 @@ export class LogisticRegression implements Classifier {
     this.fitIntercept = params.fitIntercept ?? true;
     this.maxIter = params.maxIter ?? 100;
     this.solver = params.solver ?? 'lbfgs';
-    if (!SOLVERS.includes(this.solver)) fail('ML_PARAM', `solver is 'lbfgs' or 'newton-cholesky', not ${String(this.solver)}`);
+    if (!SOLVERS.includes(this.solver)) fail('ML_PARAM', `solver is 'lbfgs', 'newton-cholesky' or 'saga', not ${String(this.solver)}`);
+    this.seed = params.seed;
+    if (this.seed !== undefined && !Number.isInteger(this.seed)) fail('ML_PARAM', `seed must be a whole number, not ${this.seed}`);
     this.classWeight = params.classWeight;
     const cw = this.classWeight;
     if (cw !== undefined && cw !== 'balanced') {
@@ -283,7 +293,10 @@ export class LogisticRegression implements Classifier {
       }
     }
     if (!(this.C > 0)) fail('ML_PARAM', `C must be greater than 0, not ${this.C}`);
-    if (this.l1Ratio !== 0) fail('ML_PARAM', `l1Ratio ${this.l1Ratio} isn't supported yet: only 0 (an L2 penalty)`);
+    if (!(this.l1Ratio >= 0 && this.l1Ratio <= 1)) fail('ML_PARAM', `l1Ratio is from 0 to 1, not ${this.l1Ratio}`);
+    if (this.l1Ratio > 0 && this.solver !== 'saga') {
+      fail('ML_PARAM', `solver '${this.solver}' takes an L2 penalty only, not l1Ratio ${this.l1Ratio}: use solver 'saga' for an L1 or elastic-net penalty`);
+    }
     if (!(this.tol > 0)) fail('ML_PARAM', `tol must be greater than 0, not ${this.tol}`);
     if (!Number.isInteger(this.maxIter) || this.maxIter < 1) fail('ML_PARAM', `maxIter must be a whole number of at least 1, not ${this.maxIter}`);
     if (typeof this.fitIntercept !== 'boolean') fail('ML_PARAM', 'fitIntercept is true or false');
@@ -336,6 +349,7 @@ export class LogisticRegression implements Classifier {
       fitIntercept: this.fitIntercept,
       maxIter: this.maxIter,
       solver: this.solver,
+      ...(this.seed === undefined ? {} : { seed: this.seed }),
       ...(this.classWeight === undefined ? {} : { classWeight: this.classWeight === 'balanced' ? 'balanced' : { ...this.classWeight } }),
     };
   }
@@ -348,6 +362,11 @@ export class LogisticRegression implements Classifier {
   async fit(X: MatrixInput, y: Labels, options: ThreadOptions & FitDeviceOptions & SampleWeightOptions = {}): Promise<this> {
     const m = Matrix.from(X);
     const sync = { sampleWeight: options.sampleWeight };
+    if (this.solver === 'saga') {
+      // One row at a time: on this thread, on the CPU.
+      if (options.device === 'gpu') fail('ML_PARAM', "solver 'saga' runs on the CPU: use solver 'lbfgs' on the GPU");
+      return this.fitSync(m, y, sync);
+    }
     if (this.solver === 'newton-cholesky') {
       if (options.device === 'gpu') fail('ML_PARAM', "solver 'newton-cholesky' runs on the CPU: use solver 'lbfgs' on the GPU");
       const pool = await threadPool(options.threads, m.rows * m.cols);
@@ -403,6 +422,24 @@ export class LogisticRegression implements Classifier {
     const job = this.#prepare(m, y, options.sampleWeight);
     const { target, k, l2, weights, total } = job;
     const withIntercept = this.fitIntercept;
+    if (this.solver === 'saga') {
+      // The penalty split by l1Ratio, against the weighted mean loss: λ2 = (1 − r)/(C·Σw), λ1 = r/(C·Σw).
+      const strength = Number.isFinite(this.C) ? 1 / (this.C * total) : 0;
+      const result = saga({
+        X: m,
+        y: target,
+        K: k,
+        intercept: withIntercept,
+        weights,
+        total,
+        l2: strength * (1 - this.l1Ratio),
+        l1: strength * this.l1Ratio,
+        tol: this.tol,
+        maxIter: this.maxIter,
+        seed: this.seed ?? Date.now(),
+      });
+      return this.#finish(job, result);
+    }
     if (this.solver === 'newton-cholesky') {
       const solver =
         k === 1

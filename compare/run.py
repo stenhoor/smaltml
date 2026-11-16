@@ -450,6 +450,35 @@ for name, (X_, y_), params, tol in [
          {"classes": tolist(m.classes_), "coef": tolist(m.coef_), "intercept": tolist(m.intercept_),
           "predict": tolist(m.predict(Xn_)), "predictProba": tolist(m.predict_proba(Xn_)), "nIter": int(m.n_iter_[0])}, tol)
 
+# LogisticRegression with solver saga: L1 and elastic-net penalties (appended) -----------------------------------
+from sklearn.preprocessing import StandardScaler as _Scaler
+def scaled(X):
+    return _Scaler().fit_transform(X)
+Xs2, ys2 = classification(200, 4, 2)
+Xs3, ys3 = classification(240, 4, 3)
+Xs2, Xs3 = scaled(Xs2), scaled(Xs3)
+sws = rng.uniform(0.2, 2.0, size=200)
+saga_tight = {"solver": "saga", "tol": 1e-10, "max_iter": 20000, "random_state": 0}
+for name, X_, y_, params, weights in [
+    ("logistic saga: L1, two classes", Xs2, ys2, {**saga_tight, "l1_ratio": 1.0, "C": 0.5}, None),
+    ("logistic saga: strong L1 zeroes coefficients", Xs2, ys2, {**saga_tight, "l1_ratio": 1.0, "C": 0.03}, None),
+    ("logistic saga: elastic net, two classes", Xs2, ys2, {**saga_tight, "l1_ratio": 0.5, "C": 0.2}, None),
+    ("logistic saga: L2 only (l1_ratio 0)", Xs2, ys2, {**saga_tight, "l1_ratio": 0.0}, None),
+    ("logistic saga: L1, three classes", Xs3, ys3, {**saga_tight, "l1_ratio": 1.0, "C": 0.3}, None),
+    ("logistic saga: elastic net, three classes, no intercept", Xs3, ys3, {**saga_tight, "l1_ratio": 0.3, "C": 0.5, "fit_intercept": False}, None),
+    ("logistic saga: L1 with sample weights", Xs2, ys2, {**saga_tight, "l1_ratio": 1.0, "C": 0.5}, sws),
+]:
+    m = LogisticRegression(**params).fit(X_, y_, sample_weight=weights)
+    Xn_ = scaled(rng.normal(size=(12, X_.shape[1])))
+    ours = {k: v for k, v in params.items() if k != "random_state"}
+    inputs = {"X": tolist(X_), "y": tolist(y_), "Xnew": tolist(Xn_), "params": {**ours, "seed": 0}}
+    if weights is not None:
+        inputs["sampleWeight"] = tolist(weights)
+    case(name, "LogisticRegression", inputs,
+         {"classes": tolist(m.classes_), "coef": tolist(m.coef_), "intercept": tolist(m.intercept_),
+          "predict": tolist(m.predict(Xn_)), "predictProba": tolist(m.predict_proba(Xn_)),
+          "zero": [[bool(v == 0) for v in row] for row in m.coef_]}, {"rtol": 1e-5, "atol": 1e-6})
+
 out = {
     "comment": "Written by compare/run.py (npm run compare); don't edit by hand.",
     "reference": {"scikit-learn": sklearn.__version__, "numpy": np.__version__},

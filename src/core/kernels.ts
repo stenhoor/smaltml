@@ -258,8 +258,11 @@ export function ownBinaryLogisticRows(z: Float64Array, y: Int32Array, weights: A
     const yi = y[at + i]!;
     // −log p(yᵢ) = log(1 + e^z) − y z; the residual σ(z) − y replaces z, times the row's weight.
     const wi = weights ? weights[at + i]! : 1;
-    loss += wi * (log1pExp(zi) - yi * zi);
-    z[i] = wi * (sigmoid(zi) - yi);
+    // One exponential for both: e = e^(−|z|). log(1 + e^z) = max(z, 0) + log1p(e), and σ(z) = 1 / (1 + e) for z ≥ 0,
+    // e / (1 + e) below: the same operations sigmoid() and log1pExp() do, so the same results to the last bit.
+    const e = Math.exp(zi > 0 ? -zi : zi);
+    loss += wi * ((zi > 0 ? zi + Math.log1p(e) : Math.log1p(e)) - yi * zi);
+    z[i] = wi * ((zi >= 0 ? 1 / (1 + e) : e / (1 + e)) - yi);
   }
   return loss;
 }

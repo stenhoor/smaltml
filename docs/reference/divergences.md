@@ -18,6 +18,8 @@ have something yet, it fails with an error rather than give a different answer. 
 | Labels | Any comparable values | Numbers or strings, not mixed |
 | Encoders: `None` and `NaN` in a column of numbers | Two different values | Both missing, one category |
 | `OneHotEncoder` names for numbers | Python's (`size_3.0` for floats) | JavaScript's (`size_3`) |
+| `OrdinalEncoder`: a missing value in a text column | `None` is a category with a code; `NaN` stays `NaN` | Missing (`null`) stays `NaN`, as scikit-learn's `NaN` does, and is no category for `minFrequency` and `maxCategories` |
+| Encoders: `minFrequency` of 1 | An `int` 1 is a count (nothing is infrequent); a `float` 1.0 fails | JavaScript has one kind of number: 1 is the count |
 | Encoders and `ColumnTransformer` output | Sparse by default | Dense always |
 | `StandardScaler.partialFit`, a column with no value in the first batch | `NaN` for that column from then on | The column's statistics over the values seen, as `fit` on every row gives |
 | Several targets (a `y` with columns) on `LinearRegression`, `Ridge`, `Lasso`, `ElasticNet` | `coef_` a matrix, `intercept_` a vector, `predict` a matrix; `n_iter_` a list | `coefs`, `intercepts` and `predictTargets`; `coef`, `intercept` and `predict` stay for one target and fail with `ML_SHAPE` ([ADR 0037](../adr/0037-several-targets)); `nIter` the most any target took |
@@ -56,7 +58,6 @@ Each of these fails with `ML_PARAM` or isn't a parameter yet:
   denominator.
 - `StandardScaler`: `sample_weight`.
 - `SimpleImputer`: text columns, `missing_values` other than `NaN`, `add_indicator`.
-- `OneHotEncoder` and `OrdinalEncoder`: categories given in advance (`categories`), infrequent categories
-  (`min_frequency`, `max_categories`), `handle_unknown='infrequent_if_exist'`, sparse output.
+- `OneHotEncoder` and `OrdinalEncoder`: categories given in advance (`categories`), sparse output.
 - `ColumnTransformer`: columns chosen by a function or a type, `transformer_weights`, sparse output.
 - The other scalers, encoders, imputers, models and metrics of ADR 0024's later phases.

@@ -584,6 +584,44 @@ for name, cls, kind, params, weights, Y_, tol in [
         inputs["sampleWeight"] = tolist(weights)
     case(name, "2-D y", inputs, {"coefs": tolist(m.coef_), "intercepts": tolist(np.atleast_1d(m.intercept_)), "predict": tolist(m.predict(Xmn))}, tol)
 
+# Infrequent categories in the encoders (appended) -----------------------------------------------------------------
+pets = rng.choice(["cat", "dog", "eel", "emu", "fox", "gnu", "owl", None], size=60, p=[0.3, 0.25, 0.05, 0.05, 0.15, 0.05, 0.1, 0.05])
+legs = rng.choice([0.0, 2.0, 4.0, 6.0, 8.0], size=60, p=[0.1, 0.3, 0.45, 0.1, 0.05])
+Xf = np.empty((60, 2), dtype=object)
+Xf[:, 0] = pets
+Xf[:, 1] = legs
+# OrdinalEncoder keeps a missing value NaN (smaltml's text null): written as NaN, scikit-learn treats it the same.
+Xfo = Xf.copy()
+Xfo[:, 0] = [np.nan if v is None else v for v in Xf[:, 0]]
+seen = np.array([["cat", 4.0], ["eel", 8.0], ["owl", 0.0], [None, 2.0], ["gnu", 6.0]], dtype=object)
+unseen = np.array([["yak", 4.0], ["cat", 3.0], ["emu", 8.0]], dtype=object)
+def infrequent_list(e):
+    return [None if c is None else [None if (v is None or (isinstance(v, float) and np.isnan(v))) else v for v in c.tolist()] for c in e.infrequent_categories_]
+for params, Xnew in [
+    ({"min_frequency": 5}, seen),
+    ({"min_frequency": 0.1}, seen),
+    ({"max_categories": 3}, seen),
+    ({"max_categories": 1}, seen),
+    ({"min_frequency": 2, "max_categories": 4}, seen),
+    ({"min_frequency": 5, "handle_unknown": "infrequent_if_exist"}, unseen),
+    ({"max_categories": 3, "handle_unknown": "ignore"}, unseen),
+    ({"min_frequency": 5, "drop": "first"}, seen),
+    ({"max_categories": 2, "drop": "if_binary"}, seen),
+]:
+    e = OneHotEncoder(sparse_output=False, **params).fit(Xf)
+    case(f"one-hot infrequent {params}", "encoder-infrequent", {"encoder": "OneHotEncoder", "X": tolist(Xf), "Xnew": tolist(Xnew), "params": params},
+         {"transform": tolist(e.transform(Xnew)), "names": [n.replace(".0_", "_").replace(".0", "") for n in e.get_feature_names_out().tolist()],
+          "infrequent": infrequent_list(e), **({"dropIdx": [int(d) for d in e.drop_idx_]} if params.get("drop") else {})}, {"rtol": 0, "atol": 0})
+seen_o = np.array([["cat", 4.0], ["eel", 8.0], ["owl", 0.0], [np.nan, 2.0], ["gnu", 6.0]], dtype=object)
+for params, Xnew in [
+    ({"min_frequency": 5}, seen_o),
+    ({"max_categories": 3}, seen_o),
+    ({"min_frequency": 0.1, "handle_unknown": "use_encoded_value", "unknown_value": -1}, np.array([["yak", 4.0], ["cat", 3.0]], dtype=object)),
+]:
+    e = OrdinalEncoder(**params).fit(Xfo)
+    case(f"ordinal infrequent {params}", "encoder-infrequent", {"encoder": "OrdinalEncoder", "X": tolist(Xfo), "Xnew": tolist(Xnew), "params": params},
+         {"transform": tolist(e.transform(Xnew).astype(float)), "infrequent": infrequent_list(e)}, {"rtol": 0, "atol": 0})
+
 out = {
     "comment": "Written by compare/run.py (npm run compare); don't edit by hand.",
     "reference": {"scikit-learn": sklearn.__version__, "numpy": np.__version__},

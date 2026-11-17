@@ -8,6 +8,7 @@ import {
   LinearRegression,
   MinMaxScaler,
   OneHotEncoder,
+  MODEL_FORMAT_VERSION,
   OrdinalEncoder,
   RobustScaler,
   SimpleImputer,
@@ -225,7 +226,7 @@ describe('saving and loading', () => {
 
   test('a document says its format and version; others are refused', () => {
     const doc = new LinearRegression().toJSON();
-    expect(doc).toEqual({ format: 'smaltml', version: 3, model: 'LinearRegression', smaltml: VERSION, params: { fitIntercept: true }, state: null });
+    expect(doc).toEqual({ format: 'smaltml', version: 4, model: 'LinearRegression', smaltml: VERSION, params: { fitIntercept: true }, state: null });
     expect(code(() => loadModel('{"format":"other"}'))).toBe('ML_FORMAT');
     expect(code(() => loadModel({ ...doc, version: 99 }))).toBe('ML_FORMAT');
     expect(code(() => loadModel({ ...doc, model: 'Mystery' }))).toBe('ML_FORMAT');
@@ -630,7 +631,7 @@ describe('several targets on the linear models (a y with columns)', () => {
   test.each(models)('%s: several targets save and load back', async (_, make) => {
     const both = make().fitSync(rows, rows.map((_, i) => [Y.a[i]!, Y.b[i]!]));
     const doc = JSON.parse(saveModel(both));
-    expect(doc.version).toBe(3);
+    expect(doc.version).toBe(MODEL_FORMAT_VERSION);
     expect(doc.state.coefs).toHaveLength(2);
     const back = loadModel(doc) as typeof both;
     expect(Array.from(back.predictTargetsSync(rows).data)).toEqual(Array.from(both.predictTargetsSync(rows).data));
@@ -651,5 +652,61 @@ describe('several targets on the linear models (a y with columns)', () => {
     const asRows = rows.map((_, i) => [Y.a[i]!, Y.b[i]!]);
     await expect(crossValScore(new LinearRegression(), rows, asRows as unknown as number[])).rejects.toMatchObject({ code: 'ML_PARAM' });
     await expect(new GridSearchCV(new Ridge(), { alpha: [1, 2] }).fit(rows, asRows as unknown as number[])).rejects.toMatchObject({ code: 'ML_PARAM' });
+  });
+});
+
+describe('infrequent categories in the encoders', () => {
+  const pets = ['cat', 'cat', 'cat', 'dog', 'dog', 'dog', 'eel', 'fox', 'fox', null];
+  const table = { pet: pets, legs: [4, 4, 4, 4, 4, 4, 0, 4, 4, 2] };
+
+  test('OneHotEncoder: rare categories share a column, last', () => {
+    const e = new OneHotEncoder({ minFrequency: 2 }).fitSync(table);
+    expect(e.infrequentCategories).toEqual([['eel', null], [0, 2]]);
+    expect(e.getFeatureNamesOut()).toEqual(['pet_cat', 'pet_dog', 'pet_fox', 'pet_infrequent_sklearn', 'legs_4', 'legs_infrequent_sklearn']);
+    const row = e.transformSync({ pet: ['eel'], legs: [2] });
+    expect(Array.from(row.data)).toEqual([0, 0, 0, 1, 0, 1]);
+    // Every category is still in categories.
+    expect(e.categories[0]).toEqual(['cat', 'dog', 'eel', 'fox', null]);
+  });
+
+  test('unknown categories: an error, all zeros, or the infrequent column', () => {
+    const fail = new OneHotEncoder({ minFrequency: 2 }).fitSync(table);
+    expect(code(() => fail.transformSync({ pet: ['yak'], legs: [4] }))).toBe('ML_LABELS');
+    const ignore = new OneHotEncoder({ minFrequency: 2, handleUnknown: 'ignore' }).fitSync(table);
+    expect(Array.from(ignore.transformSync({ pet: ['yak'], legs: [4] }).data)).toEqual([0, 0, 0, 0, 1, 0]);
+    const rare = new OneHotEncoder({ minFrequency: 2, handleUnknown: 'infrequent_if_exist' }).fitSync(table);
+    expect(Array.from(rare.transformSync({ pet: ['yak'], legs: [4] }).data)).toEqual([0, 0, 0, 1, 1, 0]);
+    // A column without infrequent categories gives all zeros.
+    const none = new OneHotEncoder({ handleUnknown: 'infrequent_if_exist' }).fitSync(table);
+    expect(none.transformSync({ pet: ['yak'], legs: [4] }).data.slice(0, 5).every((v) => v === 0)).toBe(true);
+  });
+
+  test('OrdinalEncoder: rare categories share the code after the others; missing stays NaN', () => {
+    const e = new OrdinalEncoder({ maxCategories: 3 }).fitSync(table);
+    // legs: 4 is kept, and of 0 and 2 (once each) the one sorted later, as scikit-learn breaks ties.
+    expect(e.infrequentCategories).toEqual([['eel', 'fox'], [0]]);
+    expect(Array.from(e.transformSync({ pet: ['cat', 'dog', 'eel', 'fox', null], legs: [4, 4, 4, 0, 2] }).column(0))).toEqual([0, 1, 2, 2, NaN]);
+  });
+
+  test('save, load, async equals sync, and cloneModel reaches the new parameters', async () => {
+    const e = new OneHotEncoder({ maxCategories: 2, drop: 'first' }).fitSync(table);
+    const back = loadModel(saveModel(e)) as OneHotEncoder;
+    expect(back.maxCategories).toBe(2);
+    expect(back.infrequentCategories).toEqual(e.infrequentCategories);
+    expect(Array.from(back.transformSync(table).data)).toEqual(Array.from(e.transformSync(table).data));
+    expect(Array.from((await new OneHotEncoder({ maxCategories: 2, drop: 'first' }).fitTransform(table)).data)).toEqual(Array.from(e.transformSync(table).data));
+    expect(cloneModel(e, { minFrequency: 3 }).minFrequency).toBe(3);
+    // An encoder saved before infrequent categories loads with none.
+    const doc = JSON.parse(saveModel(new OrdinalEncoder().fitSync(table)));
+    delete doc.state.infrequent;
+    expect((loadModel({ ...doc, version: 2 }) as OrdinalEncoder).infrequentCategories).toEqual([null, null]);
+  });
+
+  test('the parameters are checked', () => {
+    for (const bad of [0, -1, 1.5]) expect(code(() => new OneHotEncoder({ minFrequency: bad }))).toBe('ML_PARAM');
+    expect(code(() => new OrdinalEncoder({ maxCategories: 0 }))).toBe('ML_PARAM');
+    expect(code(() => new OrdinalEncoder({ maxCategories: 2.5 }))).toBe('ML_PARAM');
+    expect(code(() => new OneHotEncoder({ handleUnknown: 'drop' as never }))).toBe('ML_PARAM');
+    expect(new OneHotEncoder({ minFrequency: 0.25 }).minFrequency).toBe(0.25);
   });
 });

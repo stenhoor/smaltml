@@ -18,7 +18,7 @@ const doc = JSON.parse(json);
 
 | format | version | model | params | names |
 | --- | --- | --- | --- | --- |
-| smaltml | 3 | LinearRegression | \{"fitIntercept":true\} | [area, rooms] |
+| smaltml | 4 | LinearRegression | \{"fitIntercept":true\} | [area, rooms] |
 
 `loadModel` turns the JSON (or the parsed document) back into the model, ready to predict:
 
@@ -38,7 +38,8 @@ await loaded.predict([[80, 3]])
   state of `LogisticRegression`, `Ridge`, `Lasso` and `ElasticNet`; a version 1 document loads with `converged`
   null, not recorded. Version 3 (2026-11-17) saves a linear model fitted on several targets (a `y` with columns)
   as `coefs`, `intercepts` and `targetNames` in place of `coef` and `intercept`, and, for `Ridge`, `Lasso` and
-  `ElasticNet`, `nIters` and `convergedEach`; one-target models save as before.
+  `ElasticNet`, `nIters` and `convergedEach`; one-target models save as before. Version 4 (2026-11-17) adds the
+  encoders' `minFrequency` and `maxCategories` to their parameters and `infrequent` to their state.
 - `model`: the class, such as `LinearRegression` or `Pipeline`. A pipeline holds each step's document.
 - `smaltml`: the version that saved it.
 - `params`: the parameters, as the constructor takes them.

@@ -271,6 +271,14 @@ function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol:
       close(rowsOf(e.transformSync(inp.Xnew)), exp.transform, tol, 'transform');
       return;
     }
+    case 'encoder-infrequent': {
+      const e = (inp.encoder === 'OneHotEncoder' ? new OneHotEncoder(camel(inp.params) as never) : new OrdinalEncoder(camel(inp.params) as never)).fitSync(inp.X);
+      close(rowsOf(e.transformSync(inp.Xnew)), exp.transform, tol, 'transform');
+      expect(e.infrequentCategories, 'infrequent categories').toEqual(exp.infrequent);
+      if (exp.names) expect((e as OneHotEncoder).getFeatureNamesOut()).toEqual(exp.names);
+      if (exp.dropIdx) expect((e as OneHotEncoder).dropIdx, 'dropIdx').toEqual(exp.dropIdx);
+      return;
+    }
     case 'OneHotEncoder': {
       const e = new OneHotEncoder(camel(inp.params) as never).fitSync(inp.X);
       close(rowsOf(e.transformSync(inp.Xnew)), exp.transform, tol, 'transform');

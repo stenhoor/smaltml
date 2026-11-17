@@ -11,9 +11,17 @@ export interface Fold {
 /** Splits rows into folds. */
 export interface Splitter {
   readonly nSplits: number;
-  /** The folds for n rows (and their labels, for splitters that keep classes in proportion). */
-  split(n: number, y?: Labels): Fold[];
+  /**
+   * The folds for n rows (and their labels, for splitters that keep classes in proportion, and their groups, for
+   * splitters that keep each group together).
+   */
+  split(n: number, y?: Labels, groups?: Groups): Fold[];
+  /** Whether split() uses groups: a splitter that doesn't is never given them (crossValScore fails instead). */
+  readonly usesGroups?: boolean;
 }
+
+/** Each row's group, such as a patient or a customer: rows of one group are never split between training and test. */
+export type Groups = ArrayLike<Label>;
 
 export interface KFoldParams {
   /** How many folds. Default 5. */
@@ -133,6 +141,55 @@ export class StratifiedKFold implements Splitter {
         sizes[f]! += counts[f]!;
       }
     }
+    return folds(n, tests);
+  }
+}
+
+export interface GroupKFoldParams {
+  /** How many folds. Default 5. There must be at least as many groups. */
+  nSplits?: number;
+}
+
+/**
+ * K folds that keep each group's rows together: a group is in one test fold, and in the training rows of the others.
+ * scikit-learn's `GroupKFold`, with the same folds: the groups, largest first, each go to the test fold with the
+ * fewest rows so far, so the test folds are about the same size. Of two groups as large, the one sorted later goes
+ * first; of two folds as full, the lower one takes it.
+ */
+export class GroupKFold implements Splitter {
+  readonly nSplits: number;
+  readonly usesGroups = true;
+
+  constructor(params: GroupKFoldParams = {}) {
+    const extra = Object.keys(params).filter((k) => k !== 'nSplits');
+    if (extra.length) fail('ML_PARAM', `GroupKFold takes nSplits only; not ${extra.join(', ')} (scikit-learn's shuffle isn't supported yet)`);
+    this.nSplits = checkParams({ nSplits: params.nSplits }).nSplits;
+  }
+
+  split(n: number, _y?: Labels, groups?: Groups): Fold[] {
+    if (!groups) fail('ML_PARAM', 'GroupKFold needs groups: one per row');
+    if (groups.length !== n) fail('ML_SHAPE', `groups has ${groups.length} values; X has ${n} rows`);
+    const k = this.nSplits;
+    // The groups in sorted order (numbers in order, text by code unit), and each row's.
+    const keys = [...new Set(Array.from(groups))];
+    const text = keys.some((g) => typeof g === 'string');
+    if (text && keys.some((g) => typeof g !== 'string')) fail('ML_LABELS', 'groups mix numbers and text');
+    keys.sort(text ? undefined : (a, b) => (a as number) - (b as number));
+    if (k > keys.length) fail('ML_PARAM', `${k} folds need at least ${k} groups; there are ${keys.length}`);
+    const index = new Map(keys.map((g, i) => [g, i]));
+    const sizes = new Array<number>(keys.length).fill(0);
+    for (let i = 0; i < n; i++) sizes[index.get(groups[i]!)!]! += 1;
+    const order = keys.map((_, g) => g).sort((a, b) => sizes[b]! - sizes[a]! || b - a);
+    const load = new Array<number>(k).fill(0);
+    const foldOf = new Int32Array(keys.length);
+    for (const g of order) {
+      let f = 0;
+      for (let j = 1; j < k; j++) if (load[j]! < load[f]!) f = j;
+      foldOf[g] = f;
+      load[f]! += sizes[g]!;
+    }
+    const tests: number[][] = Array.from({ length: k }, () => []);
+    for (let i = 0; i < n; i++) tests[foldOf[index.get(groups[i]!)!]!]!.push(i);
     return folds(n, tests);
   }
 }

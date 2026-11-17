@@ -622,6 +622,24 @@ for params, Xnew in [
     case(f"ordinal infrequent {params}", "encoder-infrequent", {"encoder": "OrdinalEncoder", "X": tolist(Xfo), "Xnew": tolist(Xnew), "params": params},
          {"transform": tolist(e.transform(Xnew).astype(float)), "infrequent": infrequent_list(e)}, {"rtol": 0, "atol": 0})
 
+# GroupKFold and groups in cross-validation and grid search (appended) -------------------------------------------
+from sklearn.model_selection import GroupKFold
+for name, groups, k in [
+    ("folds: GroupKFold, ties", [0, 0, 0, 1, 1, 2, 2, 2, 2, 3, 4, 4], 3),
+    ("folds: GroupKFold, text groups", ["b", "b", "a", "a", "c", "c", "d", "d", "e"], 3),
+    ("folds: GroupKFold, 40 groups", rng.integers(0, 40, size=200).tolist(), 5),
+    ("folds: GroupKFold, 2 folds", rng.integers(0, 7, size=50).tolist(), 2),
+]:
+    folds = [tolist(test) for _, test in GroupKFold(n_splits=k).split(np.zeros(len(groups)), groups=groups)]
+    case(name, "groupkfold", {"groups": groups, "params": {"n_splits": k}}, {"tests": folds}, {"rtol": 0, "atol": 0})
+gg = rng.integers(0, 12, size=80).tolist()
+s = cross_val_score(make_pipeline(StandardScaler(), Ridge(alpha=2.0)), Xg, yg, cv=GroupKFold(n_splits=4), groups=gg)
+case("cross-validation: scaled ridge, GroupKFold", "cvscore-groups", {"X": tolist(Xg), "y": tolist(yg), "groups": gg, "model": "scaled-ridge"},
+     {"scores": tolist(s)}, {"rtol": 1e-9, "atol": 1e-9})
+g = GridSearchCV(make_pipeline(StandardScaler(), Ridge()), {"ridge__alpha": [0.01, 1.0, 30.0]}, cv=GroupKFold(n_splits=4)).fit(Xg, yg, groups=gg)
+case("grid search: scaled ridge, GroupKFold", "grid-groups", {"X": tolist(Xg), "y": tolist(yg), "groups": gg, "model": "scaled-ridge", "grid": {"ridge__alpha": [0.01, 1.0, 30.0]}},
+     {"mean": tolist(g.cv_results_["mean_test_score"]), "rank": tolist(g.cv_results_["rank_test_score"]), "best": g.best_params_}, {"rtol": 1e-9, "atol": 1e-9})
+
 out = {
     "comment": "Written by compare/run.py (npm run compare); don't edit by hand.",
     "reference": {"scikit-learn": sklearn.__version__, "numpy": np.__version__},

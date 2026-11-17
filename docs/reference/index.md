@@ -35,7 +35,8 @@ From `@smaltworks/smaltml/preprocessing`:
 From `@smaltworks/smaltml/selection`:
 
 - [`trainTestSplit`](./selection/train-test-split): splits rows into a training set and a test set.
-- [`KFold`](./selection/k-fold), [`StratifiedKFold`](./selection/stratified-k-fold): folds for cross-validation.
+- [`KFold`](./selection/k-fold), [`StratifiedKFold`](./selection/stratified-k-fold), [`GroupKFold`](./selection/group-k-fold):
+  folds for cross-validation.
 - [`crossValScore`](./selection/cross-val-score): a score per fold.
 - [`GridSearchCV`](./selection/grid-search-cv): the best of a grid of parameters, by cross-validation.
 

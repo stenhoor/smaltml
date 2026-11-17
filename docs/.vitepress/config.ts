@@ -133,6 +133,7 @@ export default defineConfig({
               { text: 'trainTestSplit', link: '/reference/selection/train-test-split' },
               { text: 'KFold', link: '/reference/selection/k-fold' },
               { text: 'StratifiedKFold', link: '/reference/selection/stratified-k-fold' },
+              { text: 'GroupKFold', link: '/reference/selection/group-k-fold' },
               { text: 'crossValScore', link: '/reference/selection/cross-val-score' },
               { text: 'GridSearchCV', link: '/reference/selection/grid-search-cv' },
             ],

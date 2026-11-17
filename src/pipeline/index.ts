@@ -51,6 +51,8 @@ export class Pipeline implements Model {
     named.slice(0, -1).forEach(([name, model]) => {
       if (!isTransformer(model)) fail('ML_PARAM', `step ${name} (${model.kind}) comes before the last step, so it must transform X`);
     });
+    // Its predict() gives a Matrix, which a pipeline's doesn't yet.
+    if (named[named.length - 1]![1].kind === 'MultiOutputRegressor') fail('ML_PARAM', "a pipeline can't end in a MultiOutputRegressor yet: transform X first, then fit the MultiOutputRegressor on it");
     this.steps = named;
   }
 

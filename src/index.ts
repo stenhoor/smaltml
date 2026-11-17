@@ -9,6 +9,7 @@ export * from './linear/index.js';
 export * from './metrics/index.js';
 export * from './selection/index.js';
 export * from './pipeline/index.js';
+export * from './multioutput/index.js';
 export * from './io/index.js';
 export * from './gpu/index.js';
 export * from './registry/index.js';

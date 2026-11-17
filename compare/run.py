@@ -545,6 +545,29 @@ assert m.coef_[1] == 0 and m.coef_[0] > 0
 case("linear positive, two identical columns", "LinearRegression", {"X": tolist(Xt), "y": tolist(yt), "Xnew": tolist(Xt[:5]), "params": {"positive": True}},
      {"coef": tolist(m.coef_), "intercept": float(m.intercept_), "predict": tolist(m.predict(Xt[:5]))}, {"rtol": 1e-9, "atol": 1e-9})
 
+# MultiOutputRegressor: a regressor per target (appended) --------------------------------------------------------
+from sklearn.multioutput import MultiOutputRegressor
+Xm = features(80, 4, rng.uniform(0.5, 5, 4), rng.uniform(-3, 3, 4))
+Ym = np.column_stack([Xm @ rng.normal(size=4) + 2, Xm @ rng.normal(size=4) - 1, Xm @ rng.normal(size=4)]) + rng.normal(scale=0.3, size=(80, 3))
+Xmn = features(8, 4, rng.uniform(0.5, 5, 4), rng.uniform(-3, 3, 4))
+swm = rng.uniform(0.2, 2.0, size=80)
+for name, cls, kind, params, weights, tol in [
+    ("multioutput: linear", LinearRegression, "LinearRegression", {}, None, {"rtol": 1e-9, "atol": 1e-9}),
+    ("multioutput: ridge, sample weights", Ridge, "Ridge", {"alpha": 3.0}, swm, {"rtol": 1e-9, "atol": 1e-9}),
+    ("multioutput: lasso", Lasso, "Lasso", {"alpha": 0.2, "tol": 1e-12, "max_iter": 100000}, None, {"rtol": 1e-8, "atol": 1e-8}),
+    ("multioutput: elasticnet, positive", ElasticNet, "ElasticNet", {"alpha": 0.1, "l1_ratio": 0.5, "positive": True, "tol": 1e-12, "max_iter": 100000}, None, {"rtol": 1e-8, "atol": 1e-8}),
+]:
+    m = MultiOutputRegressor(cls(**params)).fit(Xm, Ym, sample_weight=weights)
+    # For these models a two-dimensional y fits the same: the targets don't interact.
+    native = cls(**params).fit(Xm, Ym, sample_weight=weights)
+    assert np.allclose(native.coef_, [e.coef_ for e in m.estimators_], rtol=1e-8, atol=1e-10), name
+    inputs = {"X": tolist(Xm), "Y": tolist(Ym), "Xnew": tolist(Xmn), "model": kind, "params": params}
+    if weights is not None:
+        inputs["sampleWeight"] = tolist(weights)
+    case(name, "MultiOutputRegressor", inputs,
+         {"coef": [tolist(e.coef_) for e in m.estimators_], "intercept": [float(e.intercept_) for e in m.estimators_],
+          "predict": tolist(m.predict(Xmn))}, tol)
+
 out = {
     "comment": "Written by compare/run.py (npm run compare); don't edit by hand.",
     "reference": {"scikit-learn": sklearn.__version__, "numpy": np.__version__},

@@ -18,6 +18,10 @@ import {
   StandardScaler,
   VERSION,
   loadModel,
+  MultiOutputRegressor,
+  cloneModel,
+  crossValScore,
+  GridSearchCV,
   logLoss,
   pipeline,
   saveModel,
@@ -518,5 +522,68 @@ describe('positive: coefficients held at 0 or more', () => {
     expect(code(() => new LinearRegression({ positive: 1 as unknown as boolean }))).toBe('ML_PARAM');
     expect(code(() => new Ridge({ positive: 'yes' as unknown as boolean }))).toBe('ML_PARAM');
     expect(code(() => new Lasso({ positive: 0 as unknown as boolean }))).toBe('ML_PARAM');
+  });
+});
+
+describe('MultiOutputRegressor', () => {
+  const r = new Random(6);
+  const rows = Array.from({ length: 40 }, () => [r.next() * 3, r.next() - 0.5]);
+  const Y = { price: rows.map((x) => 2 * x[0]! - x[1]! + 1), cost: rows.map((x) => -x[0]! + 3 * x[1]!) };
+
+  test('each target fits as its own model would', () => {
+    const m = new MultiOutputRegressor(new Ridge({ alpha: 0.5 })).fitSync(rows, Y);
+    const alone = new Ridge({ alpha: 0.5 }).fitSync(rows, Y.cost);
+    expect(Array.from((m.estimators[1] as Ridge).coef)).toEqual(Array.from(alone.coef));
+    const out = m.predictSync(rows.slice(0, 3));
+    expect(out.names).toEqual(['price', 'cost']);
+    expect(Array.from(out.column(1))).toEqual(Array.from(alone.predictSync(rows.slice(0, 3))));
+    expect(m.targetNames).toEqual(['price', 'cost']);
+    expect(m.nFeaturesIn).toBe(2);
+    // The estimator given stays unfitted: each target gets a copy.
+    expect(m.estimator.fitted).toBe(false);
+  });
+
+  test('fit equals fitSync, and Y can be rows', async () => {
+    const asRows = rows.map((_, i) => [Y.price[i]!, Y.cost[i]!]);
+    const a = await new MultiOutputRegressor(new LinearRegression()).fit(rows, asRows);
+    const b = new MultiOutputRegressor(new LinearRegression()).fitSync(rows, Y);
+    expect(Array.from(a.predictSync(rows).data)).toEqual(Array.from(b.predictSync(rows).data));
+    expect(a.targetNames).toBeUndefined();
+  });
+
+  test('saves and loads back, and cloneModel reaches the estimator', () => {
+    const m = new MultiOutputRegressor(new Lasso({ alpha: 0.01 })).fitSync(rows, Y);
+    const back = loadModel(saveModel(m)) as MultiOutputRegressor;
+    expect(Array.from(back.predictSync(rows).data)).toEqual(Array.from(m.predictSync(rows).data));
+    expect(back.targetNames).toEqual(['price', 'cost']);
+    const other = cloneModel(m, { estimator__alpha: 0.5 });
+    expect(other.fitted).toBe(false);
+    expect((other.estimator as Lasso).alpha).toBe(0.5);
+    expect(code(() => cloneModel(m, { alpha: 0.5 }))).toBe('ML_PARAM');
+  });
+
+  test('sampleWeight goes to each target', () => {
+    const w = rows.map((_, i) => 1 + (i % 2));
+    const m = new MultiOutputRegressor(new LinearRegression()).fitSync(rows, Y, { sampleWeight: w });
+    const alone = new LinearRegression().fitSync(rows, Y.price, { sampleWeight: w });
+    expect(Array.from((m.estimators[0] as LinearRegression).coef)).toEqual(Array.from(alone.coef));
+  });
+
+  test('the errors', () => {
+    expect(code(() => new MultiOutputRegressor(new LogisticRegression()))).toBe('ML_PARAM');
+    expect(code(() => new MultiOutputRegressor(new StandardScaler()))).toBe('ML_PARAM');
+    const m = new MultiOutputRegressor(new LinearRegression());
+    expect(code(() => m.predictSync(rows))).toBe('ML_NOT_FITTED');
+    expect(code(() => m.fitSync(rows, Y.price as unknown as number[][]))).toBe('ML_SHAPE');
+    expect(code(() => m.fitSync(rows, rows.slice(1)))).toBe('ML_SHAPE');
+    // Not yet: scoring several targets, and a pipeline that ends in one.
+    expect(code(() => pipeline(new StandardScaler(), new MultiOutputRegressor(new LinearRegression())))).toBe('ML_PARAM');
+  });
+
+  test('crossValScore and GridSearchCV refuse several targets for now', async () => {
+    const asRows = rows.map((_, i) => [Y.price[i]!, Y.cost[i]!]);
+    await expect(crossValScore(new MultiOutputRegressor(new LinearRegression()), rows, asRows as unknown as number[])).rejects.toMatchObject({ code: 'ML_PARAM' });
+    const search = new GridSearchCV(new MultiOutputRegressor(new LinearRegression()), { estimator__fitIntercept: [true, false] });
+    await expect(search.fit(rows, asRows as unknown as number[])).rejects.toMatchObject({ code: 'ML_PARAM' });
   });
 });

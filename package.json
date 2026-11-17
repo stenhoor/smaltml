@@ -60,6 +60,10 @@
       "types": "./dist/types/selection/index.d.ts",
       "default": "./dist/selection.js"
     },
+    "./multioutput": {
+      "types": "./dist/types/multioutput/index.d.ts",
+      "default": "./dist/multioutput.js"
+    },
     "./pipeline": {
       "types": "./dist/types/pipeline/index.d.ts",
       "default": "./dist/pipeline.js"

@@ -20,15 +20,21 @@ behind [`matMulSync`](../reference/gpu/mat-mul), and `matMul` when it runs on th
 smaltworks, at [stenhoor/smaltml-simd](https://github.com/stenhoor/smaltml-simd)
 ([ADR 0035](../adr/0035-simd-kernels-in-a-plugin)).
 
+Install it beside smaltml (`npm install @smaltworks/smaltml-simd`), and smaltml uses it: the first asynchronous fit
+or `matMul` looks for it and turns it on, where the engine has WebAssembly SIMD.
+
 <!-- docs:skip -->
 ```ts
-import { useSimd } from '@smaltworks/smaltml-simd';
 import { Ridge, kernelsInUse } from '@smaltworks/smaltml';
 
-await useSimd(); // true where WebAssembly SIMD is available
-const model = await new Ridge().fit(X, y);
+const model = await new Ridge().fit(X, y); // XᵀX on SIMD, here and on smaltml's threads
 kernelsInUse(); // { name: 'smaltml-simd', kernels: ['gramPart', 'matMul'], rejected: [] }
 ```
+
+- **Synchronous code first:** the `*Sync` calls don't look for the plugin. Call `await kernelsReady()` first, and
+  they use it from the start; otherwise they use smaltml's own kernels until the first asynchronous call.
+- **Bundled apps:** a bundler doesn't follow smaltml's look-up, so an app that bundles smaltml imports the plugin and
+  calls `await useSimd()` from `@smaltworks/smaltml-simd` itself.
 
 - **Why a plugin:** JavaScript has no SIMD, and WebAssembly is the platform's only route to it. smaltml itself stays
   TypeScript. The plugin's kernels are TypeScript too: functions that write the WebAssembly bytes when they run, with
@@ -46,8 +52,9 @@ kernelsInUse(); // { name: 'smaltml-simd', kernels: ['gramPart', 'matMul'], reje
 - **Fused multiply-add:** `useSimd({ fusedMultiplyAdd: true })`, where the browser has relaxed SIMD (Chrome 114 and
   later), is a little faster still. Its last bits can differ from one processor to another. It is off by default.
 - **Where it runs:** WebAssembly SIMD is in Chrome 91, Firefox 89, Safari 16.4 and Node, and in later versions. Where
-  it is missing, `useSimd()` resolves to `false` and smaltml's own kernels stay in use.
-- **Turning it off:** [`useKernels(null)`](../reference/use-kernels).
+  it is missing, smaltml's own kernels stay in use (and `useSimd()` resolves to `false`).
+- **Turning it off:** [`useKernels(null)`](../reference/use-kernels), before the first asynchronous fit or after: an
+  app's own choice is kept.
 
 ## Writing a plugin
 

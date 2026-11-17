@@ -6,7 +6,7 @@
  * @module
  */
 import { fail } from '../core/errors.js';
-import { kernelsForThreads } from '../core/kernel-set.js';
+import { kernelsForThreads, kernelsReady } from '../core/kernel-set.js';
 import { addInto, chunks, finishLogistic, symmetrize } from '../core/kernels.js';
 import { Matrix } from '../core/matrix.js';
 import type { Request, Response, SharedMatrix, Task } from './protocol.js';
@@ -158,6 +158,8 @@ async function startPool(size: number, url: string | URL): Promise<ThreadPool | 
  * memory, too little data (`values`, X's size), workers that can't start, or replaced kernels the workers can't load.
  */
 export async function threadPool(threads: Threads | undefined, values: number): Promise<ThreadPool | null> {
+  // Every asynchronous fit comes here first: smaltml-simd, where installed, is in use from the first one.
+  await kernelsReady();
   const want = threads ?? 'auto';
   if (want !== 'auto' && (!Number.isInteger(want) || want < 1)) fail('ML_PARAM', `threads is 'auto' or a whole number of at least 1, not ${String(want)}`);
   if (want === 1 || !sharedMemoryAvailable()) return null;

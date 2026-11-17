@@ -84,7 +84,9 @@ The probe isn't in the repository. Its code and benchmark move to smaltml-simd a
 
 1. **The core stays TypeScript.** `@smaltworks/smaltml` contains no WebAssembly, writes none, and loads none. Every
    model, kernel and result in it is TypeScript, as ADR 0024 says. This is the owner's principle (2026-11-15):
-   TypeScript is the product's language; WebAssembly is not.
+   TypeScript is the product's language; WebAssembly is not. Amended 2026-11-17 (the owner): the core may import
+   the plugin's package where it is installed (item 3), and that package writes and loads the WebAssembly; the core
+   itself still contains, writes and loads none.
 
 2. **WebAssembly SIMD goes in a plugin, `smaltml-simd`** (owner, 2026-11-15): its own repository,
    `stenhoor/smaltml-simd`, and package, `@smaltworks/smaltml-simd`, as the family's plugins have (smaltdb
@@ -103,8 +105,16 @@ The probe isn't in the repository. Its code and benchmark move to smaltml-simd a
      written for another version isn't used. Amended on acceptance: the first draft had kernels only, unversioned.
    - A kernel the plugin doesn't give stays smaltml's. A plugin kernel that fails a check at start (a small product
      against the TypeScript kernel) isn't used.
-   - The plugin is used only where the app turns it on: `await useSimd()` from `@smaltworks/smaltml-simd`. Nothing in
-     smaltml looks for it.
+   - ~~The plugin is used only where the app turns it on: `await useSimd()` from `@smaltworks/smaltml-simd`. Nothing in
+     smaltml looks for it.~~ Amended 2026-11-17 (the owner: "enable it when present"): **smaltml uses the plugin where
+     it is installed.** `kernelsReady()` (`@smaltworks/smaltml/core`) imports `@smaltworks/smaltml-simd` once and
+     calls its `useSimd()`; where the import fails (not installed, or a bundled app that doesn't import it), smaltml's
+     own kernels stay. The asynchronous fits (through the thread pool) and `matMul` wait for it, so they use the plugin
+     from the first call. It starts on the first such call, not when smaltml loads: the plugin imports smaltml, and
+     the thread pool's workers load smaltml's core too. A `useKernels()` call before the look-up finishes is the app's
+     choice and is kept (`useKernels(null)` keeps smaltml's own). In a bundled app, the bundler doesn't follow the
+     look-up (it imports by a variable, so an app without the plugin builds as before): such an app imports the plugin
+     and calls `useSimd()` itself, as before.
 
 4. **The kernels: the ones the probe shows gain,** the arithmetic-bound ones:
    - `gramPart` (XᵀX), for LinearRegression, Ridge, Lasso and ElasticNet;
@@ -130,7 +140,10 @@ The probe isn't in the repository. Its code and benchmark move to smaltml-simd a
    last bits between processors.
 
 7. **Results with the plugin are close to smaltml's own, not equal.** SIMD sums in a different order, so results move
-   in the last bits (about 10⁻¹⁴ relative on the probe). What holds with the plugin on:
+   in the last bits (about 10⁻¹⁴ relative on the probe). Since smaltml turns the plugin on by itself (item 3, amended),
+   a `*Sync` call made before the first asynchronous one, or before `await kernelsReady()`, uses smaltml's own kernels,
+   and one after uses the plugin's: an app that runs synchronous code first awaits `kernelsReady()`. What holds with
+   the plugin on:
    - every compare case against scikit-learn passes within its tolerance; the plugin's CI runs smaltml's compare
      tests with the plugin on;
    - an asynchronous call gives exactly its `*Sync` twin's result, and a fit on any number of threads gives exactly

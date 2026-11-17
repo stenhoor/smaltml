@@ -8,6 +8,7 @@ description: 'useKernels: use a plugin''s kernels, such as smaltml-simd''s, in p
 ```ts
 function useKernels(set: KernelSet | null): KernelsInUse;
 function kernelsInUse(): KernelsInUse;
+function kernelsReady(): Promise<KernelsInUse>;
 const KERNELS_VERSION: number;
 
 interface KernelSet {
@@ -34,8 +35,10 @@ interface KernelsInUse {
 Uses a plugin's kernels in place of smaltml's own CPU kernels, or smaltml's own again with `null`
 ([ADR 0035](../adr/0035-simd-kernels-in-a-plugin)). From `@smaltworks/smaltml/core`, and the main entry point.
 
-An app normally doesn't call it: a plugin does, when the app turns the plugin on (smaltml-simd's `await useSimd()`).
-Nothing in smaltml looks for a plugin, and the models and solvers don't change; only the kernels they call do.
+An app normally doesn't call it: a plugin does. smaltml looks for one plugin, smaltml-simd: `kernelsReady()` imports
+it where it is installed and calls its `useSimd()`, which calls `useKernels`. smaltml's asynchronous fits and `matMul`
+wait for `kernelsReady()`; the `*Sync` calls don't, so code that calls them first awaits it. A `useKernels()` call
+made before the look-up finishes is kept. The models and solvers don't change; only the kernels they call do.
 
 ## Parameters
 
@@ -63,6 +66,8 @@ Nothing in smaltml looks for a plugin, and the models and solvers don't change; 
 
 What is in use: the set's name (`'smaltml'` for smaltml's own), the kernels it replaced, and the kernels it gave that
 failed the check at start (`rejected`), which stay smaltml's. `kernelsInUse()` returns the same, at any time.
+`kernelsReady()` resolves to the same once smaltml has looked for smaltml-simd (and turned it on where it is
+installed); it looks once.
 
 ## Errors
 

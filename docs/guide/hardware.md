@@ -38,8 +38,8 @@ move it, and the most threads `'auto'` uses.
 
 smaltml's kernels are TypeScript, and JavaScript has no SIMD. A plugin can replace the heaviest of them, such as the
 XᵀX behind the linear models, with its own: smaltml-simd's run on WebAssembly SIMD
-([ADR 0035](../adr/0035-simd-kernels-in-a-plugin)). An app turns the plugin on; nothing in smaltml looks for one, and
-an app that doesn't install it runs exactly as without it.
+([ADR 0035](../adr/0035-simd-kernels-in-a-plugin)). Install it, and smaltml uses it: the first asynchronous fit or
+`matMul` looks for it and turns it on. An app that doesn't install it runs exactly as without it.
 
 The plugin calls [`useKernels`](../reference/use-kernels). Each kernel it gives is checked first against smaltml's
 own, and the thread pool's workers load the same kernels, so a fit on several threads still gives exactly what
@@ -48,10 +48,13 @@ equal, and within every compare case's tolerance against scikit-learn. `kernelsI
 
 <!-- docs:skip -->
 ```ts
-import { useSimd } from '@smaltworks/smaltml-simd';
+import { kernelsReady } from '@smaltworks/smaltml';
 
-await useSimd(); // smaltml's fits built on XᵀX now run their XᵀX on WebAssembly SIMD
+await kernelsReady(); // { name: 'smaltml-simd', … } where the plugin is installed; for code that calls *Sync first
 ```
+
+In a bundled app, the bundler doesn't follow smaltml's look-up: import the plugin and call `await useSimd()` from
+`@smaltworks/smaltml-simd` yourself.
 
 [Plugins](./plugins) lists smaltml's plugins, with what each changes and its benchmark.
 

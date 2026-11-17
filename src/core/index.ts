@@ -20,6 +20,7 @@ export {
 export {
   KERNELS_VERSION,
   kernelsInUse,
+  kernelsReady,
   useKernels,
   type KernelName,
   type Kernels,

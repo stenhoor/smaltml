@@ -5,6 +5,7 @@
  * @module
  */
 import { fail } from '../core/errors.js';
+import { kernelsReady } from '../core/kernel-set.js';
 import { matMulKernel } from '../core/kernels.js';
 import { Matrix, type MatrixInput } from '../core/matrix.js';
 
@@ -84,6 +85,7 @@ export async function matMul(A: MatrixInput, B: MatrixInput, options: DeviceOpti
   const b = Matrix.from(B);
   if (a.cols !== b.rows) fail('ML_SHAPE', `can't multiply ${a.rows} × ${a.cols} by ${b.rows} × ${b.cols}: the inner sizes differ`);
   if (await useGpu(options.device, a.rows * a.cols * b.cols)) return gpuMatMul(a, b);
+  await kernelsReady();
   return matMulSync(a, b);
 }
 

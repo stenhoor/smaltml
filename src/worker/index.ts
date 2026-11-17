@@ -48,15 +48,15 @@ export function connect(port: Port & { terminate?(): void }): MlWorker {
   port.start?.();
   const call = (op: Operation, model: Model, X: TableInput, extra: Partial<Request> = {}): Promise<Result> => {
     const t = toTable(X as TableInput);
-    // Numbers travel as a transferred buffer; a table with text as named columns.
-    const [wire, transfer] = t.columns.some(isText)
-      ? [{ table: Object.fromEntries(t.columns.map((c, j) => [t.named ? t.names[j]! : `x${j}`, c])) }, [] as ArrayBuffer[]]
-      : ((([w, b]) => [w, [b]])(toWire(numericMatrix(X as TableInput))) as [Request['X'], ArrayBuffer[]]);
+    // Numbers travel as a Matrix, a table with text as named columns; both copied by postMessage, never transferred.
+    const wire: Request['X'] = t.columns.some(isText)
+      ? { table: Object.fromEntries(t.columns.map((c, j) => [t.named ? t.names[j]! : `x${j}`, c])) }
+      : toWire(numericMatrix(X as TableInput));
     const id = next++;
     const req: Request = { id, op, model: model.toJSON(), X: wire, ...extra };
     return new Promise((resolve, reject) => {
       waiting.set(id, { resolve, reject });
-      port.postMessage(req, transfer);
+      port.postMessage(req);
     });
   };
   return {

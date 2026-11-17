@@ -17,20 +17,20 @@ export function serve(port: Port): void {
     if (!req || typeof req !== 'object' || typeof req.id !== 'number') return;
     queue = queue.then(async () => {
       let response: Response;
-      const transfer: Transferable[] = [];
       try {
-        response = { id: req.id, ok: true, result: await handle(req, transfer) };
+        // Results are copied by postMessage, never transferred (protocol.ts says why).
+        response = { id: req.id, ok: true, result: await handle(req) };
       } catch (e) {
         const err = e as Error;
         response = { id: req.id, ok: false, error: { ...(e instanceof SmaltmlError ? { code: e.code } : {}), message: err?.message ?? String(e) } };
       }
-      port.postMessage(response, transfer);
+      port.postMessage(response);
     });
   });
   port.start?.();
 }
 
-async function handle(req: Request, transfer: Transferable[]): Promise<Result> {
+async function handle(req: Request): Promise<Result> {
   const model: Model = loadModel(req.model);
   // A table with text reaches the model as named columns; models that need numbers say so with ML_VALUE.
   const X = ('table' in req.X ? req.X.table : fromWire(req.X)) as MatrixInput;
@@ -42,24 +42,19 @@ async function handle(req: Request, transfer: Transferable[]): Promise<Result> {
     case 'predict': {
       if (!isPredictor(model)) throw new SmaltmlError('ML_PARAM', `${model.kind} doesn't predict`);
       const out = await model.predict(X, options);
-      if (out instanceof Float64Array) {
-        transfer.push(out.buffer as ArrayBuffer);
-        return { kind: 'values', values: out };
-      }
+      if (out instanceof Float64Array) return { kind: 'values', values: out };
       return { kind: 'labels', labels: out };
     }
     case 'predictProba': {
       if (!isClassifier(model) && !(model.kind === 'Pipeline' && 'predictProba' in model)) {
         throw new SmaltmlError('ML_PARAM', `${model.kind} doesn't give probabilities`);
       }
-      const [matrix, buffer] = toWire(await (model as unknown as { predictProba(X: unknown, o: unknown): Promise<import('../core/matrix.js').Matrix> }).predictProba(X, options));
-      transfer.push(buffer);
+      const matrix = toWire(await (model as unknown as { predictProba(X: unknown, o: unknown): Promise<import('../core/matrix.js').Matrix> }).predictProba(X, options));
       return { kind: 'matrix', matrix };
     }
     case 'transform': {
       if (!isTransformer(model)) throw new SmaltmlError('ML_PARAM', `${model.kind} doesn't transform`);
-      const [matrix, buffer] = toWire(await model.transform(X));
-      transfer.push(buffer);
+      const matrix = toWire(await model.transform(X));
       return { kind: 'matrix', matrix };
     }
     default:

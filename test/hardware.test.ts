@@ -70,6 +70,39 @@ describe('the worker protocol', () => {
   const X = [[1, 20], [2, 18], [3, 25], [4, 30], [5, 28], [6, 40], [7, 35], [8, 45]];
   const labels = ['no', 'no', 'no', 'yes', 'no', 'yes', 'yes', 'yes'];
 
+  test('nothing is transferred: every message is copied, and no buffer is detached', async () => {
+    // A transfer detaches its buffer, and V8 then runs every typed-array loop in that thread more slowly, for good.
+    const { port1, port2 } = new MessageChannel();
+    const transfers: unknown[] = [];
+    const watch = (port: typeof port1) => {
+      const post = port.postMessage.bind(port);
+      port.postMessage = ((message: unknown, transfer?: unknown) => {
+        transfers.push(transfer);
+        return post(message);
+      }) as typeof port.postMessage;
+      return port as unknown as Port;
+    };
+    serve(watch(port1));
+    const ml = connect(watch(port2));
+    try {
+      const data = new Matrix(8, 2, Float64Array.from(X.flatMap((r) => r)));
+      const fitted = await ml.fit(new LogisticRegression(), data, labels);
+      const values = await ml.predict(new LinearRegression().fitSync(X, [1, 2, 3, 4, 5, 6, 7, 8]), data);
+      const proba = await ml.predictProba(fitted, data);
+      const scaled = await ml.transform(new StandardScaler().fitSync(X), data);
+      expect(transfers.length).toBeGreaterThanOrEqual(8);
+      expect(transfers.every((t) => t === undefined)).toBe(true);
+      // The caller's numbers are still there, and so is what came back.
+      expect(data.data.byteLength).toBe(16 * 8);
+      expect((values as Float64Array).length).toBe(8);
+      expect(proba.rows).toBe(8);
+      expect(scaled.rows).toBe(8);
+    } finally {
+      port1.close();
+      port2.close();
+    }
+  });
+
   test('fit returns a fitted copy that matches a local fit, bit for bit', async () => {
     const { ml, close } = setup();
     try {

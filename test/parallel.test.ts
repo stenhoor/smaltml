@@ -76,6 +76,15 @@ describe('fits on several threads equal fitSync, bit for bit', () => {
     });
   }
 
+  test('several targets on several threads equal fitSync', async () => {
+    const Y = Array.from({ length: X.rows }, (_, i) => [y[i]!, -2 * y[i]! + i]);
+    for (const make of [() => new LinearRegression(), () => new Ridge({ alpha: 3 }), () => new Lasso({ alpha: 0.01 })]) {
+      const one = make().fitSync(X, Y);
+      const many = await make().fit(X, Y, { threads: 4 });
+      expect(many.toJSON()).toEqual(one.toJSON());
+    }
+  });
+
   test('a pipeline passes threads to its last step', async () => {
     const one = pipeline(new StandardScaler(), new LogisticRegression({ maxIter: 20 })).fitSync(X, y3);
     const many = await pipeline(new StandardScaler(), new LogisticRegression({ maxIter: 20 })).fit(X, y3, { threads: 4 });

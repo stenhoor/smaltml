@@ -30,8 +30,25 @@ export function checkedWeights(sampleWeight: VectorInput | undefined, n: number)
  * Least squares with weights, as one without: the columns and y are centred on their weighted means (with an
  * intercept), and each row is multiplied by √w. Minimizing Σ (√w·r)² is minimizing Σ w·r², so the unweighted solvers
  * give the weighted answer on the result. This makes a copy of X, which the kernels then read as it is (no means).
+ * weightedDesign() is the X part, shared by every target of a fit; weightedTarget() is one target's part.
  */
 export function weightedLeastSquares(m: Matrix, y: Float64Array, w: Float64Array, intercept: boolean) {
+  const d = weightedDesign(m, w, intercept);
+  const t = weightedTarget(d, y);
+  return { X: d.X, y: t.y, xMean: d.xMean, yMean: t.yMean };
+}
+
+export interface WeightedDesign {
+  X: Matrix;
+  xMean: Float64Array | undefined;
+  w: Float64Array;
+  root: Float64Array;
+  total: number;
+  intercept: boolean;
+}
+
+/** X centred on its weighted column means (with an intercept), each row times √w: a copy. */
+export function weightedDesign(m: Matrix, w: Float64Array, intercept: boolean): WeightedDesign {
   assertFinite(m);
   const n = m.rows;
   const p = m.cols;
@@ -39,7 +56,6 @@ export function weightedLeastSquares(m: Matrix, y: Float64Array, w: Float64Array
   for (let i = 0; i < n; i++) total += w[i]!;
   const root = Float64Array.from(w, Math.sqrt);
   let xMean: Float64Array | undefined;
-  let yMean = 0;
   if (intercept) {
     xMean = new Float64Array(p);
     for (let j = 0; j < p; j++) {
@@ -48,8 +64,6 @@ export function weightedLeastSquares(m: Matrix, y: Float64Array, w: Float64Array
       for (let i = 0; i < n; i++) s += w[i]! * m.data[o + i]!;
       xMean[j] = s / total;
     }
-    for (let i = 0; i < n; i++) yMean += w[i]! * y[i]!;
-    yMean /= total;
   }
   const data = new Float64Array(n * p);
   for (let j = 0; j < p; j++) {
@@ -57,8 +71,17 @@ export function weightedLeastSquares(m: Matrix, y: Float64Array, w: Float64Array
     const mu = xMean ? xMean[j]! : 0;
     for (let i = 0; i < n; i++) data[o + i] = (m.data[o + i]! - mu) * root[i]!;
   }
-  const target = Float64Array.from(y, (v, i) => (v - yMean) * root[i]!);
-  return { X: new Matrix(n, p, data, m.names), y: target, xMean, yMean };
+  return { X: new Matrix(n, p, data, m.names), xMean, w, root, total, intercept };
+}
+
+/** One target centred on its weighted mean (with an intercept), each value times √w. */
+export function weightedTarget(d: WeightedDesign, y: Float64Array): { y: Float64Array; yMean: number } {
+  let yMean = 0;
+  if (d.intercept) {
+    for (let i = 0; i < y.length; i++) yMean += d.w[i]! * y[i]!;
+    yMean /= d.total;
+  }
+  return { y: Float64Array.from(y, (v, i) => (v - yMean) * d.root[i]!), yMean };
 }
 
 /** The weights scaled to sum to n, as scikit-learn's ElasticNet and Lasso scale them before they fit. */

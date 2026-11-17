@@ -4,7 +4,7 @@ import { VERSION } from '../version.js';
 
 /** The format name and version of a saved model (ADR 0024, section 6). */
 export const MODEL_FORMAT = 'smaltml';
-export const MODEL_FORMAT_VERSION = 2;
+export const MODEL_FORMAT_VERSION = 3;
 
 /**
  * A saved model: plain JSON, kept as a file or as a row in a table, that loadModel() turns back into the model.
@@ -50,8 +50,9 @@ export interface Transformer extends Model {
 
 /** A model that predicts a value or a label for each row. */
 export interface Predictor extends Model {
-  fit(X: MatrixInput, y: Labels): Promise<this>;
-  fitSync(X: MatrixInput, y: Labels): this;
+  /** y: labels or values, one per row; a regressor also takes a column per target (a 2-D y). */
+  fit(X: MatrixInput, y: Labels | MatrixInput): Promise<this>;
+  fitSync(X: MatrixInput, y: Labels | MatrixInput): this;
   predict(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Float64Array | Label[]>;
   predictSync(X: MatrixInput): Float64Array | Label[];
 }

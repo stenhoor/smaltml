@@ -568,6 +568,22 @@ for name, cls, kind, params, weights, tol in [
          {"coef": [tolist(e.coef_) for e in m.estimators_], "intercept": [float(e.intercept_) for e in m.estimators_],
           "predict": tolist(m.predict(Xmn))}, tol)
 
+# A two-dimensional y: a column per target, on the models themselves (appended) ----------------------------------
+for name, cls, kind, params, weights, Y_, tol in [
+    ("2-D y: linear", LinearRegression, "LinearRegression", {}, None, Ym, {"rtol": 1e-9, "atol": 1e-9}),
+    ("2-D y: linear, one column", LinearRegression, "LinearRegression", {"fit_intercept": False}, None, Ym[:, :1], {"rtol": 1e-9, "atol": 1e-9}),
+    ("2-D y: ridge, sample weights", Ridge, "Ridge", {"alpha": 3.0}, swm, Ym, {"rtol": 1e-9, "atol": 1e-9}),
+    ("2-D y: linear positive", LinearRegression, "LinearRegression", {"positive": True}, None, Ym, {"rtol": 1e-9, "atol": 1e-9}),
+    ("2-D y: lasso", Lasso, "Lasso", {"alpha": 0.2, "tol": 1e-12, "max_iter": 100000}, None, Ym, {"rtol": 1e-8, "atol": 1e-8}),
+    ("2-D y: elasticnet, sample weights", ElasticNet, "ElasticNet", {"alpha": 0.1, "l1_ratio": 0.3, "tol": 1e-12, "max_iter": 100000}, swm, Ym, {"rtol": 1e-8, "atol": 1e-8}),
+]:
+    m = cls(**params).fit(Xm, Y_, sample_weight=weights)
+    assert m.coef_.ndim == 2 and m.coef_.shape[0] == Y_.shape[1], name
+    inputs = {"X": tolist(Xm), "Y": tolist(Y_), "Xnew": tolist(Xmn), "model": kind, "params": params}
+    if weights is not None:
+        inputs["sampleWeight"] = tolist(weights)
+    case(name, "2-D y", inputs, {"coefs": tolist(m.coef_), "intercepts": tolist(np.atleast_1d(m.intercept_)), "predict": tolist(m.predict(Xmn))}, tol)
+
 out = {
     "comment": "Written by compare/run.py (npm run compare); don't edit by hand.",
     "reference": {"scikit-learn": sklearn.__version__, "numpy": np.__version__},

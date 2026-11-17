@@ -72,6 +72,14 @@ const SCORERS: Record<ScorerName, Scorer> = {
 };
 
 /** A scorer from its name, or the function given; by default, accuracy for a classifier and R² for anything else. */
+/** Scoring takes one target so far: a y with a column per target fails, as scikit-learn would average R² over them. */
+function oneTarget(y: Labels): void {
+  const first = (y as ArrayLike<unknown>)[0];
+  if ((y as unknown) instanceof Matrix || (y.length > 0 && typeof first === 'object' && first !== null) || (typeof y === 'object' && !('length' in y))) {
+    fail('ML_PARAM', "crossValScore and GridSearchCV don't take a y with several targets yet: score each target on its own");
+  }
+}
+
 function scorerFor(model: Model, scoring: ScorerName | Scorer | undefined): Scorer {
   // Scoring takes one target so far; scikit-learn averages R² over several.
   if (model.kind === 'MultiOutputRegressor') fail('ML_PARAM', "crossValScore and GridSearchCV don't take several targets yet: fit a model per target, or MultiOutputRegressor on its own");
@@ -163,6 +171,7 @@ export interface CrossValOptions {
  * fold. scikit-learn's `cross_val_score`.
  */
 export async function crossValScore(model: Model, X: TableInput, y: Labels, options: CrossValOptions = {}): Promise<Float64Array> {
+  oneTarget(y);
   const n = toTable(X).rows;
   if (y.length !== n) fail('ML_SHAPE', `y has ${y.length} values; X has ${n} rows`);
   const scorer = scorerFor(model, options.scoring);
@@ -258,6 +267,7 @@ export class GridSearchCV implements Model {
   }
 
   async #fit(X: TableInput, y: Labels): Promise<this> {
+    oneTarget(y);
     // Numbers become one Matrix up front, so each fold's rows are one matrix every candidate fits on.
     X = asMatrixIfNumeric(X);
     const n = toTable(X).rows;

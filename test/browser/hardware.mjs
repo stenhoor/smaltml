@@ -50,6 +50,12 @@ window.results = (async () => {
   let worst = 0;
   for (let i = 0; i < cpuLin.length; i++) worst = Math.max(worst, Math.abs(gpuLin[i] - cpuLin[i]));
   check(worst < 1e-3, 'LinearRegression on the GPU: worst difference ' + worst.toExponential(2));
+  const two = new ml.Ridge({ alpha: 1 }).fitSync(X, { first: y, second: y.map((v, i) => 2 * v - (i % 7)) });
+  const gpuTwo = await two.predictTargets(X, { device: 'gpu' });
+  const cpuTwo = two.predictTargetsSync(X);
+  let worstTwo = 0;
+  for (let i = 0; i < cpuTwo.data.length; i++) worstTwo = Math.max(worstTwo, Math.abs(gpuTwo.data[i] - cpuTwo.data[i]) / Math.max(1, Math.abs(cpuTwo.data[i])));
+  check(worstTwo < 1e-3 && gpuTwo.names?.join() === 'first,second', 'Ridge.predictTargets on the GPU, two targets: worst relative difference ' + worstTwo.toExponential(2));
   const labels = y.map((v) => (v > 0.5 ? 'high' : v < -0.5 ? 'low' : 'mid'));
   const log = new ml.LogisticRegression({ maxIter: 50 }).fitSync(X, labels);
   const gp = await log.predictProba(X, { device: 'gpu' });

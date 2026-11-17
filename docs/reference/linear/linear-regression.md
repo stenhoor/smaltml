@@ -8,11 +8,16 @@ description: 'LinearRegression: ordinary least squares for one target. scikit-le
 ```ts
 class LinearRegression implements Predictor {
   constructor(params?: { fitIntercept?: boolean; positive?: boolean });
-  fit(X: MatrixInput, y: ArrayLike<number>, options?: { threads?: number | 'auto'; sampleWeight?: ArrayLike<number> }): Promise<this>;
-  fitSync(X: MatrixInput, y: ArrayLike<number>, options?: { sampleWeight?: ArrayLike<number> }): this;
+  fit(X: MatrixInput, y: ArrayLike<number> | MatrixInput, options?: { threads?: number | 'auto'; sampleWeight?: ArrayLike<number> }): Promise<this>;
+  fitSync(X: MatrixInput, y: ArrayLike<number> | MatrixInput, options?: { sampleWeight?: ArrayLike<number> }): this;
   predict(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Float64Array>;
+  predictTargets(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Matrix>;
+  predictTargetsSync(X: MatrixInput): Matrix;
   readonly coef: Float64Array;
   readonly intercept: number;
+  readonly coefs: Matrix;
+  readonly intercepts: Float64Array;
+  readonly targetNames: readonly string[] | undefined;
   readonly nFeaturesIn: number;
   readonly featureNamesIn: readonly string[] | undefined;
 }
@@ -31,14 +36,24 @@ for one target.
 `fit` and `fitSync` take `sampleWeight`: one weight per row, 0 or more, as scikit-learn's `sample_weight`. A row's
 squared error counts that many times, so whole-number weights fit as the rows repeated would.
 
+`y` is one value per row, or a column per target (rows, named columns or a Matrix, as scikit-learn's two-dimensional
+`y`): each target is fitted on its own, with XᵀX computed once for all of them ([ADR 0037](../../adr/0037-several-targets)).
+
 ## Returns
 
 `predict` returns `X·w + b`, one value per row; `device` chooses where the product runs
 ([The CPU, WebGPU and workers](../../guide/hardware)). After `fit`, `coef` holds one coefficient per column and `intercept`
 the intercept (0 without `fitIntercept`).
 
+With several targets, read `coefs` (a Matrix: a row per target, a column per feature), `intercepts` (one per target),
+`targetNames` (`y`'s column names, when it had them) and `predictTargets` (a Matrix with a column per target and those
+names). They work after a one-target fit too, with one row or column. `coef`, `intercept` and `predict` are for one
+target.
+
 ## Errors
 
+- `ML_SHAPE` for `coef`, `intercept` and `predict` on a model fitted to a `y` with columns: read `coefs`,
+  `intercepts` and `predictTargets`. Also a `y` whose rows differ from X's.
 - `ML_SINGULAR`: the columns don't determine one answer: a column that is a combination of others, or fewer rows than
   columns. With `positive`, only where the columns it keeps above 0 don't.
 - `ML_PARAM`: `positive` that isn't `true` or `false`.
@@ -97,6 +112,18 @@ const yields = [1.5, 3.7, 5.9, 8.5, 10.7];
 | --- | --- |
 | 2.16 | 2.32 |
 | -0.2 | 0 |
+
+Two targets at once, a column of `y` each: each is fitted as it would be alone.
+
+```ts
+const sizes2 = [[1, 2], [2, 1], [3, 4], [4, 3], [5, 5]];
+const both = new LinearRegression().fitSync(sizes2, { cost: [5, 6, 13, 14, 19], time: [2, 2.5, 4, 4.5, 6] });
+both.predictTargetsSync([[6, 6]])
+```
+
+| cost | time |
+| --- | --- |
+| 23.0667 | 6.96667 |
 
 <!-- docs:error ML_SINGULAR -->
 ```ts

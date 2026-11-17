@@ -52,8 +52,9 @@ to each target's fit, and `fit`'s `threads` too.
 LinearRegression, Ridge, Lasso and ElasticNet fit each target on its own, with nothing shared between targets. So a
 `MultiOutputRegressor` gives what scikit-learn gives both for `MultiOutputRegressor` and for these models fitted to a
 two-dimensional `y`: the compare tests check both, within 1e-9 (1e-8 for Lasso and ElasticNet). Each target reads X on
-its own, so a fit costs about as many passes over X as there are targets. The models don't take a two-dimensional
-`y` themselves yet ([Where smaltml differs](../divergences#not-yet-supported)).
+its own, so a fit costs about as many passes over X as there are targets. The models also take a `y` with a column per
+target themselves, computing XᵀX once for all of them, which is faster: read the results through `coefs`,
+`intercepts` and `predictTargets` ([`LinearRegression`](../linear/linear-regression#returns)).
 
 `cloneModel` and saved models reach the estimator's parameters as `estimator__name`, as in scikit-learn:
 `cloneModel(m, { estimator__alpha: 2 })`.

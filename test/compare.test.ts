@@ -138,6 +138,14 @@ function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol:
       close(rowsOf(m.predictSync(inp.Xnew)), exp.predict, tol, 'predict');
       return;
     }
+    case '2-D y': {
+      const models = { LinearRegression: (p: object) => new LinearRegression(p), Ridge: (p: object) => new Ridge(p), Lasso: (p: object) => new Lasso(p), ElasticNet: (p: object) => new ElasticNet(p) };
+      const m = models[inp.model as keyof typeof models](camel(inp.params)).fitSync(inp.X, inp.Y, inp.sampleWeight ? { sampleWeight: inp.sampleWeight } : {});
+      close(rowsOf(m.coefs), exp.coefs, tol, 'coefs');
+      close(m.intercepts, exp.intercepts, tol, 'intercepts');
+      close(rowsOf(m.predictTargetsSync(inp.Xnew)), exp.predict, tol, 'predict');
+      return;
+    }
     case 'LinearRegression': {
       const m = new LinearRegression(camel(inp.params)).fitSync(inp.X, inp.y, inp.sampleWeight ? { sampleWeight: inp.sampleWeight } : {});
       close(m.coef, exp.coef, tol, 'coef');

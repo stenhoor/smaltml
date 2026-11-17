@@ -1,13 +1,14 @@
 import { fail } from '../core/errors.js';
 import { checkedMeans, cholesky, choleskySolve, xw } from '../core/kernels.js';
 import { threadPool, type ThreadOptions } from '../parallel/index.js';
-import { keptMeans, runHere, runOn, type Solver } from './calls.js';
+import { keptMeans, runHere, runOn, withKernelCache, withKernelCacheSync, type Solver } from './calls.js';
 import { nonNegativeLeastSquares } from './nnls.js';
-import { checkedWeights, weightedLeastSquares, type SampleWeightOptions } from './weights.js';
+import { checkedWeights, type SampleWeightOptions } from './weights.js';
+import { coefColumns, coefsMatrix, interceptOf, oneTargetOnly, planFit, savedTargets, type FitPlan, type Targets } from './targets.js';
 import { leastSquares } from '../core/linalg.js';
-import { assertFinite, assertFiniteVector, Matrix, toVector, type MatrixInput, type VectorInput } from '../core/matrix.js';
+import { assertFinite, Matrix, type MatrixInput, type VectorInput } from '../core/matrix.js';
 import { matMul, predictOnGpu, type DeviceOptions } from '../gpu/index.js';
-import { checkColumns, checkDocument, document, floats, notFitted, numbers, type ModelDocument, type Predictor } from '../core/model.js';
+import { checkColumns, checkDocument, document, notFitted, numbers, type ModelDocument, type Predictor } from '../core/model.js';
 
 export interface LinearRegressionParams {
   /** Fit an intercept. With false, the line passes through the origin. Default true. */
@@ -17,16 +18,22 @@ export interface LinearRegressionParams {
 }
 
 interface State {
-  coef: Float64Array;
-  intercept: number;
+  /** One coefficient vector per target (one for a one-dimensional y). */
+  coefs: Float64Array[];
+  intercepts: Float64Array;
+  /** Whether y had a column per target (scikit-learn's 2-D y), even one. */
+  several: boolean;
+  targetNames: readonly string[] | undefined;
   nFeaturesIn: number;
   featureNamesIn: readonly string[] | undefined;
 }
 
 /**
  * Ordinary least squares: the coefficients w and intercept b that minimize the sum of (y − X·w − b)².
- * scikit-learn's `LinearRegression`, for one target. Solved by QR on centred data, on the CPU in 64-bit floats; with
- * `positive`, by non-negative least squares (Lawson and Hanson's active set).
+ * scikit-learn's `LinearRegression`. Solved by QR on centred data, on the CPU in 64-bit floats; with
+ * `positive`, by non-negative least squares (Lawson and Hanson's active set). y can have a column per target
+ * (scikit-learn's 2-D y): each is fitted on its own, sharing XᵀX, and read through coefs, intercepts and
+ * predictTargets() (ADR 0037).
  */
 export class LinearRegression implements Predictor {
   readonly kind = 'LinearRegression';
@@ -45,14 +52,30 @@ export class LinearRegression implements Predictor {
     return this.#state !== null;
   }
 
-  /** One coefficient per column of X. */
+  /** One coefficient per column of X. For one target: with a y that has columns, read coefs. */
   get coef(): Float64Array {
-    return this.#fitted().coef;
+    return this.#one('coef').coefs[0]!;
   }
 
-  /** The intercept (0 with fitIntercept false). */
+  /** The intercept (0 with fitIntercept false). For one target: with a y that has columns, read intercepts. */
   get intercept(): number {
-    return this.#fitted().intercept;
+    return this.#one('intercept').intercepts[0]!;
+  }
+
+  /** The coefficients, a row per target (one row for a one-dimensional y) and a column per feature. */
+  get coefs(): Matrix {
+    const s = this.#fitted();
+    return coefsMatrix(s.coefs, s.nFeaturesIn, s.featureNamesIn);
+  }
+
+  /** One intercept per target. */
+  get intercepts(): Float64Array {
+    return this.#fitted().intercepts.slice();
+  }
+
+  /** y's column names, when it had them: the names of predictTargets()'s columns. */
+  get targetNames(): readonly string[] | undefined {
+    return this.#fitted().targetNames;
   }
 
   get nFeaturesIn(): number {
@@ -70,99 +93,102 @@ export class LinearRegression implements Predictor {
   /**
    * Fits the model. With `threads` (default `'auto'`), the heavy products run on several cores where shared memory
    * allows and X is large enough, with the same result as fitSync() to the last bit. With `sampleWeight`, each row's
-   * squared error counts that many times.
+   * squared error counts that many times. y is one target, or a column per target.
    */
-  async fit(X: MatrixInput, y: VectorInput, options: ThreadOptions & SampleWeightOptions = {}): Promise<this> {
+  async fit(X: MatrixInput, y: Targets, options: ThreadOptions & SampleWeightOptions = {}): Promise<this> {
     const m = Matrix.from(X);
     const pool = await threadPool(options.threads, m.rows * m.cols);
     if (!pool) return this.fitSync(m, y, options);
-    const job = this.#prepare(m, y, options.sampleWeight);
-    const coef =
-      job.p === 0 ? new Float64Array(0)
-      : this.positive ? (await runOn(pool, nonNegativeLeastSquares(job.design, job.kernelMean, job.b, 0))).coef
-      : ((await runOn(pool, seminormal(job.design, job.kernelMean, job.b))) ?? householder(job.design, job.kernelMean, job.b));
-    return this.#finish(job, coef);
+    const plan = this.#plan(m, y, options.sampleWeight);
+    const coefs = await withKernelCache(async () => {
+      const out: Float64Array[] = [];
+      for (const t of plan.targets) {
+        out.push(
+          m.cols === 0 ? new Float64Array(0)
+          : this.positive ? (await runOn(pool, nonNegativeLeastSquares(plan.design, plan.kernelMean, t.b, 0))).coef
+          : ((await runOn(pool, seminormal(plan.design, plan.kernelMean, t.b))) ?? householder(plan.design, plan.kernelMean, t.b)),
+        );
+      }
+      return out;
+    }, plan.targets.length > 1);
+    return this.#finish(m, plan, coefs);
   }
 
-  fitSync(X: MatrixInput, y: VectorInput, options: SampleWeightOptions = {}): this {
+  fitSync(X: MatrixInput, y: Targets, options: SampleWeightOptions = {}): this {
     const m = Matrix.from(X);
-    const job = this.#prepare(m, y, options.sampleWeight);
-    const coef =
-      job.p === 0 ? new Float64Array(0)
-      : this.positive ? runHere(nonNegativeLeastSquares(job.design, job.kernelMean, job.b, 0)).coef
-      : (runHere(seminormal(job.design, job.kernelMean, job.b)) ?? householder(job.design, job.kernelMean, job.b));
-    return this.#finish(job, coef);
+    const plan = this.#plan(m, y, options.sampleWeight);
+    const coefs = withKernelCacheSync(() =>
+      plan.targets.map((t) =>
+        m.cols === 0 ? new Float64Array(0)
+        : this.positive ? runHere(nonNegativeLeastSquares(plan.design, plan.kernelMean, t.b, 0)).coef
+        : (runHere(seminormal(plan.design, plan.kernelMean, t.b)) ?? householder(plan.design, plan.kernelMean, t.b)),
+      ),
+      plan.targets.length > 1,
+    );
+    return this.#finish(m, plan, coefs);
   }
 
-  /**
-   * The design the solvers read (X, or its weighted copy), the means the kernels subtract from it, and the means the
-   * intercept comes from.
-   */
-  #prepare(m: Matrix, y: VectorInput, sampleWeight: VectorInput | undefined) {
+  #plan(m: Matrix, y: Targets, sampleWeight: VectorInput | undefined): FitPlan {
     if (m.rows === 0) fail('ML_SHAPE', 'X has no rows');
     const weights = checkedWeights(sampleWeight, m.rows);
-    if (weights) {
-      const target = toVector(y, m.rows);
-      assertFiniteVector(target);
-      const wd = weightedLeastSquares(m, target, weights, this.fitIntercept);
-      return { m, p: m.cols, design: wd.X, kernelMean: undefined, xMean: wd.xMean, yMean: wd.yMean, b: wd.y };
-    }
-    // With an intercept, the column means check X on the way; without one, check it here.
-    if (!this.fitIntercept) assertFinite(m);
-    const target = toVector(y, m.rows);
-    assertFiniteVector(target);
-    const n = m.rows;
-    const p = m.cols;
-    let xMean: Float64Array | undefined;
-    let yMean = 0;
-    let b = target;
-    if (this.fitIntercept) {
-      // Centre: the intercept is then ȳ − x̄·w. X isn't copied; the kernels subtract its means as they read it.
-      xMean = keptMeans(m, () => checkedMeans(m, assertFinite));
-      for (let i = 0; i < n; i++) yMean += target[i]!;
-      yMean /= n;
-      b = target.map((v) => v - yMean);
-    }
-    return { m, p, design: m, kernelMean: xMean, xMean, yMean, b };
+    return planFit(m, y, weights, this.fitIntercept, () => keptMeans(m, () => checkedMeans(m, assertFinite)));
   }
 
-  #finish(job: { m: Matrix; p: number; xMean: Float64Array | undefined; yMean: number }, coef: Float64Array): this {
-    const { m, p, xMean, yMean } = job;
-    let intercept = 0;
-    if (xMean) {
-      intercept = yMean;
-      for (let j = 0; j < p; j++) intercept -= xMean[j]! * coef[j]!;
-    }
-    this.#state = { coef, intercept, nFeaturesIn: p, featureNamesIn: m.names };
+  #finish(m: Matrix, plan: FitPlan, coefs: Float64Array[]): this {
+    const intercepts = Float64Array.from(coefs, (c, t) => interceptOf(plan.xMean, plan.targets[t]!.yMean, c));
+    this.#state = { coefs, intercepts, several: plan.several, targetNames: plan.targetNames, nFeaturesIn: m.cols, featureNamesIn: m.names };
     return this;
   }
 
-  /** X·w + b, one prediction per row; on the GPU only with `device: 'gpu'` (32-bit floats there). */
+  /** X·w + b, one prediction per row; on the GPU only with `device: 'gpu'` (32-bit floats there). For one target. */
   async predict(X: MatrixInput, options: DeviceOptions = {}): Promise<Float64Array> {
-    const s = this.#fitted();
+    const s = this.#one('predict()');
     const m = Matrix.from(X);
     checkColumns(m, s.nFeaturesIn, this.kind);
     // On the CPU, exactly predictSync()'s result.
     if (!(await predictOnGpu(options.device))) return this.predictSync(m);
-    const product = await matMul(m, new Matrix(s.coef.length, 1, s.coef), { device: 'gpu' });
+    const product = await matMul(m, new Matrix(s.coefs[0]!.length, 1, s.coefs[0]!), { device: 'gpu' });
     const out = product.data;
-    for (let i = 0; i < out.length; i++) out[i]! += s.intercept;
+    for (let i = 0; i < out.length; i++) out[i]! += s.intercepts[0]!;
     return out;
   }
 
-  /** X·w + b, one prediction per row. */
+  /** X·w + b, one prediction per row. For one target: with a y that has columns, use predictTargetsSync(). */
   predictSync(X: MatrixInput): Float64Array {
+    const s = this.#one('predictSync()');
+    const m = Matrix.from(X);
+    checkColumns(m, s.nFeaturesIn, this.kind);
+    return xw(m, s.coefs[0]!, s.intercepts[0]!);
+  }
+
+  /** A column per target, X·wₜ + bₜ, with y's column names; on the GPU only with `device: 'gpu'`. */
+  async predictTargets(X: MatrixInput, options: DeviceOptions = {}): Promise<Matrix> {
     const s = this.#fitted();
     const m = Matrix.from(X);
     checkColumns(m, s.nFeaturesIn, this.kind);
-    return xw(m, s.coef, s.intercept);
+    if (!(await predictOnGpu(options.device))) return this.predictTargetsSync(m);
+    const out = await matMul(m, coefColumns(s.coefs, s.nFeaturesIn), { device: 'gpu' });
+    s.intercepts.forEach((b, t) => {
+      const col = out.column(t);
+      for (let i = 0; i < col.length; i++) col[i]! += b;
+    });
+    return new Matrix(out.rows, out.cols, out.data, s.targetNames);
+  }
+
+  /** A column per target, X·wₜ + bₜ, with y's column names. */
+  predictTargetsSync(X: MatrixInput): Matrix {
+    const s = this.#fitted();
+    const m = Matrix.from(X);
+    checkColumns(m, s.nFeaturesIn, this.kind);
+    return Matrix.fromColumns(s.coefs.map((c, t) => xw(m, c, s.intercepts[t]!)), s.targetNames);
   }
 
   toJSON(): ModelDocument {
     const s = this.#state;
     return document(this.kind, { ...this.getParams() }, s && {
-      coef: numbers(s.coef),
-      intercept: s.intercept,
+      ...(s.several
+        ? { coefs: s.coefs.map(numbers), intercepts: numbers(s.intercepts), ...(s.targetNames ? { targetNames: [...s.targetNames] } : {}) }
+        : { coef: numbers(s.coefs[0]!), intercept: s.intercepts[0]! }),
       nFeaturesIn: s.nFeaturesIn,
       ...(s.featureNamesIn ? { featureNamesIn: [...s.featureNamesIn] } : {}),
     });
@@ -172,19 +198,19 @@ export class LinearRegression implements Predictor {
     const d = checkDocument(doc, 'LinearRegression');
     const model = new LinearRegression(d.params as LinearRegressionParams);
     const s = d.state;
-    if (s) {
-      model.#state = {
-        coef: floats(s.coef, 'coef'),
-        intercept: Number(s.intercept),
-        nFeaturesIn: Number(s.nFeaturesIn),
-        featureNamesIn: Array.isArray(s.featureNamesIn) ? (s.featureNamesIn as string[]) : undefined,
-      };
-    }
+    if (s) model.#state = { ...savedTargets(s), nFeaturesIn: Number(s.nFeaturesIn), featureNamesIn: Array.isArray(s.featureNamesIn) ? (s.featureNamesIn as string[]) : undefined };
     return model;
   }
 
   #fitted(): State {
     return this.#state ?? notFitted(this.kind);
+  }
+
+  /** The state, for an accessor of one target's results. */
+  #one(what: string): State {
+    const s = this.#fitted();
+    if (s.several) oneTargetOnly(this.kind, what, s.coefs.length);
+    return s;
   }
 }
 

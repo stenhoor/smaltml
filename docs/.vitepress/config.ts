@@ -96,6 +96,7 @@ export default defineConfig({
           { text: 'Saving and loading', link: '/guide/saving' },
           { text: 'Predicting by name', link: '/guide/predicting' },
           { text: 'The CPU, WebGPU and workers', link: '/guide/hardware' },
+          { text: 'Plugins', link: '/guide/plugins' },
         ],
       },
       {

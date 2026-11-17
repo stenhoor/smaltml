@@ -14,8 +14,9 @@ This page lists smaltml's plugins. An Official or Verified plugin badge links to
 
 <a href="https://github.com/stenhoor/smaltml-simd"><picture><source media="(prefers-color-scheme: dark)" srcset="/official-smaltml-on-dark.svg"><img alt="smaltml official plugin" src="/official-smaltml.svg" height="28"></picture></a>
 
-`@smaltworks/smaltml-simd` runs smaltml's heaviest CPU kernel on WebAssembly SIMD. That kernel is XᵀX, behind
-LinearRegression, Ridge, Lasso, ElasticNet and LogisticRegression's `newton-cholesky`. It is made and maintained by
+`@smaltworks/smaltml-simd` runs two of smaltml's CPU kernels on WebAssembly SIMD. One is XᵀX, behind
+LinearRegression, Ridge, Lasso, ElasticNet and LogisticRegression's `newton-cholesky`. The other is the matrix product,
+behind [`matMulSync`](../reference/gpu/mat-mul), and `matMul` when it runs on the CPU. It is made and maintained by
 smaltworks, at [stenhoor/smaltml-simd](https://github.com/stenhoor/smaltml-simd)
 ([ADR 0035](../adr/0035-simd-kernels-in-a-plugin)).
 
@@ -26,16 +27,18 @@ import { Ridge, kernelsInUse } from '@smaltworks/smaltml';
 
 await useSimd(); // true where WebAssembly SIMD is available
 const model = await new Ridge().fit(X, y);
-kernelsInUse(); // { name: 'smaltml-simd', kernels: ['gramPart'], rejected: [] }
+kernelsInUse(); // { name: 'smaltml-simd', kernels: ['gramPart', 'matMul'], rejected: [] }
 ```
 
 - **Why a plugin:** JavaScript has no SIMD, and WebAssembly is the platform's only route to it. smaltml itself stays
   TypeScript. The plugin's kernels are TypeScript too: functions that write the WebAssembly bytes when they run, with
   no toolchain, no `.wasm` file, and nothing loaded from another site.
-- **What it changes:** speed, on the fits built on XᵀX, and the last bits of their results. SIMD sums in another order,
-  so results are close to smaltml's own but not equal.
+- **What it changes:** speed, on the fits built on XᵀX and on the matrix product, and the last bits of those fits.
+  SIMD sums XᵀX in another order, so fits are close to smaltml's own but not equal. The matrix product, under plain
+  SIMD, is smaltml's own bit for bit.
 - **Speed, measured:** on one 4-core machine, fits were 1.2 to 4.7 times as fast on one thread, and 1.1 to 3.0 times
-  as fast on 4 threads. The gain grows with the number of columns. The method and every row are in its
+  as fast on 4 threads. The gain grows with the number of columns. `matMulSync` was 3.3 to 6.3 times as fast with 3 or
+  more columns of B, and 1.1 times with one. The method and every row are in its
   [benchmark](https://github.com/stenhoor/smaltml-simd/blob/main/bench/README.md).
 - **What it doesn't change:** the models, the API and saved models. Agreement with scikit-learn holds: the plugin's CI
   runs smaltml's compare tests with it on. A fit on several threads still equals `fitSync`, because the thread pool's

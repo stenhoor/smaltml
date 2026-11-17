@@ -17,6 +17,7 @@ export const entries = {
   selection: 'src/selection/index.ts',
   pipeline: 'src/pipeline/index.ts',
   multioutput: 'src/multioutput/index.ts',
+  tree: 'src/tree/index.ts',
   io: 'src/io/index.ts',
   gpu: 'src/gpu/index.ts',
   registry: 'src/registry/index.ts',

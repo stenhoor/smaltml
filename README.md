@@ -14,7 +14,7 @@ save to JSON and load back the same.
 
 > **Status: 0.1.0, work in progress.** [ADR 0024](docs/adr/0024-smaltml-scope-and-architecture.md)'s phase 1:
 > scalers (standard, min–max, robust), `SimpleImputer`, `OneHotEncoder`, `OrdinalEncoder`, `ColumnTransformer`,
-> `LinearRegression`, `Ridge`, `Lasso`, `ElasticNet`, `LogisticRegression`, `MultiOutputRegressor`, `pipeline`, regression and classification
+> `LinearRegression`, `Ridge`, `Lasso`, `ElasticNet`, `LogisticRegression`, `MultiOutputRegressor`, decision trees (phase 2, [ADR 0039](docs/adr/0039-trees-and-forests.md)), `pipeline`, regression and classification
 > metrics, `trainTestSplit`, k-fold and stratified folds, `crossValScore`, `GridSearchCV`, saving and loading models,
 > fits on several threads, predictions and logistic regression fits on WebGPU, a Web Worker for fits, and `predict()` by model name from a model registry, in memory or in a
 > smaltdb table.

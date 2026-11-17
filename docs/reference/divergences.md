@@ -26,6 +26,7 @@ have something yet, it fails with an error rather than give a different answer. 
 | `groups` with a splitter that doesn't use them | Warns, and splits without them | `ML_PARAM`: the split asked for isn't made |
 | `crossValidate`'s result | One dictionary: `test_r2`, `train_r2`, `fit_time`, `score_time` | `test.r2`, `train.r2`, `fitTime`, `scoreTime` |
 | `GridSearchCV` with several scorers | `mean_test_<name>` and the rest in `cv_results_` | `cvResultsByScorer.scores[name]`; `cvResults` is for one scorer and fails with several |
+| Decision trees where two splits tie | `random_state`'s column order picks one | `seed`'s order picks one: the same seed repeats smaltml's tree, not scikit-learn's ([ADR 0039](../adr/0039-trees-and-forests)) |
 | A fit that stops before it converges | A `ConvergenceWarning` | A console warning, `ML_CONVERGENCE`, and `converged` `false`: an attribute scikit-learn doesn't have |
 
 ## Between JavaScript engines
@@ -49,6 +50,9 @@ Each of these fails with `ML_PARAM` or isn't a parameter yet:
 - `crossValScore` and `GridSearchCV` with a `y` that has a column per target (scikit-learn averages R² over them).
 - `Ridge`: solvers other than Cholesky (`solver`; `positive` is solved exactly, where scikit-learn uses `lbfgs`).
 - `Lasso` and `ElasticNet`: `selection='random'`, `warm_start`, `precompute`.
+- `DecisionTreeRegressor` and `DecisionTreeClassifier`: missing values in X (`NaN`, which scikit-learn's trees send
+  down a learned side), `ccp_alpha` (cost-complexity pruning) and `cost_complexity_pruning_path`, the criteria
+  `absolute_error` and `poisson`, `monotonic_cst`, several outputs, `decision_path`, `export_text` and `plot_tree`.
 - `MultiOutputRegressor`: `n_jobs`; `crossValScore` and `GridSearchCV` on it (scikit-learn averages R² over the
   targets), and a `pipeline` that ends in it.
 - `LogisticRegression`: the solvers `liblinear`, `newton-cg` and `sag` (`lbfgs`, `newton-cholesky` and `saga` are

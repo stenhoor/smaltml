@@ -14,17 +14,23 @@ stands.
 - **Data:** two sizes, 10,000 rows × 20 columns and 200,000 rows × 50, made by a seeded generator
   (`bench/data.mjs`): columns of different scales and offsets, a linear target with noise, and two- and three-class
   labels from the same linear score. Both libraries read the same bytes.
-- **Cases:** each library's defaults, except Lasso's `alpha` (0.1) and Ridge's (1). Fits on unscaled columns, so
-  logistic regression stops at its 100-iteration default on the larger data; the iteration counts below show both
-  libraries doing the same work.
+- **Cases:** each library's defaults, except Lasso's `alpha` (0.1) and Ridge's (1), and the decision trees'
+  `maxDepth` (10). Fits on unscaled columns, so logistic regression stops at its 100-iteration default on the larger
+  data; the iteration counts below show both libraries doing the same work.
 - **Timing:** the median of 7 runs (3 for the larger data), after a warm-up run, in one process.
 - **smaltml:** the built package (`dist/`), in Node: on one thread, calling the synchronous methods, and with fits on
   up to 4 threads (`fit(X, y, { threads: 'auto' })`, `configureThreads({ max: 4 })`), which leaves fits below about a
   million values on one thread. Predictions and `StandardScaler` run on one thread in both.
+- **smaltml with SIMD:** the same runs with [smaltml-simd](../guide/plugins)'s kernels, its defaults, as smaltml turns
+  the plugin on where it is installed: XᵀX (`gramPart`) and the matrix product (`matMul`) on WebAssembly SIMD; its
+  logistic kernels stay off (`useSimd({ logistic: true })`). The decision trees use neither kernel, so their SIMD
+  columns time the same code.
 - **scikit-learn:** on one thread (`OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1`) and on every core, with its default
-  BLAS.
-- **Rerun:** `npm run bench` (smaltml), `npm run bench:python` (scikit-learn; needs `compare/requirements.txt`), then
-  `npm run bench:report`, which writes the tables below from `bench/results/`.
+  BLAS. Its trees run on one thread either way.
+- **Rerun:** `npm run bench` (smaltml), then with the plugin built beside this repository,
+  `node bench/smaltml.mjs --simd ../smaltml-simd/dist/smaltml-simd-kernels.js` and the same with `--threads 4`;
+  `npm run bench:python` (scikit-learn; needs `compare/requirements.txt`); then `npm run bench:report`, which writes
+  the tables below from `bench/results/`.
 
 `smaltml ÷ …` is how many times longer smaltml takes than scikit-learn on the same number of threads: below 1 is
 faster.
@@ -35,37 +41,43 @@ faster.
 
 ### 10k × 20
 
-| Operation | smaltml, 1 thread | smaltml, 4 threads | scikit-learn, 1 thread | scikit-learn, 4 threads | smaltml ÷ scikit-learn, 1 thread | smaltml ÷ scikit-learn, 4 threads |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| StandardScaler fit + transform | 1.85 | 1.71 | 1.96 | 1.81 | 0.9× | 0.9× |
-| LinearRegression fit | 3.90 | 3.71 | 4.52 | 4.63 | 0.9× | 0.8× |
-| LinearRegression predict | 0.22 | 0.18 | 0.36 | 0.26 | 0.6× | 0.7× |
-| Ridge fit | 2.74 | 2.44 | 1.89 | 1.55 | 1.5× | 1.6× |
-| Lasso fit (alpha 0.1) | 2.51 | 2.39 | 1.80 | 1.60 | 1.4× | 1.5× |
-| LogisticRegression fit, 2 classes | 79.7 | 115 | 60.7 | 66.2 | 1.3× | 1.7× |
-| LogisticRegression fit, 2 classes, newton-cholesky | 21.9 | 37.6 | 14.0 | 24.0 | 1.6× | 1.6× |
-| LogisticRegression fit, 3 classes | 187 | 203 | 133 | 138 | 1.4× | 1.5× |
-| LogisticRegression predictProba, 3 classes | 1.35 | 1.85 | 1.44 | 1.31 | 0.9× | 1.4× |
+| Operation | smaltml, 1 thread | smaltml, 4 threads | smaltml, SIMD, 1 thread | smaltml, SIMD, 4 threads | scikit-learn, 1 thread | scikit-learn, 4 threads | smaltml ÷ scikit-learn, 1 thread | smaltml ÷ scikit-learn, 4 threads | smaltml ÷ scikit-learn, SIMD, 1 thread | smaltml ÷ scikit-learn, SIMD, 4 threads |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| StandardScaler fit + transform | 1.30 | 1.42 | 1.65 | 1.40 | 1.35 | 1.41 | 1.0× | 1.0× | 1.2× | 1.0× |
+| LinearRegression fit | 3.57 | 3.01 | 2.54 | 2.48 | 4.08 | 4.27 | 0.9× | 0.7× | 0.6× | 0.6× |
+| LinearRegression predict | 0.16 | 0.16 | 0.19 | 0.20 | 0.20 | 0.18 | 0.8× | 0.9× | 1.0× | 1.1× |
+| Ridge fit | 2.20 | 2.17 | 1.36 | 1.42 | 1.33 | 1.38 | 1.7× | 1.6× | 1.0× | 1.0× |
+| Lasso fit (alpha 0.1) | 2.30 | 2.22 | 1.37 | 1.46 | 1.44 | 1.40 | 1.6× | 1.6× | 1.0× | 1.0× |
+| LogisticRegression fit, 2 classes | 79.7 | 78.0 | 87.2 | 91.3 | 48.3 | 46.9 | 1.7× | 1.7× | 1.8× | 1.9× |
+| LogisticRegression fit, 2 classes, newton-cholesky | 23.3 | 23.5 | 17.6 | 17.0 | 11.1 | 18.8 | 2.1× | 1.2× | 1.6× | 0.9× |
+| LogisticRegression fit, 3 classes | 194 | 173 | 217 | 209 | 117 | 126 | 1.6× | 1.4× | 1.8× | 1.7× |
+| LogisticRegression predictProba, 3 classes | 1.16 | 1.12 | 1.53 | 1.39 | 0.98 | 1.15 | 1.2× | 1.0× | 1.6× | 1.2× |
+| DecisionTreeRegressor fit, depth 10 | 130 | 131 | 135 | 141 | 124 | 123 | 1.0× | 1.1× | 1.1× | 1.1× |
+| DecisionTreeClassifier fit, 3 classes, depth 10 | 136 | 140 | 155 | 157 | 154 | 142 | 0.9× | 1.0× | 1.0× | 1.1× |
 
 Iterations: Lasso 5 (scikit-learn 5), logistic regression 100 and 100 (scikit-learn 100 and 100).
 
 ### 200k × 50
 
-| Operation | smaltml, 1 thread | smaltml, 4 threads | scikit-learn, 1 thread | scikit-learn, 4 threads | smaltml ÷ scikit-learn, 1 thread | smaltml ÷ scikit-learn, 4 threads |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| StandardScaler fit + transform | 114 | 206 | 119 | 123 | 1.0× | 1.7× |
-| LinearRegression fit | 293 | 159 | 501 | 265 | 0.6× | 0.6× |
-| LinearRegression predict | 11.9 | 12.7 | 13.4 | 9.87 | 0.9× | 1.3× |
-| Ridge fit | 202 | 100 | 74.9 | 75.4 | 2.7× | 1.3× |
-| Lasso fit (alpha 0.1) | 276 | 113 | 119 | 64.1 | 2.3× | 1.8× |
-| LogisticRegression fit, 2 classes | 3,274 | 1,457 | 2,121 | 3,026 | 1.5× | 0.5× |
-| LogisticRegression fit, 2 classes, newton-cholesky | 2,016 | 923 | 984 | 605 | 2.0× | 1.5× |
-| LogisticRegression fit, 3 classes | 8,167 | 3,205 | 4,218 | 9,267 | 1.9× | 0.3× |
-| LogisticRegression predictProba, 3 classes | 50.8 | 65.9 | 29.7 | 33.2 | 1.7× | 2.0× |
+| Operation | smaltml, 1 thread | smaltml, 4 threads | smaltml, SIMD, 1 thread | smaltml, SIMD, 4 threads | scikit-learn, 1 thread | scikit-learn, 4 threads | smaltml ÷ scikit-learn, 1 thread | smaltml ÷ scikit-learn, 4 threads | smaltml ÷ scikit-learn, SIMD, 1 thread | smaltml ÷ scikit-learn, SIMD, 4 threads |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| StandardScaler fit + transform | 81.3 | 81.7 | 80.2 | 79.8 | 78.8 | 126 | 1.0× | 0.6× | 1.0× | 0.6× |
+| LinearRegression fit | 208 | 111 | 119 | 69.8 | 410 | 267 | 0.5× | 0.4× | 0.3× | 0.3× |
+| LinearRegression predict | 10.3 | 11.2 | 10.8 | 11.4 | 9.23 | 9.19 | 1.1× | 1.2× | 1.2× | 1.2× |
+| Ridge fit | 191 | 104 | 93.8 | 66.4 | 71.5 | 65.3 | 2.7× | 1.6× | 1.3× | 1.0× |
+| Lasso fit (alpha 0.1) | 183 | 82.3 | 94.9 | 49.5 | 91.1 | 50.7 | 2.0× | 1.6× | 1.0× | 1.0× |
+| LogisticRegression fit, 2 classes | 2,837 | 1,047 | 3,197 | 1,211 | 1,322 | 2,874 | 2.1× | 0.4× | 2.4× | 0.4× |
+| LogisticRegression fit, 2 classes, newton-cholesky | 1,825 | 710 | 926 | 367 | 602 | 460 | 3.0× | 1.5× | 1.5× | 0.8× |
+| LogisticRegression fit, 3 classes | 7,403 | 2,619 | 8,496 | 3,035 | 3,084 | 8,311 | 2.4× | 0.3× | 2.8× | 0.4× |
+| LogisticRegression predictProba, 3 classes | 44.1 | 37.8 | 47.6 | 43.5 | 33.0 | 29.1 | 1.3× | 1.3× | 1.4× | 1.5× |
+| DecisionTreeRegressor fit, depth 10 | 9,807 | 9,647 | 10,515 | 10,304 | 9,136 | 9,263 | 1.1× | 1.0× | 1.2× | 1.1× |
+| DecisionTreeClassifier fit, 3 classes, depth 10 | 10,335 | 10,574 | 12,044 | 11,911 | 10,142 | 10,610 | 1.0× | 1.0× | 1.2× | 1.1× |
 
 Iterations: Lasso 4 (scikit-learn 4), logistic regression 100 and 100 (scikit-learn 100 and 100).
 
-Run 2026-11-15: smaltml 0.1.0 on Node 22.23.4; scikit-learn 1.9.1, NumPy 2.5.4 on Python 3.13.18 (openblas 0.3.31.dev, openblas 0.3.34.106.0, openmp). CPU: Intel(R) Xeon(R) Processor @ 2.10GHz, 4 cores. smaltml's runs on several threads use fit() with threads 'auto' (up to that many); predictions and StandardScaler run on one thread in every smaltml column.
+"SIMD" columns: smaltml with smaltml-simd's kernels (smaltml-simd: gramPart, matMul), its defaults, as smaltml turns it on where it is installed. The others use smaltml's own kernels.
+
+Run 2026-11-17: smaltml 0.1.0 on Node 22.23.4; scikit-learn 1.9.1, NumPy 2.5.4 on Python 3.13.18 (openblas 0.3.31.dev, openblas 0.3.34.106.0, openmp). CPU: Intel(R) Xeon(R) Processor @ 2.10GHz, 4 cores. smaltml's runs on several threads use fit() with threads 'auto' (up to that many); predictions and StandardScaler run on one thread in every smaltml column.
 
 <!-- /bench:results -->
 
@@ -204,6 +216,19 @@ Run 2026-11-15: smaltml 0.1.0 in Chromium 157.0.8103.38. GPU: WebGPU adapter nvi
 
 - One machine and one run: timings move by about 10% between runs on a shared virtual machine. Compare the ratios
   more than the milliseconds.
+- **What the SIMD columns show is two things.** The plugin replaces two operations, XᵀX and the matrix product, and
+  the fits built on them ran about twice as fast with it (on one thread, 200k × 50: LinearRegression 208 → 119 ms,
+  Ridge 191 → 94, Lasso 183 → 95, `newton-cholesky` 1,825 → 926). The fits that use neither, LogisticRegression's
+  `lbfgs` and the decision trees, run the same code in both columns, yet were 7–17% slower in the SIMD run (on one
+  thread, 200k × 50: `lbfgs` 2,837 → 3,197 ms and 7,403 → 8,496; the trees 9,807 → 10,515 and 10,335 → 12,044).
+  That is more than this machine's usual noise, and its cause is known: when the plugin's kernels first need more
+  WebAssembly memory, they grow it, and growing a WebAssembly memory detaches its old ArrayBuffer. V8 then stops
+  assuming that no buffer is ever detached, for the whole process, and every typed-array loop runs with more checks:
+  a plain multiply-add loop over a `Float64Array` took about twice as long afterwards (10 ms, then 21–24 ms), and
+  detaching any buffer (`ArrayBuffer.prototype.transfer`) did the same without the plugin. Timed in turn in separate
+  processes, 3 rounds: `lbfgs` took 2,851–3,030 ms plain, 2,897–3,088 ms with the plugin loaded but smaltml's own
+  kernels in use, and 3,334–3,658 ms after the plugin's XᵀX had run. The fix is the plugin's (a new memory where it
+  needs more, never a grown one), and smaltml's worker entry, which transferred buffers too, copies them instead.
 - The scikit-learn tables are CPU timings, on a machine with no GPU. The WebGPU tables come from another machine,
   named under them, and compare smaltml's GPU path only with its own CPU path. smaltml's GPU path covers predictions
   and `LogisticRegression` fits ([The CPU, WebGPU and workers](../guide/hardware)).

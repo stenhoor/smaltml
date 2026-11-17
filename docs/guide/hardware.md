@@ -46,6 +46,15 @@ own, and the thread pool's workers load the same kernels, so a fit on several th
 `fitSync` gives. Results move in the last bits, since the plugin sums in another order: close to smaltml's own, not
 equal, and within every compare case's tolerance against scikit-learn. `kernelsInUse()` says which kernels run.
 
+<!-- docs:skip -->
+```ts
+import { useSimd } from '@smaltworks/smaltml-simd';
+
+await useSimd(); // smaltml's fits built on XᵀX now run their XᵀX on WebAssembly SIMD
+```
+
+[Plugins](./plugins) lists smaltml's plugins, with what each changes and its benchmark.
+
 ## Choosing the device
 
 The asynchronous calls that can use the GPU take a `device` option:
@@ -130,4 +139,5 @@ the worker is the same code as a fit on the page, so it gives the same result, b
 
 - [`matMul`](../reference/gpu/mat-mul), [`gpuAvailable`](../reference/gpu/gpu-available),
   [`configureThreads`](../reference/parallel/configure-threads), [`useKernels`](../reference/use-kernels),
+  [Plugins](./plugins),
   [`startWorker`](../reference/worker/start-worker), [`connect`](../reference/worker/connect)

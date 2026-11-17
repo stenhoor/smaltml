@@ -108,6 +108,17 @@ window.results = (async () => {
     const one = make().fitSync(T, target);
     check(JSON.stringify(many.toJSON()) === JSON.stringify(one.toJSON()), what + ' on 4 threads equals fitSync, bit for bit');
   }
+  // A plugin's kernels (ADR 0035): the workers import the set's module, so threaded fits still equal fitSync.
+  const plugin = (await import('/kernel-plugin.js')).default;
+  const own = new ml.Ridge().fitSync(T, tY).toJSON();
+  const used = ml.useKernels(plugin({ module: new URL('/kernel-plugin.js', location.href).href }));
+  check(used.kernels.join() === 'gramPart', "useKernels takes a plugin's gramPart");
+  const withSet = new ml.Ridge().fitSync(T, tY).toJSON();
+  check(JSON.stringify(withSet) !== JSON.stringify(own), "Ridge.fitSync with the plugin's kernel moves the last bits");
+  const manyWithSet = await new ml.Ridge().fit(T, tY, { threads: 4 });
+  check(JSON.stringify(manyWithSet.toJSON()) === JSON.stringify(withSet), "Ridge on 4 threads with the plugin's kernel equals fitSync, bit for bit");
+  ml.useKernels(null);
+  check(JSON.stringify((await new ml.Ridge().fit(T, tY, { threads: 4 })).toJSON()) === JSON.stringify(own), "after useKernels(null), 4 threads give smaltml's own result");
   await ml.stopThreads();
 
   // The worker: the same fits, off the page's thread.
@@ -132,12 +143,28 @@ window.results = (async () => {
 })().catch((e) => [{ ok: false, msg: 'threw: ' + (e && e.stack || e) }]);
 </script>`;
 
+// A stand-in for a kernel plugin: Xᵀ diag(w) X summed row by row in plain loops, an order other than smaltml's blocks.
+const PLUGIN = `export default function plugin(options) {
+  return { name: 'plain loops', version: 1, threads: { module: options.module, options }, kernels: {
+    gramPart(X, mean, from, to, weights, ones) {
+      const p = X.cols + (ones ? 1 : 0), n = X.rows, A = new Float64Array(p * p);
+      const at = (i, j) => (j === X.cols ? 1 : X.data[j * n + i] - (mean ? mean[j] : 0));
+      for (let i = from; i < to; i++) {
+        const w = weights ? weights[i] : 1;
+        for (let j = 0; j < p; j++) for (let k = 0; k <= j; k++) A[j * p + k] += w * at(i, j) * at(i, k);
+      }
+      return A;
+    },
+  } };
+}`;
+
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.map': 'application/json' };
 const server = http.createServer((req, res) => {
   const p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
   // Cross-origin isolated, so the page can share memory with the thread pool's workers.
   const isolated = { 'cross-origin-opener-policy': 'same-origin', 'cross-origin-embedder-policy': 'require-corp' };
   if (p === '/') return res.writeHead(200, { 'content-type': 'text/html', ...isolated }).end(PAGE);
+  if (p === '/kernel-plugin.js') return res.writeHead(200, { 'content-type': 'text/javascript', ...isolated }).end(PLUGIN);
   const file = join(root, p);
   if (!p.startsWith('/dist/') || !existsSync(file) || statSync(file).isDirectory()) return res.writeHead(404).end();
   res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream', ...isolated });

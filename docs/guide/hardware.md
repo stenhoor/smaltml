@@ -34,6 +34,18 @@ Elsewhere, fits run on one thread with the same result. `sharedMemoryAvailable()
 [`configureThreads`](../reference/parallel/configure-threads) sets where the workers' script is, for bundlers that
 move it, and the most threads `'auto'` uses.
 
+## Plugin kernels
+
+smaltml's kernels are TypeScript, and JavaScript has no SIMD. A plugin can replace the heaviest of them, such as the
+XᵀX behind the linear models, with its own: smaltml-simd's run on WebAssembly SIMD
+([ADR 0035](../adr/0035-simd-kernels-in-a-plugin)). An app turns the plugin on; nothing in smaltml looks for one, and
+an app that doesn't install it runs exactly as without it.
+
+The plugin calls [`useKernels`](../reference/use-kernels). Each kernel it gives is checked first against smaltml's
+own, and the thread pool's workers load the same kernels, so a fit on several threads still gives exactly what
+`fitSync` gives. Results move in the last bits, since the plugin sums in another order: close to smaltml's own, not
+equal, and within every compare case's tolerance against scikit-learn. `kernelsInUse()` says which kernels run.
+
 ## Choosing the device
 
 The asynchronous calls that can use the GPU take a `device` option:
@@ -117,5 +129,5 @@ the worker is the same code as a fit on the page, so it gives the same result, b
 ## See also
 
 - [`matMul`](../reference/gpu/mat-mul), [`gpuAvailable`](../reference/gpu/gpu-available),
-  [`configureThreads`](../reference/parallel/configure-threads),
+  [`configureThreads`](../reference/parallel/configure-threads), [`useKernels`](../reference/use-kernels),
   [`startWorker`](../reference/worker/start-worker), [`connect`](../reference/worker/connect)

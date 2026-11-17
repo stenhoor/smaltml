@@ -5,6 +5,7 @@
  * @module
  */
 import { fail } from '../core/errors.js';
+import { matMulKernel } from '../core/kernels.js';
 import { Matrix, type MatrixInput } from '../core/matrix.js';
 
 /**
@@ -91,20 +92,7 @@ export function matMulSync(A: MatrixInput, B: MatrixInput): Matrix {
   const a = Matrix.from(A);
   const b = Matrix.from(B);
   if (a.cols !== b.rows) fail('ML_SHAPE', `can't multiply ${a.rows} × ${a.cols} by ${b.rows} × ${b.cols}: the inner sizes differ`);
-  const n = a.rows;
-  const p = a.cols;
-  const k = b.cols;
-  const out = new Float64Array(n * k);
-  for (let j = 0; j < k; j++) {
-    const o = j * n;
-    for (let l = 0; l < p; l++) {
-      const w = b.data[j * p + l]!;
-      if (w === 0) continue;
-      const c = l * n;
-      for (let i = 0; i < n; i++) out[o + i]! += a.data[c + i]! * w;
-    }
-  }
-  return new Matrix(n, k, out);
+  return new Matrix(a.rows, b.cols, matMulKernel(a.rows, a.cols, b.cols, a.data, b.data));
 }
 
 // The kernel: a 16 × 16 tile of the output per workgroup, with the matching tiles of A and B staged in workgroup memory.

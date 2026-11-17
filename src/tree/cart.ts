@@ -116,6 +116,12 @@ interface Split {
   improvement: number;
 }
 
+/**
+ * A node's rows, sorted by each column (by value, then by row): sorted once at the root, then split by a stable
+ * partition, so a node never sorts. The classic presort of CART; the same order a sort at each node would give.
+ */
+type Sorted = Uint32Array[];
+
 /** Grows a tree on X's rows with these targets and weights. */
 export function grow(X: Matrix, t: Targets, weights: Float64Array, params: GrowParams): TreeArrays {
   const n = X.rows;
@@ -156,7 +162,7 @@ export function grow(X: Matrix, t: Targets, weights: Float64Array, params: GrowP
   };
 
   /** The best split of these rows, or null where the node is a leaf. */
-  const findSplit = (rows: Uint32Array, s: Float64Array, depth: number, nodeImpurity: number): Split | null => {
+  const findSplit = (rows: Uint32Array, byColumn: Sorted, s: Float64Array, depth: number, nodeImpurity: number): Split | null => {
     const m = rows.length;
     const w = s[0]!;
     if (depth >= params.maxDepth || m < params.minSamplesSplit || m < 2 * params.minSamplesLeaf || w < 2 * params.minWeightLeaf || nodeImpurity <= EPSILON) {
@@ -165,7 +171,6 @@ export function grow(X: Matrix, t: Targets, weights: Float64Array, params: GrowP
     // Columns in a random order: it decides only between splits that score exactly the same, and which columns
     // maxFeatures looks at. Constant columns don't count towards maxFeatures.
     const order = rng.permutation(p);
-    const sorted = new Uint32Array(m);
     const values = new Float64Array(m);
     const l = new Float64Array(S);
     const r = new Float64Array(S);
@@ -175,8 +180,7 @@ export function grow(X: Matrix, t: Targets, weights: Float64Array, params: GrowP
     for (const f of order) {
       if (visited >= params.maxFeatures) break;
       const col = X.column(f);
-      sorted.set(rows);
-      sorted.sort((a, b) => col[a]! - col[b]! || a - b);
+      const sorted = byColumn[f]!;
       for (let k = 0; k < m; k++) values[k] = col[sorted[k]!]!;
       if (values[0] === values[m - 1]) continue;
       visited++;
@@ -196,7 +200,7 @@ export function grow(X: Matrix, t: Targets, weights: Float64Array, params: GrowP
           bestScore = score;
           let th = (values[k]! + values[k + 1]!) / 2;
           if (th === values[k + 1] || !Number.isFinite(th)) th = values[k]!;
-          best = { feature: f, threshold: th, rows: sorted.slice(), pos: nl, improvement: 0 };
+          best = { feature: f, threshold: th, rows: sorted, pos: nl, improvement: 0 };
         }
       }
     }
@@ -210,35 +214,64 @@ export function grow(X: Matrix, t: Targets, weights: Float64Array, params: GrowP
   };
 
   const all = Uint32Array.from({ length: n }, (_, i) => i);
+  const rootSorted: Sorted = Array.from({ length: p }, (_, f) => {
+    const col = X.column(f);
+    return all.slice().sort((a, b) => col[a]! - col[b]! || a - b);
+  });
+  const inLeft = new Uint8Array(n);
+  /** Each column's sorted rows, split by a stable partition into the rows that go left and those that go right. */
+  const partition = (byColumn: Sorted, split: Split): [Sorted, Sorted] => {
+    const goes = split.rows;
+    for (let k = 0; k < goes.length; k++) inLeft[goes[k]!] = k < split.pos ? 1 : 0;
+    const ls: Sorted = [];
+    const rs: Sorted = [];
+    for (const sorted of byColumn) {
+      const l = new Uint32Array(split.pos);
+      const r = new Uint32Array(goes.length - split.pos);
+      let a = 0;
+      let b = 0;
+      for (let k = 0; k < sorted.length; k++) {
+        const i = sorted[k]!;
+        if (inLeft[i]) l[a++] = i;
+        else r[b++] = i;
+      }
+      ls.push(l);
+      rs.push(r);
+    }
+    return [ls, rs];
+  };
   if (params.maxLeafNodes === null) {
     // Depth first, left before right: nodes are numbered in that order. A stack of its own, not recursion, so a
     // deep tree can't overflow the engine's.
-    const stack: { rows: Uint32Array; depth: number; parent: number; isLeft: boolean }[] = [{ rows: all, depth: 0, parent: -1, isLeft: true }];
+    const stack: { rows: Uint32Array; byColumn: Sorted; depth: number; parent: number; isLeft: boolean }[] = [
+      { rows: all, byColumn: rootSorted, depth: 0, parent: -1, isLeft: true },
+    ];
     while (stack.length) {
-      const { rows, depth, parent, isLeft } = stack.pop()!;
+      const { rows, byColumn, depth, parent, isLeft } = stack.pop()!;
       const s = statsOf(rows);
       const id = addNode(rows, s);
       if (parent >= 0) (isLeft ? left : right)[parent] = id;
-      const split = findSplit(rows, s, depth, impurity[id]!);
+      const split = findSplit(rows, byColumn, s, depth, impurity[id]!);
       if (!split) continue;
       feature[id] = split.feature;
       threshold[id] = split.threshold;
-      stack.push({ rows: split.rows.slice(split.pos), depth: depth + 1, parent: id, isLeft: false });
-      stack.push({ rows: split.rows.slice(0, split.pos), depth: depth + 1, parent: id, isLeft: true });
+      const [ls, rs] = partition(byColumn, split);
+      stack.push({ rows: split.rows.slice(split.pos), byColumn: rs, depth: depth + 1, parent: id, isLeft: false });
+      stack.push({ rows: split.rows.slice(0, split.pos), byColumn: ls, depth: depth + 1, parent: id, isLeft: true });
     }
   } else {
     // Best first: the leaf whose split improves most is split next, until maxLeafNodes leaves. A node's children are
     // numbered when it is split, left then right.
-    type Open = { id: number; split: Split; depth: number; order: number };
+    type Open = { id: number; split: Split; byColumn: Sorted; depth: number; order: number };
     const open: Open[] = [];
     let order = 0;
-    const consider = (rows: Uint32Array, depth: number) => {
+    const consider = (rows: Uint32Array, byColumn: Sorted, depth: number) => {
       const s = statsOf(rows);
       const id = addNode(rows, s);
-      const split = findSplit(rows, s, depth, impurity[id]!);
-      if (split) open.push({ id, split, depth, order: order++ });
+      const split = findSplit(rows, byColumn, s, depth, impurity[id]!);
+      if (split) open.push({ id, split, byColumn, depth, order: order++ });
     };
-    consider(all, 0);
+    consider(all, rootSorted, 0);
     let leaves = 1;
     while (open.length > 0 && leaves < params.maxLeafNodes) {
       // The largest improvement; of equals, the one found first.
@@ -248,13 +281,14 @@ export function grow(X: Matrix, t: Targets, weights: Float64Array, params: GrowP
         const c = open[b]!;
         if (a.split.improvement > c.split.improvement || (a.split.improvement === c.split.improvement && a.order < c.order)) b = k;
       }
-      const { id, split, depth } = open.splice(b, 1)[0]!;
+      const { id, split, byColumn, depth } = open.splice(b, 1)[0]!;
       feature[id] = split.feature;
       threshold[id] = split.threshold;
+      const [ls, rs] = partition(byColumn, split);
       left[id] = left.length;
-      consider(split.rows.slice(0, split.pos), depth + 1);
+      consider(split.rows.slice(0, split.pos), ls, depth + 1);
       right[id] = left.length;
-      consider(split.rows.slice(split.pos), depth + 1);
+      consider(split.rows.slice(split.pos), rs, depth + 1);
       leaves++;
     }
   }

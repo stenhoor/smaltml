@@ -225,7 +225,7 @@ describe('saving and loading', () => {
 
   test('a document says its format and version; others are refused', () => {
     const doc = new LinearRegression().toJSON();
-    expect(doc).toEqual({ format: 'smaltml', version: 2, model: 'LinearRegression', smaltml: VERSION, params: { fitIntercept: true }, state: null });
+    expect(doc).toEqual({ format: 'smaltml', version: 3, model: 'LinearRegression', smaltml: VERSION, params: { fitIntercept: true }, state: null });
     expect(code(() => loadModel('{"format":"other"}'))).toBe('ML_FORMAT');
     expect(code(() => loadModel({ ...doc, version: 99 }))).toBe('ML_FORMAT');
     expect(code(() => loadModel({ ...doc, model: 'Mystery' }))).toBe('ML_FORMAT');
@@ -585,5 +585,71 @@ describe('MultiOutputRegressor', () => {
     await expect(crossValScore(new MultiOutputRegressor(new LinearRegression()), rows, asRows as unknown as number[])).rejects.toMatchObject({ code: 'ML_PARAM' });
     const search = new GridSearchCV(new MultiOutputRegressor(new LinearRegression()), { estimator__fitIntercept: [true, false] });
     await expect(search.fit(rows, asRows as unknown as number[])).rejects.toMatchObject({ code: 'ML_PARAM' });
+  });
+});
+
+describe('several targets on the linear models (a y with columns)', () => {
+  const r = new Random(8);
+  const rows = Array.from({ length: 50 }, () => [r.next() * 3, r.next() - 0.5, r.next() * 2]);
+  const Y = { a: rows.map((x) => 2 * x[0]! - x[1]! + 1 + 0.05 * r.next()), b: rows.map((x) => -x[0]! + 3 * x[2]! + 0.05 * r.next()) };
+  const models = [
+    ['LinearRegression', () => new LinearRegression()],
+    ['LinearRegression, positive', () => new LinearRegression({ positive: true })],
+    ['Ridge', () => new Ridge({ alpha: 0.7 })],
+    ['Lasso', () => new Lasso({ alpha: 0.01 })],
+    ['ElasticNet', () => new ElasticNet({ alpha: 0.01, l1Ratio: 0.4 })],
+  ] as const;
+
+  test.each(models)('%s: each target as it fits alone, to the last bit', (_, make) => {
+    const both = make().fitSync({ x: rows.map((v) => v[0]!), y: rows.map((v) => v[1]!), z: rows.map((v) => v[2]!) }, Y);
+    const alone = make().fitSync({ x: rows.map((v) => v[0]!), y: rows.map((v) => v[1]!), z: rows.map((v) => v[2]!) }, Y.b);
+    expect(both.coefs.rows).toBe(2);
+    expect(both.coefs.names).toEqual(['x', 'y', 'z']);
+    expect(Array.from(both.coefs.toRows()[1]!)).toEqual(Array.from(alone.coef));
+    expect(both.intercepts[1]).toBe(alone.intercept);
+    const out = both.predictTargetsSync(rows.slice(0, 4));
+    expect(out.names).toEqual(['a', 'b']);
+    expect(Array.from(out.column(1))).toEqual(Array.from(alone.predictSync(rows.slice(0, 4))));
+    expect(both.targetNames).toEqual(['a', 'b']);
+  });
+
+  test.each(models)('%s: the one-target accessors refuse, and say what to read', (_, make) => {
+    const both = make().fitSync(rows, Y);
+    for (const f of [() => both.coef, () => both.intercept, () => both.predictSync(rows)]) expect(code(f)).toBe('ML_SHAPE');
+    expect(() => both.coef).toThrow(/coefs, intercepts and predictTargets/);
+  });
+
+  test.each(models)('%s: a one-target fit has coefs, intercepts and predictTargets too', (_, make) => {
+    const one = make().fitSync(rows, Y.a);
+    expect(Array.from(one.coefs.toRows()[0]!)).toEqual(Array.from(one.coef));
+    expect(Array.from(one.intercepts)).toEqual([one.intercept]);
+    expect(Array.from(one.predictTargetsSync(rows).column(0))).toEqual(Array.from(one.predictSync(rows)));
+    expect(one.targetNames).toBeUndefined();
+  });
+
+  test.each(models)('%s: several targets save and load back', async (_, make) => {
+    const both = make().fitSync(rows, rows.map((_, i) => [Y.a[i]!, Y.b[i]!]));
+    const doc = JSON.parse(saveModel(both));
+    expect(doc.version).toBe(3);
+    expect(doc.state.coefs).toHaveLength(2);
+    const back = loadModel(doc) as typeof both;
+    expect(Array.from(back.predictTargetsSync(rows).data)).toEqual(Array.from(both.predictTargetsSync(rows).data));
+    expect(code(() => back.coef)).toBe('ML_SHAPE');
+    expect(Array.from((await both.predictTargets(rows)).data)).toEqual(Array.from(both.predictTargetsSync(rows).data));
+  });
+
+  test('a one-target document of format version 2 still loads', () => {
+    const doc = JSON.parse(saveModel(new Lasso({ alpha: 0.01 }).fitSync(rows, Y.a)));
+    const back = loadModel({ ...doc, version: 2 }) as Lasso;
+    expect(back.coef).toHaveLength(3);
+    expect(back.converged).toBe(true);
+  });
+
+  test('the errors, and scoring refuses several targets for now', async () => {
+    expect(code(() => new Ridge().fitSync(rows, rows.slice(1).map((v) => [v[0]!])))).toBe('ML_SHAPE');
+    expect(code(() => new Ridge().fitSync(rows, { a: [1, 2] }))).toBe('ML_SHAPE');
+    const asRows = rows.map((_, i) => [Y.a[i]!, Y.b[i]!]);
+    await expect(crossValScore(new LinearRegression(), rows, asRows as unknown as number[])).rejects.toMatchObject({ code: 'ML_PARAM' });
+    await expect(new GridSearchCV(new Ridge(), { alpha: [1, 2] }).fit(rows, asRows as unknown as number[])).rejects.toMatchObject({ code: 'ML_PARAM' });
   });
 });

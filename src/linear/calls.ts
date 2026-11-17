@@ -57,11 +57,26 @@ interface Kept {
 let kept: WeakMap<Matrix, Kept> | null = null;
 let scopes = 0;
 
-/** Runs f with XᵀX and Xᵀy kept for the matrices it fits on, and forgets them after. */
-export async function withKernelCache<T>(f: () => Promise<T>): Promise<T> {
+/** Runs f with XᵀX and Xᵀy kept for the matrices it fits on, and forgets them after; with `use` false, just runs f. */
+export async function withKernelCache<T>(f: () => Promise<T>, use = true): Promise<T> {
+  if (!use) return f();
   if (scopes++ === 0) kept = new WeakMap();
   try {
     return await f();
+  } finally {
+    if (--scopes === 0) kept = null;
+  }
+}
+
+/**
+ * withKernelCache() for synchronous work: a fit on several targets shares XᵀX between them. With `use` false it just
+ * runs f: a one-target fit has nothing to share, and keeping XᵀX would cost a copy of it.
+ */
+export function withKernelCacheSync<T>(f: () => T, use = true): T {
+  if (!use) return f();
+  if (scopes++ === 0) kept = new WeakMap();
+  try {
+    return f();
   } finally {
     if (--scopes === 0) kept = null;
   }

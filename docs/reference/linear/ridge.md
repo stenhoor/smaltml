@@ -8,11 +8,16 @@ description: 'Ridge: linear regression with an L2 penalty, solved in closed form
 ```ts
 class Ridge implements Predictor {
   constructor(params?: { alpha?: number; fitIntercept?: boolean; positive?: boolean });
-  fit(X: MatrixInput, y: ArrayLike<number>, options?: { threads?: number | 'auto'; sampleWeight?: ArrayLike<number> }): Promise<this>;
-  fitSync(X: MatrixInput, y: ArrayLike<number>, options?: { sampleWeight?: ArrayLike<number> }): this;
+  fit(X: MatrixInput, y: ArrayLike<number> | MatrixInput, options?: { threads?: number | 'auto'; sampleWeight?: ArrayLike<number> }): Promise<this>;
+  fitSync(X: MatrixInput, y: ArrayLike<number> | MatrixInput, options?: { sampleWeight?: ArrayLike<number> }): this;
   predict(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Float64Array>;
+  predictTargets(X: MatrixInput, options?: { device?: 'auto' | 'cpu' | 'gpu' }): Promise<Matrix>;
+  predictTargetsSync(X: MatrixInput): Matrix;
   readonly coef: Float64Array;
   readonly intercept: number;
+  readonly coefs: Matrix;
+  readonly intercepts: Float64Array;
+  readonly targetNames: readonly string[] | undefined;
   readonly nIter: number;
   readonly converged: boolean | null;
 }
@@ -31,14 +36,24 @@ Linear regression with an L2 penalty: minimizes `‖y − X·w − b‖² + alph
 squared error counts that many times, so whole-number weights fit as the rows repeated would. The penalty isn't weighted: it is `alpha·‖w‖²` whatever the weights add up to, as in
 scikit-learn.
 
+`y` is one value per row, or a column per target (rows, named columns or a Matrix, as scikit-learn's two-dimensional
+`y`): each target is fitted on its own, with XᵀX computed once for all of them ([ADR 0037](../../adr/0037-several-targets)).
+
 ## Returns
 
 `predict` returns `X·w + b`; `device` chooses where the product runs. After `fit`: `coef`, `intercept`, `nIter`
 (0: the solution is closed-form), and `converged`, always `true` for the same reason (`null` for a model saved by
 smaltml before it recorded this).
 
+With several targets, read `coefs` (a Matrix: a row per target, a column per feature), `intercepts` (one per target),
+`targetNames` (`y`'s column names, when it had them) and `predictTargets` (a Matrix with a column per target and those
+names). They work after a one-target fit too, with one row or column. `coef`, `intercept` and `predict` are for one
+target.
+
 ## Errors
 
+- `ML_SHAPE` for `coef`, `intercept` and `predict` on a model fitted to a `y` with columns: read `coefs`,
+  `intercepts` and `predictTargets`. Also a `y` whose rows differ from X's.
 - `ML_PARAM`: a negative `alpha`, or `positive` that isn't `true` or `false`.
 - `ML_SINGULAR`: `alpha` 0 with columns that don't determine one answer. Any `alpha` above 0 has one.
 - `ML_VALUE`, `ML_SHAPE`, `ML_NOT_FITTED`: as for every model.

@@ -1,19 +1,24 @@
 import { fail, warn } from '../core/errors.js';
 import { checkedMeans, cholesky, choleskySolve, xw } from '../core/kernels.js';
 import { threadPool, type ThreadOptions } from '../parallel/index.js';
-import { keptMeans, runHere, runOn, type Solver } from './calls.js';
+import { keptMeans, runHere, runOn, withKernelCache, withKernelCacheSync, type Solver } from './calls.js';
 import { nonNegativeLeastSquares } from './nnls.js';
-import { checkedWeights, weightedLeastSquares, weightsSummingToRows, type SampleWeightOptions } from './weights.js';
-import { assertFinite, assertFiniteVector, Matrix, toVector, type MatrixInput, type VectorInput } from '../core/matrix.js';
-import { checkColumns, checkDocument, document, floats, notFitted, numbers, type ModelDocument, type Predictor } from '../core/model.js';
+import { checkedWeights, weightsSummingToRows, type SampleWeightOptions } from './weights.js';
+import { coefColumns, coefsMatrix, interceptOf, oneTargetOnly, planFit, savedTargets, type FitPlan, type Targets } from './targets.js';
+import { assertFinite, Matrix, type MatrixInput, type VectorInput } from '../core/matrix.js';
+import { checkColumns, checkDocument, document, notFitted, numbers, type ModelDocument, type Predictor } from '../core/model.js';
 import { matMul, predictOnGpu, type DeviceOptions } from '../gpu/index.js';
 
 interface State {
-  coef: Float64Array;
-  intercept: number;
-  nIter: number;
-  /** Whether the solver converged; null for a model saved before smaltml recorded it (format version 1). */
-  converged: boolean | null;
+  /** One coefficient vector per target (one for a one-dimensional y). */
+  coefs: Float64Array[];
+  intercepts: Float64Array;
+  /** Each target's iterations, and whether it converged (null for a model saved before smaltml recorded it). */
+  nIters: number[];
+  converged: (boolean | null)[];
+  /** Whether y had a column per target (scikit-learn's 2-D y), even one. */
+  several: boolean;
+  targetNames: readonly string[] | undefined;
   nFeaturesIn: number;
   featureNamesIn: readonly string[] | undefined;
 }
@@ -25,21 +30,6 @@ interface Solution {
   converged: boolean;
   gap?: number;
   gapTol?: number;
-}
-
-/**
- * The column means and y's mean (when there is an intercept), and y centred. X itself isn't copied: the kernels
- * subtract the means as they read it.
- */
-function centring(m: Matrix, y: Float64Array, intercept: boolean) {
-  // The column means check X on the way; without an intercept, check it here.
-  const xMean = intercept ? keptMeans(m, () => checkedMeans(m, assertFinite)) : (assertFinite(m), undefined);
-  let yMean = 0;
-  if (intercept) {
-    for (let i = 0; i < y.length; i++) yMean += y[i]!;
-    yMean /= y.length;
-  }
-  return { xMean, yMean, y: intercept ? y.map((v) => v - yMean) : y };
 }
 
 /** A linear model with a penalty: what Ridge, Lasso and ElasticNet share. */
@@ -63,24 +53,39 @@ abstract class PenalizedLinear implements Predictor {
   get fitted(): boolean {
     return this.#state !== null;
   }
-  /** One coefficient per column of X. */
+  /** One coefficient per column of X. For one target: with a y that has columns, read coefs. */
   get coef(): Float64Array {
-    return this.#fitted().coef;
+    return this.#one('coef').coefs[0]!;
   }
-  /** The intercept (0 with fitIntercept false). */
+  /** The intercept (0 with fitIntercept false). For one target: with a y that has columns, read intercepts. */
   get intercept(): number {
-    return this.#fitted().intercept;
+    return this.#one('intercept').intercepts[0]!;
   }
-  /** The solver's iterations (0 for a closed-form solution). */
+  /** The coefficients, a row per target (one row for a one-dimensional y) and a column per feature. */
+  get coefs(): Matrix {
+    const s = this.#fitted();
+    return coefsMatrix(s.coefs, s.nFeaturesIn, s.featureNamesIn);
+  }
+  /** One intercept per target. */
+  get intercepts(): Float64Array {
+    return this.#fitted().intercepts.slice();
+  }
+  /** y's column names, when it had them: the names of predictTargets()'s columns. */
+  get targetNames(): readonly string[] | undefined {
+    return this.#fitted().targetNames;
+  }
+  /** The solver's iterations (0 for a closed-form solution); with several targets, the most any took. */
   get nIter(): number {
-    return this.#fitted().nIter;
+    return Math.max(...this.#fitted().nIters);
   }
   /**
-   * Whether the solver converged within `maxIter` (always true for Ridge, which solves in closed form). Where it didn't,
-   * fit() warned (`ML_CONVERGENCE`), as scikit-learn does. null for a model saved by smaltml before it recorded this.
+   * Whether the solver converged within `maxIter` (always true for Ridge, which solves in closed form); with several
+   * targets, whether every one did. Where it didn't, fit() warned (`ML_CONVERGENCE`), as scikit-learn does. null for
+   * a model saved by smaltml before it recorded this.
    */
   get converged(): boolean | null {
-    return this.#fitted().converged;
+    const c = this.#fitted().converged;
+    return c.includes(null) ? null : c.every(Boolean);
   }
   get nFeaturesIn(): number {
     return this.#fitted().nFeaturesIn;
@@ -103,76 +108,112 @@ abstract class PenalizedLinear implements Predictor {
   /**
    * Fits the model. With `threads` (default `'auto'`), the Gram matrix and Xᵀy are computed on several cores where
    * shared memory allows and X is large enough, with the same result as fitSync() to the last bit. With
-   * `sampleWeight`, each row's squared error counts that many times.
+   * `sampleWeight`, each row's squared error counts that many times. y is one target, or a column per target, each
+   * fitted on its own (sharing XᵀX).
    */
-  async fit(X: MatrixInput, y: VectorInput, options: ThreadOptions & SampleWeightOptions = {}): Promise<this> {
+  async fit(X: MatrixInput, y: Targets, options: ThreadOptions & SampleWeightOptions = {}): Promise<this> {
     const m = Matrix.from(X);
     const pool = await threadPool(options.threads, m.rows * m.cols);
     if (!pool) return this.fitSync(m, y, options);
-    const c = this.#prepare(m, y, options.sampleWeight);
-    return this.#finish(m, c, m.cols === 0 ? { coef: new Float64Array(0), nIter: 0, converged: true } : await runOn(pool, this.solve(c.design, c.kernelMean, c.y)));
+    const plan = this.#plan(m, y, options.sampleWeight);
+    const solutions = await withKernelCache(async () => {
+      const out: Solution[] = [];
+      for (const t of plan.targets) out.push(m.cols === 0 ? EMPTY : await runOn(pool, this.solve(plan.design, plan.kernelMean, t.b)));
+      return out;
+    }, plan.targets.length > 1);
+    return this.#finish(m, plan, solutions);
   }
 
-  fitSync(X: MatrixInput, y: VectorInput, options: SampleWeightOptions = {}): this {
+  fitSync(X: MatrixInput, y: Targets, options: SampleWeightOptions = {}): this {
     const m = Matrix.from(X);
-    const c = this.#prepare(m, y, options.sampleWeight);
-    return this.#finish(m, c, m.cols === 0 ? { coef: new Float64Array(0), nIter: 0, converged: true } : runHere(this.solve(c.design, c.kernelMean, c.y)));
+    const plan = this.#plan(m, y, options.sampleWeight);
+    const solutions = withKernelCacheSync(
+      () => plan.targets.map((t) => (m.cols === 0 ? EMPTY : runHere(this.solve(plan.design, plan.kernelMean, t.b)))),
+      plan.targets.length > 1,
+    );
+    return this.#finish(m, plan, solutions);
   }
 
-  /** The design the solver reads (X, or its weighted copy), the means its kernels subtract, and the intercept's means. */
-  #prepare(m: Matrix, y: VectorInput, sampleWeight: VectorInput | undefined) {
+  #plan(m: Matrix, y: Targets, sampleWeight: VectorInput | undefined): FitPlan {
     if (m.rows === 0) fail('ML_SHAPE', 'X has no rows');
-    const target = toVector(y, m.rows);
-    assertFiniteVector(target);
     let weights = checkedWeights(sampleWeight, m.rows);
-    if (weights) {
-      if (this.weightsSumToRows) weights = weightsSummingToRows(weights);
-      const wd = weightedLeastSquares(m, target, weights, this.fitIntercept);
-      return { design: wd.X, kernelMean: undefined, xMean: wd.xMean, yMean: wd.yMean, y: wd.y };
-    }
-    const c = centring(m, target, this.fitIntercept);
-    return { design: m, kernelMean: c.xMean, ...c };
+    if (weights && this.weightsSumToRows) weights = weightsSummingToRows(weights);
+    return planFit(m, y, weights, this.fitIntercept, () => keptMeans(m, () => checkedMeans(m, assertFinite)));
   }
 
-  #finish(m: Matrix, c: { xMean: Float64Array | undefined; yMean: number }, { coef, nIter, converged, gap, gapTol }: Solution): this {
-    let intercept = 0;
-    if (c.xMean) {
-      intercept = c.yMean;
-      for (let j = 0; j < m.cols; j++) intercept -= c.xMean[j]! * coef[j]!;
-    }
-    this.#state = { coef, intercept, nIter, converged, nFeaturesIn: m.cols, featureNamesIn: m.names };
-    if (!converged) {
+  #finish(m: Matrix, plan: FitPlan, solutions: Solution[]): this {
+    this.#state = {
+      coefs: solutions.map((x) => x.coef),
+      intercepts: Float64Array.from(solutions, (x, t) => interceptOf(plan.xMean, plan.targets[t]!.yMean, x.coef)),
+      nIters: solutions.map((x) => x.nIter),
+      converged: solutions.map((x) => x.converged),
+      several: plan.several,
+      targetNames: plan.targetNames,
+      nFeaturesIn: m.cols,
+      featureNamesIn: m.names,
+    };
+    solutions.forEach(({ nIter, converged, gap, gapTol }, t) => {
+      if (converged) return;
+      const which = plan.several ? ` on target ${plan.targetNames?.[t] ?? t}` : '';
       const why = gap === undefined || gapTol === undefined ? '' : `: the duality gap is ${gap.toPrecision(3)}, above the tolerance ${gapTol.toPrecision(3)}`;
-      warn('ML_CONVERGENCE', `${this.kind} didn't converge in ${nIter} iterations (maxIter)${why}. Raise maxIter, scale the columns (StandardScaler), or raise alpha`);
-    }
+      warn('ML_CONVERGENCE', `${this.kind} didn't converge${which} in ${nIter} iterations (maxIter)${why}. Raise maxIter, scale the columns (StandardScaler), or raise alpha`);
+    });
     return this;
   }
 
-  /** X·w + b, one prediction per row; on the GPU only with `device: 'gpu'` (32-bit floats there). */
+  /** X·w + b, one prediction per row; on the GPU only with `device: 'gpu'` (32-bit floats there). For one target. */
   async predict(X: MatrixInput, options: DeviceOptions = {}): Promise<Float64Array> {
-    const s = this.#fitted();
+    const s = this.#one('predict()');
     const m = Matrix.from(X);
     checkColumns(m, s.nFeaturesIn, this.kind);
     if (!(await predictOnGpu(options.device))) return this.predictSync(m);
-    const out = (await matMul(m, new Matrix(s.coef.length, 1, s.coef), { device: 'gpu' })).data;
-    for (let i = 0; i < out.length; i++) out[i]! += s.intercept;
+    const out = (await matMul(m, new Matrix(s.coefs[0]!.length, 1, s.coefs[0]!), { device: 'gpu' })).data;
+    for (let i = 0; i < out.length; i++) out[i]! += s.intercepts[0]!;
     return out;
   }
 
+  /** X·w + b, one prediction per row. For one target: with a y that has columns, use predictTargetsSync(). */
   predictSync(X: MatrixInput): Float64Array {
+    const s = this.#one('predictSync()');
+    const m = Matrix.from(X);
+    checkColumns(m, s.nFeaturesIn, this.kind);
+    return xw(m, s.coefs[0]!, s.intercepts[0]!);
+  }
+
+  /** A column per target, X·wₜ + bₜ, with y's column names; on the GPU only with `device: 'gpu'`. */
+  async predictTargets(X: MatrixInput, options: DeviceOptions = {}): Promise<Matrix> {
     const s = this.#fitted();
     const m = Matrix.from(X);
     checkColumns(m, s.nFeaturesIn, this.kind);
-    return xw(m, s.coef, s.intercept);
+    if (!(await predictOnGpu(options.device))) return this.predictTargetsSync(m);
+    const out = await matMul(m, coefColumns(s.coefs, s.nFeaturesIn), { device: 'gpu' });
+    s.intercepts.forEach((b, t) => {
+      const col = out.column(t);
+      for (let i = 0; i < col.length; i++) col[i]! += b;
+    });
+    return new Matrix(out.rows, out.cols, out.data, s.targetNames);
+  }
+
+  /** A column per target, X·wₜ + bₜ, with y's column names. */
+  predictTargetsSync(X: MatrixInput): Matrix {
+    const s = this.#fitted();
+    const m = Matrix.from(X);
+    checkColumns(m, s.nFeaturesIn, this.kind);
+    return Matrix.fromColumns(s.coefs.map((c, t) => xw(m, c, s.intercepts[t]!)), s.targetNames);
   }
 
   toJSON(): ModelDocument {
     const s = this.#state;
     return document(this.kind, { ...this.getParams() }, s && {
-      coef: numbers(s.coef),
-      intercept: s.intercept,
-      nIter: s.nIter,
-      converged: s.converged,
+      ...(s.several
+        ? {
+            coefs: s.coefs.map(numbers),
+            intercepts: numbers(s.intercepts),
+            nIters: [...s.nIters],
+            convergedEach: [...s.converged],
+            ...(s.targetNames ? { targetNames: [...s.targetNames] } : {}),
+          }
+        : { coef: numbers(s.coefs[0]!), intercept: s.intercepts[0]!, nIter: s.nIters[0]!, converged: s.converged[0]! }),
       nFeaturesIn: s.nFeaturesIn,
       ...(s.featureNamesIn ? { featureNamesIn: [...s.featureNamesIn] } : {}),
     });
@@ -180,11 +221,14 @@ abstract class PenalizedLinear implements Predictor {
 
   protected restore(s: Record<string, unknown> | null): this {
     if (s) {
+      const t = savedTargets(s);
+      const several = t.several;
+      const iters = several && Array.isArray(s.nIters) ? (s.nIters as unknown[]).map(Number) : [Number(s.nIter ?? 0)];
+      const conv = several && Array.isArray(s.convergedEach) ? (s.convergedEach as unknown[]) : [s.converged];
       this.#state = {
-        coef: floats(s.coef, 'coef'),
-        intercept: Number(s.intercept),
-        nIter: Number(s.nIter ?? 0),
-        converged: typeof s.converged === 'boolean' ? s.converged : null,
+        ...t,
+        nIters: t.coefs.map((_, k) => iters[k] ?? 0),
+        converged: t.coefs.map((_, k) => (typeof conv[k] === 'boolean' ? (conv[k] as boolean) : null)),
         nFeaturesIn: Number(s.nFeaturesIn),
         featureNamesIn: Array.isArray(s.featureNamesIn) ? (s.featureNamesIn as string[]) : undefined,
       };
@@ -195,7 +239,17 @@ abstract class PenalizedLinear implements Predictor {
   #fitted(): State {
     return this.#state ?? notFitted(this.kind);
   }
+
+  /** The state, for an accessor of one target's results. */
+  #one(what: string): State {
+    const s = this.#fitted();
+    if (s.several) oneTargetOnly(this.kind, what, s.coefs.length);
+    return s;
+  }
 }
+
+/** The fit on no columns. */
+const EMPTY: Solution = { coef: new Float64Array(0), nIter: 0, converged: true };
 
 export interface RidgeParams {
   /** The L2 penalty's strength. Default 1. */

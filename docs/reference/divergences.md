@@ -20,6 +20,7 @@ have something yet, it fails with an error rather than give a different answer. 
 | `OneHotEncoder` names for numbers | Python's (`size_3.0` for floats) | JavaScript's (`size_3`) |
 | Encoders and `ColumnTransformer` output | Sparse by default | Dense always |
 | `StandardScaler.partialFit`, a column with no value in the first batch | `NaN` for that column from then on | The column's statistics over the values seen, as `fit` on every row gives |
+| Several targets (a `y` with columns) on `LinearRegression`, `Ridge`, `Lasso`, `ElasticNet` | `coef_` a matrix, `intercept_` a vector, `predict` a matrix; `n_iter_` a list | `coefs`, `intercepts` and `predictTargets`; `coef`, `intercept` and `predict` stay for one target and fail with `ML_SHAPE` ([ADR 0037](../adr/0037-several-targets)); `nIter` the most any target took |
 | A fit that stops before it converges | A `ConvergenceWarning` | A console warning, `ML_CONVERGENCE`, and `converged` `false`: an attribute scikit-learn doesn't have |
 
 ## Between JavaScript engines
@@ -40,8 +41,7 @@ JavaScript fixes the result of `+`, `−`, `×`, `÷` and `Math.sqrt` to the las
 
 Each of these fails with `ML_PARAM` or isn't a parameter yet:
 
-- `LinearRegression`, `Ridge`, `Lasso` and `ElasticNet`: a two-dimensional `y`. Fit several targets with
-  [`MultiOutputRegressor`](./multioutput/multi-output-regressor), which gives the same results.
+- `crossValScore` and `GridSearchCV` with a `y` that has a column per target (scikit-learn averages R² over them).
 - `Ridge`: solvers other than Cholesky (`solver`; `positive` is solved exactly, where scikit-learn uses `lbfgs`).
 - `Lasso` and `ElasticNet`: `selection='random'`, `warm_start`, `precompute`.
 - `MultiOutputRegressor`: `n_jobs`; `crossValScore` and `GridSearchCV` on it (scikit-learn averages R² over the

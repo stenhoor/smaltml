@@ -212,6 +212,7 @@ export default defineConfig({
               { text: '0034 Where auto runs', link: '/adr/0034-where-auto-runs' },
               { text: '0035 SIMD in a plugin', link: '/adr/0035-simd-kernels-in-a-plugin' },
               { text: '0037 Several targets', link: '/adr/0037-several-targets' },
+              { text: '0039 Trees and forests', link: '/adr/0039-trees-and-forests' },
             ],
           },
         ],

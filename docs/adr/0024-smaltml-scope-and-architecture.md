@@ -243,7 +243,8 @@ for it and reports where it stands, and a model that is behind still ships.
 1. **Time series forecasting:** in scope as a later phase, or left out.
 2. **Importing other models** (such as ONNX) beyond XGBoost's format.
 3. ~~**The outside code for the compare tests**~~: decided 2026-11-14, scikit-learn and NumPy (section 7).
-4. **When phase 2 starts:** after phase 1 is released, or alongside it.
+4. ~~**When phase 2 starts:** after phase 1 is released, or alongside it.~~ Decided 2026-11-17 (the owner): now,
+   alongside phase 1's release ([ADR 0039](./0039-trees-and-forests), proposed).
 5. ~~**If a model can't reach Python's speed in TypeScript:** whether smaltml may write its own WebAssembly kernels.~~
    The owner's direction, 2026-11-15: not in the core, which stays TypeScript; in a plugin, smaltml-simd
    ([ADR 0035](./0035-simd-kernels-in-a-plugin), proposed).

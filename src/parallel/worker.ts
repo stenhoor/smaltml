@@ -2,6 +2,7 @@
 // matrices in shared memory, and sends back one part per chunk. In Node it runs under worker_threads; in a browser,
 // as a module Worker on a cross-origin isolated page.
 import { binaryLogisticPart, gramPart, multinomialLogisticPart, xtvPart, xw } from '../core/kernels.js';
+import { useKernels, type KernelSet } from '../core/kernel-set.js';
 import { Matrix } from '../core/matrix.js';
 import type { Request, Response, SharedMatrix } from './protocol.js';
 
@@ -21,8 +22,17 @@ function matrix(m: SharedMatrix): Matrix {
   return v;
 }
 
-function handle(req: Request): Response {
+/** Imports a plugin's module and uses the kernel set it gives, as the main thread does (ADR 0035, item 8). */
+async function loadKernels(id: number, module: string, options: unknown): Promise<Response> {
+  const mod = (await import(/* @vite-ignore */ module)) as { default?: (options: unknown) => KernelSet | Promise<KernelSet> };
+  if (typeof mod.default !== 'function') throw new Error(`${module} has no default export that gives a kernel set`);
+  const used = useKernels(await mod.default(options));
+  return { id, ok: true, parts: [], kernels: used.kernels };
+}
+
+function handle(req: Request): Response | Promise<Response> {
   const t = req.task;
+  if (t.op === 'kernels') return loadKernels(req.id, t.module, t.options);
   const X = matrix(t.X);
   const mean = 'mean' in t ? (t.mean ?? undefined) : undefined;
   switch (t.op) {
@@ -54,14 +64,18 @@ function handle(req: Request): Response {
 }
 
 function serve(port: Port, on: (listener: (data: Request) => void) => void): void {
+  // Tasks run in the order they arrive: none starts before the kernels asked for ahead of it are loaded.
+  let queue: Promise<void> = Promise.resolve();
   on((req) => {
-    let res: Response;
-    try {
-      res = handle(req);
-    } catch (e) {
-      res = { id: req.id, ok: false, message: (e as Error)?.message ?? String(e) };
-    }
-    port.postMessage(res);
+    queue = queue.then(async () => {
+      let res: Response;
+      try {
+        res = await handle(req);
+      } catch (e) {
+        res = { id: req.id, ok: false, message: (e as Error)?.message ?? String(e) };
+      }
+      port.postMessage(res);
+    });
   });
 }
 

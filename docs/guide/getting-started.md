@@ -20,7 +20,7 @@ uses:
 | Entry point | What it holds |
 | --- | --- |
 | `@smaltworks/smaltml` | Everything below |
-| `@smaltworks/smaltml/core` | `Matrix`, `SmaltmlError`, `Random`, the model and table types, `VERSION` |
+| `@smaltworks/smaltml/core` | `Matrix`, `SmaltmlError`, `Random`, the model and table types, `useKernels`, `kernelsInUse`, `KERNELS_VERSION`, `VERSION` |
 | `@smaltworks/smaltml/preprocessing` | `StandardScaler`, `MinMaxScaler`, `RobustScaler`, `SimpleImputer`, `OneHotEncoder`, `OrdinalEncoder` |
 | `@smaltworks/smaltml/linear` | `LinearRegression`, `Ridge`, `Lasso`, `ElasticNet`, `LogisticRegression` |
 | `@smaltworks/smaltml/metrics` | `meanSquaredError`, `meanAbsoluteError`, `r2Score`, `accuracyScore`, `precisionScore`, `recallScore`, `f1Score`, `rocAucScore`, `confusionMatrix`, `logLoss` |

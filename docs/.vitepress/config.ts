@@ -194,6 +194,7 @@ export default defineConfig({
               { text: 'matMul', link: '/reference/gpu/mat-mul' },
               { text: 'gpuAvailable', link: '/reference/gpu/gpu-available' },
               { text: 'configureThreads', link: '/reference/parallel/configure-threads' },
+              { text: 'useKernels', link: '/reference/use-kernels' },
               { text: 'startWorker', link: '/reference/worker/start-worker' },
               { text: 'connect', link: '/reference/worker/connect' },
             ],

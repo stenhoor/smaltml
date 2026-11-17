@@ -5,6 +5,20 @@
  */
 import type { Matrix } from './matrix.js';
 
+/**
+ * The kernels a plugin can replace (useKernels(), in kernel-set.ts), with the same signatures as smaltml's own. Each
+ * one, called from here, runs the replacement when there is one and smaltml's own otherwise.
+ */
+export interface Kernels {
+  /** The Gram matrix over a range of rows: {@link ownGramPart}'s signature and result. */
+  gramPart?: (X: Matrix, mean: ArrayLike<number> | undefined, from: number, to: number, weights?: ArrayLike<number>, ones?: boolean) => Float64Array;
+  /** The matrix product of A (n × p) and B (p × k), both column-major: {@link ownMatMul}'s signature and result. */
+  matMul?: (n: number, p: number, k: number, a: Float64Array, b: Float64Array) => Float64Array;
+}
+
+/** The replacements in use: set only by useKernels(). */
+export const replaced: Kernels = {};
+
 /** Rows per block: 512 rows of up to a few hundred columns stay within a CPU's second-level cache. */
 export const BLOCK = 512;
 
@@ -15,6 +29,12 @@ export const BLOCK = 512;
  * Xᵀ diag(weights) X, and with `ones`, X gains a last column of ones: (p + 1) × (p + 1), as a Newton step needs.
  */
 export function gramPart(X: Matrix, mean: ArrayLike<number> | undefined, from: number, to: number, weights?: ArrayLike<number>, ones = false): Float64Array {
+  const k = replaced.gramPart;
+  return k ? k(X, mean, from, to, weights, ones) : ownGramPart(X, mean, from, to, weights, ones);
+}
+
+/** smaltml's own gramPart(), in TypeScript: the one that runs unless useKernels() replaced it. */
+export function ownGramPart(X: Matrix, mean: ArrayLike<number> | undefined, from: number, to: number, weights?: ArrayLike<number>, ones = false): Float64Array {
   const n = X.rows;
   const cols = X.cols;
   const p = cols + (ones ? 1 : 0);
@@ -475,5 +495,26 @@ export function checkedMeans(X: Matrix, check: (X: Matrix) => void): Float64Arra
     out[j] = s / n;
   }
   if (bad) check(X);
+  return out;
+}
+
+/** A · B, both column-major (A is n × p, B is p × k): the n × k product, column-major. */
+export function matMulKernel(n: number, p: number, k: number, a: Float64Array, b: Float64Array): Float64Array {
+  const f = replaced.matMul;
+  return f ? f(n, p, k, a, b) : ownMatMul(n, p, k, a, b);
+}
+
+/** smaltml's own matMulKernel(), in TypeScript: the one that runs unless useKernels() replaced it. */
+export function ownMatMul(n: number, p: number, k: number, a: Float64Array, b: Float64Array): Float64Array {
+  const out = new Float64Array(n * k);
+  for (let j = 0; j < k; j++) {
+    const o = j * n;
+    for (let l = 0; l < p; l++) {
+      const w = b[j * p + l]!;
+      if (w === 0) continue;
+      const c = l * n;
+      for (let i = 0; i < n; i++) out[o + i]! += a[c + i]! * w;
+    }
+  }
   return out;
 }

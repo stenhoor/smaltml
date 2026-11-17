@@ -6,6 +6,7 @@
  * @module
  */
 import { fail } from '../core/errors.js';
+import { kernelsForThreads } from '../core/kernel-set.js';
 import { addInto, chunks, finishLogistic, symmetrize } from '../core/kernels.js';
 import { Matrix } from '../core/matrix.js';
 import type { Request, Response, SharedMatrix, Task } from './protocol.js';
@@ -129,22 +130,52 @@ export class ThreadPool {
 }
 
 const pools = new Map<number, Promise<ThreadPool | null>>();
+let poolsGeneration = 0;
+
+/**
+ * A pool whose workers use the kernels in use here: smaltml's own, or, after useKernels(), the set's, loaded in each
+ * worker from the module the set names. A worker that ends up with other kernels than this thread (one failed the
+ * check there) stops the pool: fits then run on one thread, and give fitSync's result.
+ */
+async function startPool(size: number, url: string | URL): Promise<ThreadPool | null> {
+  const k = kernelsForThreads();
+  const pool = await ThreadPool.create(size, url);
+  if (k.threads) {
+    const task: Task = { op: 'kernels', module: String(k.threads.module), options: k.threads.options ?? null };
+    try {
+      const replies = await Promise.all(Array.from({ length: size }, (_, i) => pool.run(i, task)));
+      if (replies.some((r) => (r.kernels ?? []).join() !== k.kernels.join())) throw new Error('other kernels');
+    } catch {
+      pool.terminate();
+      return null;
+    }
+  }
+  return pool;
+}
 
 /**
  * The pool for this many threads, or null where a fit should run on one thread: one thread asked for, no shared
- * memory, too little data (`values`, X's size), or workers that can't start.
+ * memory, too little data (`values`, X's size), workers that can't start, or replaced kernels the workers can't load.
  */
 export async function threadPool(threads: Threads | undefined, values: number): Promise<ThreadPool | null> {
   const want = threads ?? 'auto';
   if (want !== 'auto' && (!Number.isInteger(want) || want < 1)) fail('ML_PARAM', `threads is 'auto' or a whole number of at least 1, not ${String(want)}`);
   if (want === 1 || !sharedMemoryAvailable()) return null;
   if (want === 'auto' && values < PARALLEL_MIN_VALUES) return null;
+  const k = kernelsForThreads();
+  // A kernel set the workers can't load: threads would give other last bits than fitSync.
+  if (k.threads === undefined) return null;
+  // useKernels() was called since the pools started: their workers have the old kernels.
+  if (k.generation !== poolsGeneration) {
+    poolsGeneration = k.generation;
+    await stopThreads();
+  }
   const size = want === 'auto' ? Math.min(await cores(), maxThreads ?? Infinity) : want;
   if (size < 2) return null;
   let pool = pools.get(size);
   if (!pool) {
     const url = scriptUrl ?? new URL('./smaltml-threads.js', import.meta.url);
-    pool = ThreadPool.create(size, url).catch(() => null);
+    pool = startPool(size, url).catch(() => null);
     pools.set(size, pool);
   }
   return pool;

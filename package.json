@@ -25,6 +25,7 @@
     "test": "vitest run",
     "check": "npm run typecheck && npm test",
     "build": "node scripts/build.mjs",
+    "prepare": "npm run build",
     "test:browser": "node test/browser/docs.mjs && node test/browser/hardware.mjs",
     "compare": "python3 compare/run.py",
     "docs:dev": "vitepress dev docs",

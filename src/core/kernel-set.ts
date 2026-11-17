@@ -4,7 +4,7 @@
  * here runs code other than the functions it is given.
  */
 import { fail } from './errors.js';
-import { ownGramPart, ownMatMul, replaced, type Kernels } from './kernels.js';
+import { ownBinaryLogisticRows, ownGramPart, ownMatMul, ownMultinomialLogisticRows, replaced, type Kernels } from './kernels.js';
 import { Matrix } from './matrix.js';
 import { Random } from './random.js';
 
@@ -18,7 +18,7 @@ export const KERNELS_VERSION = 1;
 
 /** The names of the kernels a set can replace. */
 export type KernelName = keyof Kernels;
-const NAMES: readonly KernelName[] = ['gramPart', 'matMul'];
+const NAMES: readonly KernelName[] = ['gramPart', 'matMul', 'binaryLogisticRows', 'multinomialLogisticRows'];
 
 /** A set of kernels to use in place of smaltml's own: what a plugin gives useKernels(). */
 export interface KernelSet {
@@ -107,7 +107,16 @@ const TOLERANCE = 1e-12;
 
 function passes(name: KernelName, k: NonNullable<Kernels[KernelName]>): boolean {
   try {
-    return name === 'gramPart' ? gramPasses(k as NonNullable<Kernels['gramPart']>) : matMulPasses(k as NonNullable<Kernels['matMul']>);
+    switch (name) {
+      case 'gramPart':
+        return gramPasses(k as NonNullable<Kernels['gramPart']>);
+      case 'matMul':
+        return matMulPasses(k as NonNullable<Kernels['matMul']>);
+      case 'binaryLogisticRows':
+        return binaryRowsPass(k as NonNullable<Kernels['binaryLogisticRows']>);
+      case 'multinomialLogisticRows':
+        return multinomialRowsPass(k as NonNullable<Kernels['multinomialLogisticRows']>);
+    }
   } catch {
     return false;
   }
@@ -168,6 +177,51 @@ function matMulPasses(k: NonNullable<Kernels['matMul']>): boolean {
         if (!(Math.abs(got[j * n + i]! - want[j * n + i]!) <= TOLERANCE * (scale || 1))) return false;
       }
     }
+  }
+  return true;
+}
+
+/** Within the tolerance of each value's scale: a residual is at most its row's weight in size. */
+function near(got: ArrayLike<number>, want: ArrayLike<number>, scale: (i: number) => number): boolean {
+  if (got.length !== want.length) return false;
+  for (let i = 0; i < want.length; i++) if (!(Math.abs(got[i]! - want[i]!) <= TOLERANCE * scale(i))) return false;
+  return true;
+}
+
+/** The binary row step on 41 rows from row 6 (an odd count, an offset), scores from −30 to 30, with and without weights. */
+function binaryRowsPass(k: NonNullable<Kernels['binaryLogisticRows']>): boolean {
+  const r = new Random(37);
+  const n = 50;
+  const y = Int32Array.from({ length: n }, () => (r.next() < 0.5 ? 1 : 0));
+  const weights = Float64Array.from({ length: n }, () => r.next() * 2);
+  const z = values(r, 43, 60);
+  for (const w of [undefined, weights]) {
+    const [want, got] = [z.slice(), z.slice()];
+    const [y0, w0] = [y.slice(), weights.slice()];
+    const lossWant = ownBinaryLogisticRows(want, y, w, 6, 41, 1.5);
+    const lossGot = k(got, y, w, 6, 41, 1.5);
+    if (!(Math.abs(lossGot - lossWant) <= TOLERANCE * Math.abs(lossWant))) return false;
+    if (!near(got, want, (i) => (w && i < 41 ? Math.max(w[6 + i]!, 1) : 1))) return false;
+    if (y.some((v, i) => v !== y0[i]) || weights.some((v, i) => v !== w0[i])) return false;
+  }
+  return true;
+}
+
+/** The multinomial row step on 4 classes of 37 rows from row 3, with a stride past them, with and without weights. */
+function multinomialRowsPass(k: NonNullable<Kernels['multinomialLogisticRows']>): boolean {
+  const r = new Random(38);
+  const n = 45;
+  const K = 4;
+  const stride = 40;
+  const y = Int32Array.from({ length: n }, () => Math.min(K - 1, Math.floor(r.next() * K)));
+  const weights = Float64Array.from({ length: n }, () => r.next() * 2);
+  const z = values(r, K * stride, 60);
+  for (const w of [undefined, weights]) {
+    const [want, got] = [z.slice(), z.slice()];
+    const lossWant = ownMultinomialLogisticRows(want, stride, K, y, w, 3, 37, 2.5);
+    const lossGot = k(got, stride, K, y, w, 3, 37, 2.5);
+    if (!(Math.abs(lossGot - lossWant) <= TOLERANCE * Math.abs(lossWant))) return false;
+    if (!near(got, want, (i) => (w && i % stride < 37 ? Math.max(w[3 + (i % stride)]!, 1) : 1))) return false;
   }
   return true;
 }

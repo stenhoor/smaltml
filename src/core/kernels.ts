@@ -14,6 +14,10 @@ export interface Kernels {
   gramPart?: (X: Matrix, mean: ArrayLike<number> | undefined, from: number, to: number, weights?: ArrayLike<number>, ones?: boolean) => Float64Array;
   /** The matrix product of A (n × p) and B (p × k), both column-major: {@link ownMatMul}'s signature and result. */
   matMul?: (n: number, p: number, k: number, a: Float64Array, b: Float64Array) => Float64Array;
+  /** The binary logistic objective's row step: {@link ownBinaryLogisticRows}'s signature and result. */
+  binaryLogisticRows?: (z: Float64Array, y: Int32Array, weights: ArrayLike<number> | undefined, at: number, m: number, loss: number) => number;
+  /** The multinomial logistic objective's row step: {@link ownMultinomialLogisticRows}'s signature and result. */
+  multinomialLogisticRows?: (z: Float64Array, stride: number, K: number, y: Int32Array, weights: ArrayLike<number> | undefined, at: number, m: number, loss: number) => number;
 }
 
 /** The replacements in use: set only by useKernels(). */
@@ -237,6 +241,63 @@ function log1pExp(z: number): number {
 }
 
 /**
+ * The binary logistic objective's row step, for rows `at` to `at + m − 1` of y and weights, whose scores are z[0] to
+ * z[m − 1]: returns `loss` plus their loss, Σ w (log(1 + e^z) − y z), added row by row, and replaces each score by its
+ * residual w (σ(z) − y), which the gradient Xᵀr needs. The running loss goes in, so the sum over every block keeps one
+ * order. A plugin can replace it (useKernels()).
+ */
+export function binaryLogisticRows(z: Float64Array, y: Int32Array, weights: ArrayLike<number> | undefined, at: number, m: number, loss = 0): number {
+  const k = replaced.binaryLogisticRows;
+  return k ? k(z, y, weights, at, m, loss) : ownBinaryLogisticRows(z, y, weights, at, m, loss);
+}
+
+/** smaltml's own binaryLogisticRows(), in TypeScript: the one that runs unless useKernels() replaced it. */
+export function ownBinaryLogisticRows(z: Float64Array, y: Int32Array, weights: ArrayLike<number> | undefined, at: number, m: number, loss = 0): number {
+  for (let i = 0; i < m; i++) {
+    const zi = z[i]!;
+    const yi = y[at + i]!;
+    // −log p(yᵢ) = log(1 + e^z) − y z; the residual σ(z) − y replaces z, times the row's weight.
+    const wi = weights ? weights[at + i]! : 1;
+    loss += wi * (log1pExp(zi) - yi * zi);
+    z[i] = wi * (sigmoid(zi) - yi);
+  }
+  return loss;
+}
+
+/**
+ * The multinomial logistic objective's row step, for rows `at` to `at + m − 1` of y and weights, whose K classes'
+ * scores are z[c · stride + i]: returns `loss` plus their loss, Σ w (max + log Σ e^(z − max) − z_y), added row by row,
+ * and replaces each score by its residual w (softmax − one-hot). A plugin can replace it (useKernels()).
+ */
+export function multinomialLogisticRows(z: Float64Array, stride: number, K: number, y: Int32Array, weights: ArrayLike<number> | undefined, at: number, m: number, loss = 0): number {
+  const k = replaced.multinomialLogisticRows;
+  return k ? k(z, stride, K, y, weights, at, m, loss) : ownMultinomialLogisticRows(z, stride, K, y, weights, at, m, loss);
+}
+
+/** smaltml's own multinomialLogisticRows(), in TypeScript: the one that runs unless useKernels() replaced it. */
+export function ownMultinomialLogisticRows(z: Float64Array, stride: number, K: number, y: Int32Array, weights: ArrayLike<number> | undefined, at: number, m: number, loss = 0): number {
+  for (let i = 0; i < m; i++) {
+    let max = -Infinity;
+    for (let c = 0; c < K; c++) max = Math.max(max, z[c * stride + i]!);
+    const yi = y[at + i]!;
+    const zy = z[yi * stride + i]!;
+    // One exp per class: e = exp(z − max) replaces the score, then the residual e / Σe − one-hot replaces e.
+    let sum = 0;
+    for (let c = 0; c < K; c++) {
+      const e = Math.exp(z[c * stride + i]! - max);
+      z[c * stride + i] = e;
+      sum += e;
+    }
+    // The row's weight scales its loss and its residuals.
+    const wi = weights ? weights[at + i]! : 1;
+    loss += wi * (max + Math.log(sum) - zy);
+    const inv = 1 / sum;
+    for (let c = 0; c < K; c++) z[c * stride + i] = wi * (z[c * stride + i]! * inv - (c === yi ? 1 : 0));
+  }
+  return loss;
+}
+
+/**
  * The binary logistic objective and its gradient in one pass over X: for each block of rows, the scores, then the
  * residuals, then their contribution to the gradient, while the block is still in cache. x holds w, then b when
  * there is an intercept. Returns the mean log loss plus l2 / 2 · ‖w‖².
@@ -288,16 +349,8 @@ export function binaryLogisticPart(X: Matrix, y: Int32Array, intercept: boolean,
       const wj = x[j]!;
       for (let i = 0; i < m; i++) z[i]! += d[o + i]! * wj;
     }
-    for (let i = 0; i < m; i++) {
-      const zi = z[i]!;
-      const yi = y[r0 + i]!;
-      // −log p(yᵢ) = log(1 + e^z) − y z; the residual σ(z) − y replaces z, times the row's weight.
-      const wi = weights ? weights[r0 + i]! : 1;
-      loss += wi * (log1pExp(zi) - yi * zi);
-      const ri = wi * (sigmoid(zi) - yi);
-      z[i] = ri;
-      rsum += ri;
-    }
+    loss = binaryLogisticRows(z, y, weights, r0, m, loss);
+    for (let i = 0; i < m; i++) rsum += z[i]!;
     j = 0;
     for (; j + 3 < p; j += 4) {
       const o0 = j * n + r0;
@@ -360,24 +413,7 @@ export function multinomialLogisticPart(X: Matrix, y: Int32Array, K: number, int
         for (let i = 0; i < m; i++) z[zc + i]! += d[o + i]! * wj;
       }
     }
-    for (let i = 0; i < m; i++) {
-      let max = -Infinity;
-      for (let c = 0; c < K; c++) max = Math.max(max, z[c * BLOCK + i]!);
-      const yi = y[r0 + i]!;
-      const zy = z[yi * BLOCK + i]!;
-      // One exp per class: e = exp(z − max) replaces the score, then the residual e / Σe − one-hot replaces e.
-      let sum = 0;
-      for (let c = 0; c < K; c++) {
-        const e = Math.exp(z[c * BLOCK + i]! - max);
-        z[c * BLOCK + i] = e;
-        sum += e;
-      }
-      // The row's weight scales its loss and its residuals.
-      const wi = weights ? weights[r0 + i]! : 1;
-      loss += wi * (max + Math.log(sum) - zy);
-      const inv = 1 / sum;
-      for (let c = 0; c < K; c++) z[c * BLOCK + i] = wi * (z[c * BLOCK + i]! * inv - (c === yi ? 1 : 0));
-    }
+    loss = multinomialLogisticRows(z, BLOCK, K, y, weights, r0, m, loss);
     for (let c = 0; c < K; c++) {
       const zc = c * BLOCK;
       const gc = c * width;

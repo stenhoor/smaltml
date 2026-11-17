@@ -640,6 +640,30 @@ g = GridSearchCV(make_pipeline(StandardScaler(), Ridge()), {"ridge__alpha": [0.0
 case("grid search: scaled ridge, GroupKFold", "grid-groups", {"X": tolist(Xg), "y": tolist(yg), "groups": gg, "model": "scaled-ridge", "grid": {"ridge__alpha": [0.01, 1.0, 30.0]}},
      {"mean": tolist(g.cv_results_["mean_test_score"]), "rank": tolist(g.cv_results_["rank_test_score"]), "best": g.best_params_}, {"rtol": 1e-9, "atol": 1e-9})
 
+# Several scorers, train scores and refit by name (appended) --------------------------------------------------------
+from sklearn.model_selection import cross_validate
+for name, model, X_, y_, scoring in [
+    ("cross_validate: scaled ridge, two scorers, train scores", "scaled-ridge", Xg, yg, ["r2", "neg_mean_absolute_error"]),
+    ("cross_validate: logistic, named scorers, train scores", "logistic", Xc, yc, {"acc": "accuracy", "loss": "neg_log_loss"}),
+]:
+    est = make_pipeline(StandardScaler(), Ridge(alpha=2.0)) if model == "scaled-ridge" else LogisticRegression(tol=1e-10, max_iter=10000)
+    r = cross_validate(est, X_, y_, cv=KFold(n_splits=5), scoring=scoring, return_train_score=True)
+    keys = list(scoring) if isinstance(scoring, list) else list(scoring.keys())
+    case(name, "cross-validate", {"X": tolist(X_), "y": tolist(y_), "model": model, "scoring": scoring},
+         {"test": {k: tolist(r[f"test_{k}"]) for k in keys}, "train": {k: tolist(r[f"train_{k}"]) for k in keys}},
+         {"rtol": 1e-9, "atol": 1e-9} if model == "scaled-ridge" else {"rtol": 1e-5, "atol": 1e-6})
+grid = {"ridge__alpha": [0.01, 1.0, 30.0, 300.0]}
+g = GridSearchCV(make_pipeline(StandardScaler(), Ridge()), grid, cv=KFold(n_splits=5), scoring=["r2", "neg_mean_squared_error"],
+                 refit="neg_mean_squared_error", return_train_score=True).fit(Xg, yg)
+res = {k: {"meanTest": tolist(g.cv_results_[f"mean_test_{k}"]), "rankTest": tolist(g.cv_results_[f"rank_test_{k}"]),
+           "meanTrain": tolist(g.cv_results_[f"mean_train_{k}"]), "stdTrain": tolist(g.cv_results_[f"std_train_{k}"])} for k in ["r2", "neg_mean_squared_error"]}
+case("grid search: two scorers, refit by name, train scores", "grid-multi", {"X": tolist(Xg), "y": tolist(yg), "model": "scaled-ridge", "grid": grid,
+     "scoring": ["r2", "neg_mean_squared_error"], "refit": "neg_mean_squared_error"},
+     {"scores": res, "best": g.best_params_, "bestScore": float(g.best_score_), "bestIndex": int(g.best_index_)}, {"rtol": 1e-9, "atol": 1e-9})
+g = GridSearchCV(make_pipeline(StandardScaler(), Ridge()), grid, cv=KFold(n_splits=5), return_train_score=True).fit(Xg, yg)
+case("grid search: one scorer, train scores", "grid-train", {"X": tolist(Xg), "y": tolist(yg), "model": "scaled-ridge", "grid": grid},
+     {"meanTrain": tolist(g.cv_results_["mean_train_score"]), "stdTrain": tolist(g.cv_results_["std_train_score"]), "best": g.best_params_}, {"rtol": 1e-9, "atol": 1e-9})
+
 out = {
     "comment": "Written by compare/run.py (npm run compare); don't edit by hand.",
     "reference": {"scikit-learn": sklearn.__version__, "numpy": np.__version__},

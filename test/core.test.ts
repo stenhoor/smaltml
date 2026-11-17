@@ -22,6 +22,7 @@ import {
   MultiOutputRegressor,
   cloneModel,
   crossValScore,
+  crossValidate,
   GridSearchCV,
   GroupKFold,
   KFold,
@@ -228,7 +229,7 @@ describe('saving and loading', () => {
 
   test('a document says its format and version; others are refused', () => {
     const doc = new LinearRegression().toJSON();
-    expect(doc).toEqual({ format: 'smaltml', version: 4, model: 'LinearRegression', smaltml: VERSION, params: { fitIntercept: true }, state: null });
+    expect(doc).toEqual({ format: 'smaltml', version: 5, model: 'LinearRegression', smaltml: VERSION, params: { fitIntercept: true }, state: null });
     expect(code(() => loadModel('{"format":"other"}'))).toBe('ML_FORMAT');
     expect(code(() => loadModel({ ...doc, version: 99 }))).toBe('ML_FORMAT');
     expect(code(() => loadModel({ ...doc, model: 'Mystery' }))).toBe('ML_FORMAT');
@@ -743,5 +744,54 @@ describe('GroupKFold and groups', () => {
     expect(code(() => new GroupKFold({ nSplits: 2 }).split(3, undefined, ['a', 1, 'b']))).toBe('ML_LABELS');
     expect(code(() => new GroupKFold({ nSplits: 2, shuffle: true } as never))).toBe('ML_PARAM');
     expect(code(() => new GroupKFold({ nSplits: 1 }))).toBe('ML_PARAM');
+  });
+});
+
+describe('several scorers, train scores and refit by name', () => {
+  const r = new Random(12);
+  const X = Array.from({ length: 40 }, () => [r.next() * 4, r.next() - 0.5]);
+  const y = X.map((x) => 2 * x[0]! - 3 * x[1]! + 0.3 * r.next());
+  const cv = new KFold({ nSplits: 4 });
+
+  test('crossValidate: a score per scorer and fold, train scores, times', async () => {
+    const res = await crossValidate(new Ridge(), X, y, { cv, scoring: ['r2', 'neg_mean_squared_error'], returnTrainScore: true });
+    expect(Object.keys(res.test)).toEqual(['r2', 'neg_mean_squared_error']);
+    expect(Array.from(res.test.r2!)).toEqual(Array.from(await crossValScore(new Ridge(), X, y, { cv, scoring: 'r2' })));
+    expect(res.train!.r2).toHaveLength(4);
+    expect(res.fitTime.every((t) => t >= 0)).toBe(true);
+    const one = await crossValidate(new Ridge(), X, y, { cv });
+    expect(Object.keys(one.test)).toEqual(['score']);
+    expect(one.train).toBeUndefined();
+  });
+
+  test('GridSearchCV: each scorer by name, the best by the one refit names', async () => {
+    const g = await new GridSearchCV(new Ridge(), { alpha: [0.01, 10, 1000] }, { cv, scoring: { fit: 'r2', error: 'neg_mean_absolute_error' }, refit: 'error' }).fit(X, y);
+    const byScorer = g.cvResultsByScorer;
+    expect(Object.keys(byScorer.scores)).toEqual(['fit', 'error']);
+    expect(g.bestScore).toBe(Math.max(...byScorer.scores.error!.meanTestScore));
+    expect(code(() => g.cvResults)).toBe('ML_PARAM');
+    expect((g.bestEstimator as Ridge).alpha).toBe(g.bestParams.alpha);
+    // It saves and loads, with the scorers' names.
+    const back = loadModel(saveModel(g)) as GridSearchCV;
+    expect(back.bestIndex).toBe(g.bestIndex);
+    expect(Array.from(back.cvResultsByScorer.scores.fit!.meanTestScore)).toEqual(Array.from(byScorer.scores.fit!.meanTestScore));
+  });
+
+  test('one scorer: cvResults as before, train scores with returnTrainScore, and a named refit means true', async () => {
+    const g = await new GridSearchCV(new Ridge(), { alpha: [0.01, 10] }, { cv, returnTrainScore: true, refit: 'r2' }).fit(X, y);
+    expect(g.cvResults.meanTrainScore).toHaveLength(2);
+    expect(g.cvResultsByScorer.scores.score!.meanTestScore).toEqual(g.cvResults.meanTestScore);
+    expect(g.bestEstimator.fitted).toBe(true);
+  });
+
+  test('the errors', async () => {
+    expect(code(() => new GridSearchCV(new Ridge(), { alpha: [1] }, { scoring: ['r2', 'neg_mean_squared_error'] }))).toBe('ML_PARAM');
+    expect(code(() => new GridSearchCV(new Ridge(), { alpha: [1] }, { scoring: ['r2'], refit: 'mae' }))).toBe('ML_PARAM');
+    const noBest = await new GridSearchCV(new Ridge(), { alpha: [1, 2] }, { cv, scoring: ['r2'], refit: false }).fit(X, y);
+    expect(code(() => noBest.bestIndex)).toBe('ML_PARAM');
+    expect(code(() => noBest.bestEstimator)).toBe('ML_NOT_FITTED');
+    await expect(crossValidate(new Ridge(), X, y, { cv, scoring: ['r2', 'r2'] })).rejects.toMatchObject({ code: 'ML_PARAM' });
+    await expect(crossValidate(new Ridge(), X, y, { cv, scoring: [] })).rejects.toMatchObject({ code: 'ML_PARAM' });
+    await expect(crossValScore(new Ridge(), X, y, { cv, scoring: ['r2'] as never })).rejects.toMatchObject({ code: 'ML_PARAM' });
   });
 });

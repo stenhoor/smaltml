@@ -25,7 +25,7 @@ A Float64Array with one score per fold.
 
 ## Errors
 
-- `ML_PARAM`: an unknown scorer, or a scorer the model can't serve (probabilities from a regressor); `groups` with a
+- `ML_PARAM`: several scorers (use [`crossValidate`](./cross-validate)), an unknown scorer, or a scorer the model can't serve (probabilities from a regressor); `groups` with a
   `cv` that doesn't use them (scikit-learn warns and ignores them).
 - `ML_SHAPE`: y that doesn't match X. The model's own errors.
 

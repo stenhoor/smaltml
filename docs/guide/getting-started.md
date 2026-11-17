@@ -23,6 +23,7 @@ uses:
 | `@smaltworks/smaltml/core` | `Matrix`, `SmaltmlError`, `Random`, the model and table types, `useKernels`, `kernelsInUse`, `KERNELS_VERSION`, `VERSION` |
 | `@smaltworks/smaltml/preprocessing` | `StandardScaler`, `MinMaxScaler`, `RobustScaler`, `SimpleImputer`, `OneHotEncoder`, `OrdinalEncoder` |
 | `@smaltworks/smaltml/linear` | `LinearRegression`, `Ridge`, `Lasso`, `ElasticNet`, `LogisticRegression` |
+| `@smaltworks/smaltml/tree` | `DecisionTreeRegressor`, `DecisionTreeClassifier` |
 | `@smaltworks/smaltml/metrics` | `meanSquaredError`, `meanAbsoluteError`, `r2Score`, `accuracyScore`, `precisionScore`, `recallScore`, `f1Score`, `rocAucScore`, `confusionMatrix`, `logLoss` |
 | `@smaltworks/smaltml/selection` | `trainTestSplit`, `KFold`, `StratifiedKFold`, `GroupKFold`, `crossValScore`, `crossValidate`, `cloneModel`, `GridSearchCV` |
 | `@smaltworks/smaltml/pipeline` | `pipeline`, `Pipeline`, `ColumnTransformer` |

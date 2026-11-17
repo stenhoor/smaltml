@@ -61,6 +61,10 @@
       "types": "./dist/types/selection/index.d.ts",
       "default": "./dist/selection.js"
     },
+    "./tree": {
+      "types": "./dist/types/tree/index.d.ts",
+      "default": "./dist/tree.js"
+    },
     "./multioutput": {
       "types": "./dist/types/multioutput/index.d.ts",
       "default": "./dist/multioutput.js"

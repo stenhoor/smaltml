@@ -6,6 +6,7 @@
 export * from './core/index.js';
 export * from './preprocessing/index.js';
 export * from './linear/index.js';
+export * from './tree/index.js';
 export * from './metrics/index.js';
 export * from './selection/index.js';
 export * from './pipeline/index.js';

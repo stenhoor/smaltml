@@ -20,6 +20,8 @@ import {
   VERSION,
   loadModel,
   MultiOutputRegressor,
+  DecisionTreeClassifier,
+  DecisionTreeRegressor,
   cloneModel,
   crossValScore,
   crossValidate,
@@ -793,5 +795,61 @@ describe('several scorers, train scores and refit by name', () => {
     await expect(crossValidate(new Ridge(), X, y, { cv, scoring: ['r2', 'r2'] })).rejects.toMatchObject({ code: 'ML_PARAM' });
     await expect(crossValidate(new Ridge(), X, y, { cv, scoring: [] })).rejects.toMatchObject({ code: 'ML_PARAM' });
     await expect(crossValScore(new Ridge(), X, y, { cv, scoring: ['r2'] as never })).rejects.toMatchObject({ code: 'ML_PARAM' });
+  });
+});
+
+describe('decision trees', () => {
+  const r = new Random(21);
+  const X = Array.from({ length: 60 }, () => [r.next() * 4, r.next() * 2 - 1, r.next()]);
+  const y = X.map((x) => (x[0]! > 2 ? 5 : 1) + (x[1]! > 0 ? 2 : 0));
+  const labels = X.map((x) => (x[0]! > 2 ? 'big' : x[1]! > 0 ? 'up' : 'down'));
+
+  test('a regression tree fits a step function exactly, and the root splits on the first column', () => {
+    const t = new DecisionTreeRegressor({ seed: 1 }).fitSync(X, y);
+    expect(Array.from(t.predictSync(X))).toEqual(y);
+    expect(t.tree.feature[0]).toBe(0);
+    expect(t.featureImportances[2]).toBe(0);
+    expect(t.featureImportances.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 12);
+    expect(t.getNLeaves()).toBe(4);
+    expect(t.getDepth()).toBe(2);
+  });
+
+  test('a classifier gives class shares that sum to 1, and its predictions', async () => {
+    const t = new DecisionTreeClassifier({ maxDepth: 1, seed: 1 }).fitSync(X, labels);
+    expect(t.classes).toEqual(['big', 'down', 'up']);
+    const P = t.predictProbaSync(X);
+    for (let i = 0; i < P.rows; i++) expect(P.column(0)[i]! + P.column(1)[i]! + P.column(2)[i]!).toBeCloseTo(1, 12);
+    expect(await t.predict(X)).toEqual(t.predictSync(X));
+  });
+
+  test('a seed repeats the tree; fit equals fitSync; it saves and loads', async () => {
+    const a = await new DecisionTreeClassifier({ maxFeatures: 1, seed: 7 }).fit(X, labels);
+    const b = new DecisionTreeClassifier({ maxFeatures: 1, seed: 7 }).fitSync(X, labels);
+    expect(Array.from(a.tree.threshold)).toEqual(Array.from(b.tree.threshold));
+    const back = loadModel(saveModel(a)) as DecisionTreeClassifier;
+    expect(back.predictSync(X)).toEqual(a.predictSync(X));
+    expect(Array.from(back.predictProbaSync(X).data)).toEqual(Array.from(a.predictProbaSync(X).data));
+    const reg = new DecisionTreeRegressor({ maxDepth: 2, seed: 3 }).fitSync(X, y, { sampleWeight: X.map((_, i) => 1 + (i % 3)) });
+    expect(Array.from((loadModel(saveModel(reg)) as DecisionTreeRegressor).predictSync(X))).toEqual(Array.from(reg.predictSync(X)));
+  });
+
+  test('in a pipeline and a grid search', async () => {
+    const g = await new GridSearchCV(new DecisionTreeRegressor({ seed: 0 }), { maxDepth: [1, 2, 3] }, { cv: new KFold({ nSplits: 3 }) }).fit(X, y);
+    expect(g.bestParams.maxDepth).toBeGreaterThan(1);
+    const p = pipeline(new StandardScaler(), new DecisionTreeClassifier({ seed: 0 })).fitSync(X, labels, { sampleWeight: X.map(() => 1) });
+    expect(p.predictSync(X)).toEqual(labels);
+  });
+
+  test('the errors, and what isn\'t supported yet', () => {
+    expect(code(() => new DecisionTreeRegressor({ criterion: 'absolute_error' }))).toBe('ML_PARAM');
+    expect(code(() => new DecisionTreeRegressor({ ccpAlpha: 0.1 }))).toBe('ML_PARAM');
+    expect(code(() => new DecisionTreeRegressor({ maxDepth: 0 }))).toBe('ML_PARAM');
+    expect(code(() => new DecisionTreeRegressor({ minSamplesSplit: 1.5 }))).toBe('ML_PARAM');
+    expect(code(() => new DecisionTreeClassifier({ maxFeatures: 'all' as never }))).toBe('ML_PARAM');
+    expect(code(() => new DecisionTreeClassifier({ classWeight: { nope: 2 } }).fitSync(X, labels))).toBe('ML_PARAM');
+    expect(code(() => new DecisionTreeRegressor().fitSync([[1], [NaN]], [1, 2]))).toBe('ML_VALUE');
+    expect(code(() => new DecisionTreeRegressor().predictSync(X))).toBe('ML_NOT_FITTED');
+    const t = new DecisionTreeRegressor({ seed: 0 }).fitSync(X, y);
+    expect(code(() => t.predictSync([[1, 2]]))).toBe('ML_SHAPE');
   });
 });

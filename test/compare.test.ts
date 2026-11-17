@@ -27,6 +27,8 @@ import {
   GroupKFold,
   crossValidate,
   MultiOutputRegressor,
+  DecisionTreeRegressor,
+  DecisionTreeClassifier,
   accuracyScore,
   logLoss,
   meanSquaredError,
@@ -128,6 +130,32 @@ function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol:
       if (typeof exp.nSamplesSeen === 'number') expect(seen).toBe(exp.nSamplesSeen);
       else close(seen as Float64Array, exp.nSamplesSeen, tol, 'nSamplesSeen');
       close(rowsOf(s.transformSync(nan(inp.batches.flat()) as number[][])), exp.transform, tol, 'transform');
+      return;
+    }
+    case 'DecisionTreeRegressor':
+    case 'DecisionTreeClassifier': {
+      const params = camel(inp.params) as Record<string, unknown>;
+      const m = c.kind === 'DecisionTreeRegressor' ? new DecisionTreeRegressor({ ...params, seed: 0 }) : new DecisionTreeClassifier({ ...params, seed: 0 });
+      (m as DecisionTreeRegressor).fitSync(inp.X, inp.y, inp.sampleWeight ? { sampleWeight: inp.sampleWeight } : {});
+      const t = m.tree;
+      expect(Array.from(t.left), 'children left').toEqual(exp.left);
+      expect(Array.from(t.right), 'children right').toEqual(exp.right);
+      expect(Array.from(t.feature), 'feature').toEqual(exp.feature);
+      close(t.threshold, exp.threshold, tol, 'threshold');
+      close(t.impurity, exp.impurity, tol, 'impurity');
+      expect(Array.from(t.nSamples), 'samples').toEqual(exp.nSamples);
+      close(t.weightedNSamples, exp.weightedNSamples, tol, 'weighted samples');
+      close(t.value, exp.value, tol, 'value');
+      close(m.featureImportances, exp.importances, tol, 'importances');
+      expect(m.getDepth()).toBe(exp.depth);
+      expect(m.getNLeaves()).toBe(exp.leaves);
+      expect(Array.from(m.apply(inp.Xnew)), 'apply').toEqual(exp.apply);
+      if (c.kind === 'DecisionTreeClassifier') {
+        const k = m as DecisionTreeClassifier;
+        expect(k.classes).toEqual(exp.classes);
+        expect(k.predictSync(inp.Xnew)).toEqual(exp.predict);
+        close(rowsOf(k.predictProbaSync(inp.Xnew)), exp.proba, tol, 'proba');
+      } else close((m as DecisionTreeRegressor).predictSync(inp.Xnew), exp.predict, tol, 'predict');
       return;
     }
     case 'MultiOutputRegressor': {

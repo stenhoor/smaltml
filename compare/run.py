@@ -664,6 +664,55 @@ g = GridSearchCV(make_pipeline(StandardScaler(), Ridge()), grid, cv=KFold(n_spli
 case("grid search: one scorer, train scores", "grid-train", {"X": tolist(Xg), "y": tolist(yg), "model": "scaled-ridge", "grid": grid},
      {"meanTrain": tolist(g.cv_results_["mean_train_score"]), "stdTrain": tolist(g.cv_results_["std_train_score"]), "best": g.best_params_}, {"rtol": 1e-9, "atol": 1e-9})
 
+# Decision trees (appended): the whole tree, node for node, on data without tied splits ------------------------------
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+def tree_expected(m, Xnew, classifier):
+    t = m.tree_
+    out = {"left": tolist(t.children_left), "right": tolist(t.children_right), "feature": tolist(t.feature),
+           "threshold": tolist(t.threshold), "impurity": tolist(t.impurity), "nSamples": tolist(t.n_node_samples),
+           "weightedNSamples": tolist(t.weighted_n_node_samples), "value": tolist(t.value[:, 0, :].ravel()),
+           "importances": tolist(m.feature_importances_), "depth": int(m.get_depth()), "leaves": int(m.get_n_leaves()),
+           "predict": tolist(m.predict(Xnew)), "apply": tolist(m.apply(Xnew))}
+    if classifier:
+        out["proba"] = tolist(m.predict_proba(Xnew))
+        out["classes"] = tolist(m.classes_)
+    return out
+Xt = rng.normal(size=(80, 4)) * [1.0, 3.0, 0.5, 2.0]
+yt = 2 * Xt[:, 0] - Xt[:, 1] + np.sin(3 * Xt[:, 2]) + rng.normal(scale=0.3, size=80)
+Xtn = rng.normal(size=(15, 4)) * [1.0, 3.0, 0.5, 2.0]
+swt = rng.uniform(0.3, 2.0, size=80)
+for name, params, weights in [
+    ("tree regressor: leaves of 3 or more", {"min_samples_leaf": 3}, None),
+    ("tree regressor: depth 3", {"max_depth": 3, "min_samples_leaf": 2}, None),
+    ("tree regressor: min_samples_split a share", {"min_samples_split": 0.2, "min_samples_leaf": 3}, None),
+    ("tree regressor: 6 leaves, best first", {"max_leaf_nodes": 6}, None),
+    ("tree regressor: min_impurity_decrease", {"min_impurity_decrease": 0.05, "min_samples_leaf": 3}, None),
+    ("tree regressor: friedman_mse", {"criterion": "friedman_mse", "max_depth": 4, "min_samples_leaf": 3}, None),
+    ("tree regressor: friedman_mse, min_impurity_decrease", {"criterion": "friedman_mse", "min_impurity_decrease": 0.1, "min_samples_leaf": 3}, None),
+    ("tree regressor: sample weights", {"max_depth": 4, "min_samples_leaf": 3}, swt),
+    ("tree regressor: min_weight_fraction_leaf", {"min_weight_fraction_leaf": 0.08}, swt),
+]:
+    m = DecisionTreeRegressor(random_state=0, **params).fit(Xt, yt, sample_weight=weights)
+    inputs = {"X": tolist(Xt), "y": tolist(yt), "Xnew": tolist(Xtn), "params": params}
+    if weights is not None:
+        inputs["sampleWeight"] = tolist(weights)
+    case(name, "DecisionTreeRegressor", inputs, tree_expected(m, Xtn, False), {"rtol": 1e-10, "atol": 1e-10})
+yc3 = np.where(Xt[:, 0] + 0.5 * Xt[:, 1] + rng.normal(scale=0.7, size=80) > 0.8, "high", np.where(Xt[:, 2] > 0, "mid", "low"))
+for name, params, weights, labels in [
+    # Small nodes can tie: two columns that split the same rows the same way. Larger leaves keep these cases clear.
+    ("tree classifier: gini, three classes", {"max_depth": 3, "min_samples_leaf": 6}, None, yc3),
+    ("tree classifier: entropy", {"criterion": "entropy", "max_depth": 3, "min_samples_leaf": 6}, None, yc3),
+    ("tree classifier: log_loss, 5 leaves best first", {"criterion": "log_loss", "max_leaf_nodes": 5, "min_samples_leaf": 3}, None, yc3),
+    ("tree classifier: balanced, with sample weights", {"class_weight": "balanced", "max_depth": 3, "min_samples_leaf": 4}, swt, yc3),
+    ("tree classifier: class weights by label", {"class_weight": {"high": 3.0}, "max_depth": 3, "min_samples_leaf": 4}, None, yc3),
+    ("tree classifier: two classes, numbers", {"max_depth": 3, "min_samples_leaf": 5}, None, (Xt[:, 0] > 0).astype(int)),
+]:
+    m = DecisionTreeClassifier(random_state=0, **params).fit(Xt, labels, sample_weight=weights)
+    inputs = {"X": tolist(Xt), "y": tolist(labels), "Xnew": tolist(Xtn), "params": params}
+    if weights is not None:
+        inputs["sampleWeight"] = tolist(weights)
+    case(name, "DecisionTreeClassifier", inputs, tree_expected(m, Xtn, True), {"rtol": 1e-10, "atol": 1e-10})
+
 out = {
     "comment": "Written by compare/run.py (npm run compare); don't edit by hand.",
     "reference": {"scikit-learn": sklearn.__version__, "numpy": np.__version__},

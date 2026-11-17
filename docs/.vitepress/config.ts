@@ -128,6 +128,14 @@ export default defineConfig({
             ],
           },
           {
+            text: 'Trees',
+            collapsed: false,
+            items: [
+              { text: 'DecisionTreeRegressor', link: '/reference/tree/decision-tree-regressor' },
+              { text: 'DecisionTreeClassifier', link: '/reference/tree/decision-tree-classifier' },
+            ],
+          },
+          {
             text: 'Model selection',
             collapsed: false,
             items: [

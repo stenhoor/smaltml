@@ -11,15 +11,16 @@ const ALLOWED: Record<string, string[]> = {
   core: ['core'],
   preprocessing: ['core', 'preprocessing'],
   linear: ['core', 'linear', 'gpu', 'parallel'],
+  tree: ['core', 'tree'],
   metrics: ['core', 'metrics'],
-  selection: ['core', 'selection', 'io', 'metrics', 'preprocessing', 'linear', 'pipeline', 'gpu', 'parallel'],
+  selection: ['core', 'selection', 'io', 'metrics', 'preprocessing', 'linear', 'tree', 'pipeline', 'gpu', 'parallel'],
   pipeline: ['core', 'pipeline'],
-  multioutput: ['core', 'multioutput', 'io', 'preprocessing', 'linear', 'pipeline', 'gpu', 'parallel'],
-  io: ['core', 'io', 'preprocessing', 'linear', 'pipeline', 'gpu', 'parallel'],
+  multioutput: ['core', 'multioutput', 'io', 'preprocessing', 'linear', 'tree', 'pipeline', 'gpu', 'parallel'],
+  io: ['core', 'io', 'preprocessing', 'linear', 'tree', 'pipeline', 'gpu', 'parallel'],
   gpu: ['core', 'gpu'],
   parallel: ['core', 'parallel'],
-  registry: ['core', 'registry', 'io', 'preprocessing', 'linear', 'pipeline', 'gpu', 'parallel'],
-  worker: ['core', 'worker', 'io', 'preprocessing', 'linear', 'pipeline', 'gpu', 'parallel'],
+  registry: ['core', 'registry', 'io', 'preprocessing', 'linear', 'tree', 'pipeline', 'gpu', 'parallel'],
+  worker: ['core', 'worker', 'io', 'preprocessing', 'linear', 'tree', 'pipeline', 'gpu', 'parallel'],
 };
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { exports: Record<string, unknown> };

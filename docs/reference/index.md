@@ -30,6 +30,11 @@ From `@smaltworks/smaltml/preprocessing`:
 - [`LogisticRegression`](./linear/logistic-regression): classes and their probabilities from a linear model.
   `@smaltworks/smaltml/linear`
 
+## Trees
+
+- [`DecisionTreeRegressor`](./tree/decision-tree-regressor), [`DecisionTreeClassifier`](./tree/decision-tree-classifier):
+  CART decision trees. `@smaltworks/smaltml/tree`
+
 ## Model selection
 
 From `@smaltworks/smaltml/selection`:

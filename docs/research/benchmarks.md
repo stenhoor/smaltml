@@ -216,10 +216,19 @@ Run 2026-11-15: smaltml 0.1.0 in Chromium 157.0.8103.38. GPU: WebGPU adapter nvi
 
 - One machine and one run: timings move by about 10% between runs on a shared virtual machine. Compare the ratios
   more than the milliseconds.
-- The decision trees call neither of the plugin's kernels, yet their SIMD columns were 4–17% slower in this run,
-  beyond that noise for the classifier on the larger data (12.0 s against 10.3 s). Why isn't known yet: a run whose
-  process also holds the plugin's WebAssembly may differ in memory or compilation. A rerun would show whether it
-  repeats.
+- **What the SIMD columns show is two things.** The plugin replaces two operations, XᵀX and the matrix product, and
+  the fits built on them ran about twice as fast with it (on one thread, 200k × 50: LinearRegression 208 → 119 ms,
+  Ridge 191 → 94, Lasso 183 → 95, `newton-cholesky` 1,825 → 926). The fits that use neither, LogisticRegression's
+  `lbfgs` and the decision trees, run the same code in both columns, yet were 7–17% slower in the SIMD run (on one
+  thread, 200k × 50: `lbfgs` 2,837 → 3,197 ms and 7,403 → 8,496; the trees 9,807 → 10,515 and 10,335 → 12,044).
+  That is more than this machine's usual noise, and its cause is known: when the plugin's kernels first need more
+  WebAssembly memory, they grow it, and growing a WebAssembly memory detaches its old ArrayBuffer. V8 then stops
+  assuming that no buffer is ever detached, for the whole process, and every typed-array loop runs with more checks:
+  a plain multiply-add loop over a `Float64Array` took about twice as long afterwards (10 ms, then 21–24 ms), and
+  detaching any buffer (`ArrayBuffer.prototype.transfer`) did the same without the plugin. Timed in turn in separate
+  processes, 3 rounds: `lbfgs` took 2,851–3,030 ms plain, 2,897–3,088 ms with the plugin loaded but smaltml's own
+  kernels in use, and 3,334–3,658 ms after the plugin's XᵀX had run. The fix is the plugin's (a new memory where it
+  needs more, never a grown one), and smaltml's worker entry, which transferred buffers too, copies them instead.
 - The scikit-learn tables are CPU timings, on a machine with no GPU. The WebGPU tables come from another machine,
   named under them, and compare smaltml's GPU path only with its own CPU path. smaltml's GPU path covers predictions
   and `LogisticRegression` fits ([The CPU, WebGPU and workers](../guide/hardware)).

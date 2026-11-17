@@ -24,6 +24,7 @@ import {
   LogisticRegression,
   Matrix,
   StandardScaler,
+  GroupKFold,
   MultiOutputRegressor,
   accuracyScore,
   logLoss,
@@ -234,6 +235,12 @@ function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol:
     case 'kfold':
       expect(new KFold(camel(inp.params) as never).split(inp.n).map((f) => Array.from(f.test))).toEqual(exp.tests);
       return;
+    case 'groupkfold':
+      expect(new GroupKFold({ nSplits: inp.params.n_splits }).split(inp.groups.length, undefined, inp.groups).map((f) => Array.from(f.test))).toEqual(exp.tests);
+      return;
+    case 'cvscore-groups':
+    case 'grid-groups':
+      return checkGroups(c, inp, exp, tol);
     case 'stratified': {
       const folds = new StratifiedKFold(camel(inp.params) as never).split(inp.y.length, inp.y);
       expect(folds.map((f) => f.test.length).sort((a, b) => a - b)).toEqual(exp.testSizes);
@@ -328,6 +335,18 @@ function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol:
 function searchModel(name: string) {
   if (name === 'scaled-ridge') return pipeline(new StandardScaler(), new Ridge({ alpha: 2 }));
   return new LogisticRegression({ tol: 1e-10, maxIter: 10000 });
+}
+
+async function checkGroups(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol: Case['tol']): Promise<void> {
+  const cv = new GroupKFold({ nSplits: 4 });
+  if (c.kind === 'cvscore-groups') {
+    close(await crossValScore(searchModel(inp.model), inp.X, inp.y, { cv, groups: inp.groups }), exp.scores, tol, 'scores');
+    return;
+  }
+  const g = await new GridSearchCV(searchModel(inp.model), camel(inp.grid) as Record<string, unknown[]>, { cv }).fit(inp.X, inp.y, { groups: inp.groups });
+  close(g.cvResults.meanTestScore, exp.mean, tol, 'mean test score');
+  expect(Array.from(g.cvResults.rankTestScore)).toEqual(exp.rank);
+  expect(g.bestParams).toEqual(camel(exp.best));
 }
 
 async function checkSearch(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol: Case['tol']): Promise<void> {

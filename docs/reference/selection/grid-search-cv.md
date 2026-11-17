@@ -8,7 +8,7 @@ description: 'GridSearchCV: cross-validates every combination of parameters and 
 ```ts
 class GridSearchCV implements Model {
   constructor(estimator: Model, paramGrid: ParamGrid, options?: { cv?: number | Splitter | Fold[]; scoring?: ScorerName | Scorer; refit?: boolean });
-  fit(X: TableInput, y: Labels): Promise<this>;
+  fit(X: TableInput, y: Labels, options?: { groups?: ArrayLike<number | string> }): Promise<this>;
   predict(X: TableInput): Promise<Float64Array | Label[]>;
   predictProba(X: TableInput): Promise<Matrix>;
   readonly bestParams: Record<string, unknown>;
@@ -27,7 +27,8 @@ Cross-validates every combination of a parameter grid, keeps the best, and fits 
 
 - `estimator`: the model to tune; a pipeline's step parameters are `step__param`.
 - `paramGrid`: each parameter's values, or a list of such grids.
-- `cv`, `scoring`: as [`crossValScore`](./cross-val-score).
+- `cv`, `scoring`: as [`crossValScore`](./cross-val-score). `fit` takes `groups` for a `cv` that uses them, as
+  `crossValScore` does.
 - `refit` (default `true`): fit the best parameters on all the rows as `bestEstimator`.
 
 ## Returns

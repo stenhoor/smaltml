@@ -6,7 +6,7 @@ description: 'crossValScore: a score per fold, from fresh copies of a model fitt
 
 <!-- docs:skip -->
 ```ts
-function crossValScore(model: Model, X: TableInput, y: Labels, options?: { cv?: number | Splitter | Fold[]; scoring?: ScorerName | Scorer }): Promise<Float64Array>;
+function crossValScore(model: Model, X: TableInput, y: Labels, options?: { cv?: number | Splitter | Fold[]; scoring?: ScorerName | Scorer; groups?: ArrayLike<number | string> }): Promise<Float64Array>;
 function cloneModel<M extends Model>(model: M, params?: Record<string, unknown>): M;
 ```
 
@@ -16,6 +16,7 @@ Fits a fresh copy of the model on each fold's training rows and scores it on the
 
 - `model`: a model, fitted or not; it isn't changed. Each fold fits a copy (`cloneModel`).
 - `cv` (default `5`): a number of folds (stratified for a classifier), a splitter such as `KFold`, or folds.
+- `groups`: each row's group, for a splitter that keeps groups together ([`GroupKFold`](./group-k-fold)).
 - `scoring`: a scorer's name, as scikit-learn names them (`accuracy`, `r2`, `neg_mean_squared_error`, `neg_root_mean_squared_error`, `neg_mean_absolute_error`, `neg_log_loss`, `roc_auc`, `f1`, `f1_macro`, `f1_micro`, `f1_weighted`, `precision`, `precision_macro`, `recall`, `recall_macro`), or a function `(model, X, y) => Promise<number>`. Default: accuracy for a classifier, R² otherwise. Error metrics are negated, so higher is always better.
 
 ## Returns
@@ -24,7 +25,8 @@ A Float64Array with one score per fold.
 
 ## Errors
 
-- `ML_PARAM`: an unknown scorer, or a scorer the model can't serve (probabilities from a regressor).
+- `ML_PARAM`: an unknown scorer, or a scorer the model can't serve (probabilities from a regressor); `groups` with a
+  `cv` that doesn't use them (scikit-learn warns and ignores them).
 - `ML_SHAPE`: y that doesn't match X. The model's own errors.
 
 ## Notes

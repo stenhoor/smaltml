@@ -24,7 +24,7 @@ uses:
 | `@smaltworks/smaltml/preprocessing` | `StandardScaler`, `MinMaxScaler`, `RobustScaler`, `SimpleImputer`, `OneHotEncoder`, `OrdinalEncoder` |
 | `@smaltworks/smaltml/linear` | `LinearRegression`, `Ridge`, `Lasso`, `ElasticNet`, `LogisticRegression` |
 | `@smaltworks/smaltml/metrics` | `meanSquaredError`, `meanAbsoluteError`, `r2Score`, `accuracyScore`, `precisionScore`, `recallScore`, `f1Score`, `rocAucScore`, `confusionMatrix`, `logLoss` |
-| `@smaltworks/smaltml/selection` | `trainTestSplit`, `KFold`, `StratifiedKFold`, `crossValScore`, `cloneModel`, `GridSearchCV` |
+| `@smaltworks/smaltml/selection` | `trainTestSplit`, `KFold`, `StratifiedKFold`, `GroupKFold`, `crossValScore`, `cloneModel`, `GridSearchCV` |
 | `@smaltworks/smaltml/pipeline` | `pipeline`, `Pipeline`, `ColumnTransformer` |
 | `@smaltworks/smaltml/multioutput` | `MultiOutputRegressor` |
 | `@smaltworks/smaltml/io` | `saveModel`, `loadModel` |

@@ -135,7 +135,7 @@ function sizes(n: number, testSize: number | undefined, trainSize: number | unde
   return [nTrain, nTest];
 }
 
-export { KFold, StratifiedKFold, type Fold, type KFoldParams, type Splitter } from './folds.js';
+export { GroupKFold, KFold, StratifiedKFold, type Fold, type GroupKFoldParams, type Groups, type KFoldParams, type Splitter } from './folds.js';
 export {
   GridSearchCV,
   SCORER_NAMES,

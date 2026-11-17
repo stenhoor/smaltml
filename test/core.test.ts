@@ -23,6 +23,8 @@ import {
   cloneModel,
   crossValScore,
   GridSearchCV,
+  GroupKFold,
+  KFold,
   logLoss,
   pipeline,
   saveModel,
@@ -708,5 +710,38 @@ describe('infrequent categories in the encoders', () => {
     expect(code(() => new OrdinalEncoder({ maxCategories: 2.5 }))).toBe('ML_PARAM');
     expect(code(() => new OneHotEncoder({ handleUnknown: 'drop' as never }))).toBe('ML_PARAM');
     expect(new OneHotEncoder({ minFrequency: 0.25 }).minFrequency).toBe(0.25);
+  });
+});
+
+describe('GroupKFold and groups', () => {
+  const groups = ['ann', 'ann', 'bob', 'bob', 'bob', 'cy', 'dee', 'dee', 'eve', 'eve', 'eve', 'eve'];
+  const X = groups.map((_, i) => [i, (i * 7) % 5]);
+  const y = X.map((x) => 2 * x[0]! - x[1]! + 1);
+
+  test("a group's rows are never in both training and test", () => {
+    for (const fold of new GroupKFold({ nSplits: 3 }).split(groups.length, undefined, groups)) {
+      const inTest = new Set(Array.from(fold.test, (i) => groups[i]));
+      for (const i of fold.train) expect(inTest.has(groups[i]!)).toBe(false);
+    }
+  });
+
+  test('crossValScore and GridSearchCV take groups', async () => {
+    const cv = new GroupKFold({ nSplits: 3 });
+    const scores = await crossValScore(new LinearRegression(), X, y, { cv, groups });
+    expect(scores).toHaveLength(3);
+    const g = await new GridSearchCV(new Ridge(), { alpha: [0.1, 10] }, { cv }).fit(X, y, { groups });
+    expect(g.cvResults.meanTestScore).toHaveLength(2);
+  });
+
+  test('the errors', async () => {
+    // Groups with a splitter that ignores them fail: scikit-learn warns and splits without them.
+    await expect(crossValScore(new LinearRegression(), X, y, { cv: new KFold({ nSplits: 3 }), groups })).rejects.toMatchObject({ code: 'ML_PARAM' });
+    await expect(crossValScore(new LinearRegression(), X, y, { groups })).rejects.toMatchObject({ code: 'ML_PARAM' });
+    await expect(crossValScore(new LinearRegression(), X, y, { cv: new GroupKFold({ nSplits: 3 }) })).rejects.toMatchObject({ code: 'ML_PARAM' });
+    expect(code(() => new GroupKFold({ nSplits: 6 }).split(groups.length, undefined, groups))).toBe('ML_PARAM');
+    expect(code(() => new GroupKFold({ nSplits: 2 }).split(3, undefined, groups))).toBe('ML_SHAPE');
+    expect(code(() => new GroupKFold({ nSplits: 2 }).split(3, undefined, ['a', 1, 'b']))).toBe('ML_LABELS');
+    expect(code(() => new GroupKFold({ nSplits: 2, shuffle: true } as never))).toBe('ML_PARAM');
+    expect(code(() => new GroupKFold({ nSplits: 1 }))).toBe('ML_PARAM');
   });
 });

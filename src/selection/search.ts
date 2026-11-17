@@ -15,7 +15,7 @@ import {
   recallScore,
   rocAucScore,
 } from '../metrics/index.js';
-import { KFold, StratifiedKFold, type Fold, type Splitter } from './folds.js';
+import { KFold, StratifiedKFold, type Fold, type Groups, type Splitter } from './folds.js';
 
 /** A fitted model's score on rows: higher is better. */
 export type Scorer = (model: Model, X: MatrixInput, y: Labels) => Promise<number>;
@@ -97,9 +97,16 @@ function classifies(m: Model): boolean {
 }
 
 /** The folds to use: a number of folds (stratified for a classifier, as scikit-learn chooses), a splitter, or folds. */
-function foldsFor(model: Model, cv: number | Splitter | readonly Fold[] | undefined, n: number, y: Labels | undefined): Fold[] {
+function foldsFor(model: Model, cv: number | Splitter | readonly Fold[] | undefined, n: number, y: Labels | undefined, groups?: Groups): Fold[] {
+  if (groups !== undefined) {
+    // scikit-learn warns and ignores groups where the splitter doesn't use them; a split that ignores them isn't the
+    // one asked for, so it fails here.
+    if (!cv || typeof cv !== 'object' || Array.isArray(cv) || !(cv as Splitter).usesGroups) {
+      fail('ML_PARAM', 'groups need a splitter that keeps groups together, such as cv: new GroupKFold()');
+    }
+  }
   if (Array.isArray(cv)) return cv as Fold[];
-  if (cv && typeof cv === 'object') return (cv as Splitter).split(n, y);
+  if (cv && typeof cv === 'object') return (cv as Splitter).split(n, y, groups);
   const k = (cv as number | undefined) ?? 5;
   return classifies(model) && y ? new StratifiedKFold({ nSplits: k }).split(n, y) : new KFold({ nSplits: k }).split(n);
 }
@@ -164,6 +171,8 @@ export interface CrossValOptions {
   cv?: number | Splitter | readonly Fold[];
   /** How to score each fold: a scorer's name or a function. Default: accuracy for a classifier, R² otherwise. */
   scoring?: ScorerName | Scorer;
+  /** Each row's group, for a splitter that keeps groups together (GroupKFold): scikit-learn's `groups`. */
+  groups?: Groups;
 }
 
 /**
@@ -176,7 +185,7 @@ export async function crossValScore(model: Model, X: TableInput, y: Labels, opti
   if (y.length !== n) fail('ML_SHAPE', `y has ${y.length} values; X has ${n} rows`);
   const scorer = scorerFor(model, options.scoring);
   const out: number[] = [];
-  for (const { train, test } of foldsFor(model, options.cv, n, y)) {
+  for (const { train, test } of foldsFor(model, options.cv, n, y, options.groups)) {
     const m = cloneModel(model) as Model & { fit(X: unknown, y: unknown): Promise<unknown> };
     await m.fit(rowsOf(X, train), labelsOf(y, train));
     out.push(await scorer(m, rowsOf(X, test) as MatrixInput, labelsOf(y, test)));
@@ -261,12 +270,13 @@ export class GridSearchCV implements Model {
     return { estimator: this.estimator.getParams(), paramGrid: this.paramGrid, refit: this.options.refit ?? true };
   }
 
-  async fit(X: TableInput, y: Labels): Promise<this> {
+  /** Fits every candidate on every fold, then (with refit) the best on all of X. `groups` go to the splitter. */
+  async fit(X: TableInput, y: Labels, options: { groups?: Groups } = {}): Promise<this> {
     // The candidates share each fold's rows: linear models work out XᵀX and Xᵀy once per fold.
-    return withKernelCache(() => this.#fit(X, y));
+    return withKernelCache(() => this.#fit(X, y, options.groups));
   }
 
-  async #fit(X: TableInput, y: Labels): Promise<this> {
+  async #fit(X: TableInput, y: Labels, groups: Groups | undefined): Promise<this> {
     oneTarget(y);
     // Numbers become one Matrix up front, so each fold's rows are one matrix every candidate fits on.
     X = asMatrixIfNumeric(X);
@@ -274,7 +284,7 @@ export class GridSearchCV implements Model {
     if (y.length !== n) fail('ML_SHAPE', `y has ${y.length} values; X has ${n} rows`);
     const candidates = parameterGrid(this.paramGrid);
     const scorer = scorerFor(this.estimator, this.options.scoring);
-    const folds = foldsFor(this.estimator, this.options.cv, n, y);
+    const folds = foldsFor(this.estimator, this.options.cv, n, y, groups);
     const split = folds.map(() => new Float64Array(candidates.length));
     for (const [f, { train, test }] of folds.entries()) {
       const Xtr = rowsOf(X, train);

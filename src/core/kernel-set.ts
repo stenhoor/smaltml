@@ -1,7 +1,8 @@
 /**
  * Replaceable kernels (ADR 0035): a plugin, such as smaltml-simd, can swap the CPU kernels smaltml already has for its
- * own, with the same signatures. The models and solvers don't change; nothing here looks for a plugin, and nothing
- * here runs code other than the functions it is given.
+ * own, with the same signatures. The models and solvers don't change. smaltml looks for one plugin, smaltml-simd, and
+ * uses it where it is installed (kernelsReady(), ADR 0035 as amended 2026-11-17); it runs no code but the functions
+ * it is given and that plugin's own `useSimd()`.
  */
 import { fail } from './errors.js';
 import { ownBinaryLogisticRows, ownGramPart, ownMatMul, ownMultinomialLogisticRows, replaced, type Kernels } from './kernels.js';
@@ -48,6 +49,43 @@ export interface KernelsInUse {
 let inUse: KernelsInUse = { name: 'smaltml', kernels: [], rejected: [] };
 let threads: KernelSet['threads'];
 let generation = 0;
+/** Whether useKernels() was called: a choice the plugin look-up doesn't override. */
+let chosen = false;
+let ready: Promise<KernelsInUse> | null = null;
+
+/** The plugin smaltml uses where it is installed. */
+const PLUGIN = '@smaltworks/smaltml-simd';
+
+/**
+ * Looks for smaltml-simd once, and uses it where it is installed and the engine has WebAssembly SIMD; resolves to the
+ * kernels in use then. smaltml's asynchronous fits and `matMul` wait for it, so they use the plugin from the first
+ * call. The `*Sync` calls don't wait: to have them use it from the start too, `await kernelsReady()` first. A
+ * `useKernels()` call made before the look-up finishes is kept: `useKernels(null)` keeps smaltml's own kernels.
+ * Without the plugin, or where it can't load (a bundled app that doesn't import it), smaltml's own kernels stay.
+ */
+export function kernelsReady(): Promise<KernelsInUse> {
+  return (ready ??= lookForPlugin());
+}
+
+async function lookForPlugin(): Promise<KernelsInUse> {
+  if (chosen) return kernelsInUse();
+  let plugin: { useSimd?: () => Promise<boolean> };
+  try {
+    // By a variable, so bundlers leave the import alone and an app without the plugin builds as before.
+    const name = PLUGIN;
+    plugin = (await import(/* @vite-ignore */ /* webpackIgnore: true */ name)) as typeof plugin;
+  } catch {
+    return kernelsInUse();
+  }
+  if (!chosen && typeof plugin.useSimd === 'function') {
+    try {
+      await plugin.useSimd();
+    } catch {
+      // The plugin failed to start: smaltml's own kernels stay.
+    }
+  }
+  return kernelsInUse();
+}
 
 /**
  * Uses a set of kernels in place of smaltml's own, or smaltml's own again with `null`. Each kernel the set gives is
@@ -55,6 +93,7 @@ let generation = 0;
  * used. It affects every model fitted after it, in this thread and in the thread pool's workers.
  */
 export function useKernels(set: KernelSet | null): KernelsInUse {
+  chosen = true;
   for (const name of NAMES) delete replaced[name];
   threads = undefined;
   generation++;

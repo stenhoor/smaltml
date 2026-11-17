@@ -25,6 +25,7 @@ import {
   Matrix,
   StandardScaler,
   GroupKFold,
+  crossValidate,
   MultiOutputRegressor,
   accuracyScore,
   logLoss,
@@ -238,6 +239,10 @@ function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol:
     case 'groupkfold':
       expect(new GroupKFold({ nSplits: inp.params.n_splits }).split(inp.groups.length, undefined, inp.groups).map((f) => Array.from(f.test))).toEqual(exp.tests);
       return;
+    case 'cross-validate':
+    case 'grid-multi':
+    case 'grid-train':
+      return checkScorers(c, inp, exp, tol);
     case 'cvscore-groups':
     case 'grid-groups':
       return checkGroups(c, inp, exp, tol);
@@ -335,6 +340,38 @@ function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol:
 function searchModel(name: string) {
   if (name === 'scaled-ridge') return pipeline(new StandardScaler(), new Ridge({ alpha: 2 }));
   return new LogisticRegression({ tol: 1e-10, maxIter: 10000 });
+}
+
+async function checkScorers(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol: Case['tol']): Promise<void> {
+  const cv = new KFold({ nSplits: 5 });
+  if (c.kind === 'cross-validate') {
+    const r = await crossValidate(searchModel(inp.model), inp.X, inp.y, { cv, scoring: inp.scoring, returnTrainScore: true });
+    for (const k of Object.keys(exp.test)) {
+      close(r.test[k]!, exp.test[k], tol, `test ${k}`);
+      close(r.train![k]!, exp.train[k], tol, `train ${k}`);
+    }
+    expect(r.fitTime).toHaveLength(5);
+    return;
+  }
+  const grid = camel(inp.grid) as Record<string, unknown[]>;
+  if (c.kind === 'grid-train') {
+    const g = await new GridSearchCV(searchModel(inp.model), grid, { cv, returnTrainScore: true }).fit(inp.X, inp.y);
+    close(g.cvResults.meanTrainScore!, exp.meanTrain, tol, 'mean train score');
+    close(g.cvResults.stdTrainScore!, exp.stdTrain, { rtol: tol.rtol * 100, atol: tol.atol * 100 }, 'std train score');
+    expect(g.bestParams).toEqual(camel(exp.best));
+    return;
+  }
+  const g = await new GridSearchCV(searchModel(inp.model), grid, { cv, scoring: inp.scoring, refit: inp.refit, returnTrainScore: true }).fit(inp.X, inp.y);
+  for (const [k, e] of Object.entries(exp.scores as Record<string, any>)) {
+    const r = g.cvResultsByScorer.scores[k]!;
+    close(r.meanTestScore, e.meanTest, tol, `${k} mean test`);
+    expect(Array.from(r.rankTestScore), `${k} rank`).toEqual(e.rankTest);
+    close(r.meanTrainScore!, e.meanTrain, tol, `${k} mean train`);
+    close(r.stdTrainScore!, e.stdTrain, { rtol: tol.rtol * 100, atol: tol.atol * 100 }, `${k} std train`);
+  }
+  expect(g.bestIndex).toBe(exp.bestIndex);
+  expect(g.bestParams).toEqual(camel(exp.best));
+  close([g.bestScore], [exp.bestScore], tol, 'best score');
 }
 
 async function checkGroups(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol: Case['tol']): Promise<void> {

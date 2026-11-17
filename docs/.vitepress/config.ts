@@ -135,6 +135,7 @@ export default defineConfig({
               { text: 'StratifiedKFold', link: '/reference/selection/stratified-k-fold' },
               { text: 'GroupKFold', link: '/reference/selection/group-k-fold' },
               { text: 'crossValScore', link: '/reference/selection/cross-val-score' },
+              { text: 'crossValidate', link: '/reference/selection/cross-validate' },
               { text: 'GridSearchCV', link: '/reference/selection/grid-search-cv' },
             ],
           },

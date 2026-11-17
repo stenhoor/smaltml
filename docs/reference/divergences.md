@@ -24,6 +24,8 @@ have something yet, it fails with an error rather than give a different answer. 
 | `StandardScaler.partialFit`, a column with no value in the first batch | `NaN` for that column from then on | The column's statistics over the values seen, as `fit` on every row gives |
 | Several targets (a `y` with columns) on `LinearRegression`, `Ridge`, `Lasso`, `ElasticNet` | `coef_` a matrix, `intercept_` a vector, `predict` a matrix; `n_iter_` a list | `coefs`, `intercepts` and `predictTargets`; `coef`, `intercept` and `predict` stay for one target and fail with `ML_SHAPE` ([ADR 0037](../adr/0037-several-targets)); `nIter` the most any target took |
 | `groups` with a splitter that doesn't use them | Warns, and splits without them | `ML_PARAM`: the split asked for isn't made |
+| `crossValidate`'s result | One dictionary: `test_r2`, `train_r2`, `fit_time`, `score_time` | `test.r2`, `train.r2`, `fitTime`, `scoreTime` |
+| `GridSearchCV` with several scorers | `mean_test_<name>` and the rest in `cv_results_` | `cvResultsByScorer.scores[name]`; `cvResults` is for one scorer and fails with several |
 | A fit that stops before it converges | A `ConvergenceWarning` | A console warning, `ML_CONVERGENCE`, and `converged` `false`: an attribute scikit-learn doesn't have |
 
 ## Between JavaScript engines
@@ -55,8 +57,8 @@ Each of these fails with `ML_PARAM` or isn't a parameter yet:
 - `StratifiedKFold`: the same guarantees as scikit-learn's, but its own allocation, so the folds can differ.
 - `GroupKFold`: `shuffle` and `random_state`. Other group splitters (`LeaveOneGroupOut`, `GroupShuffleSplit`,
   `StratifiedGroupKFold`).
-- `crossValScore` and `GridSearchCV`: weights or other fit parameters (`params`), `n_jobs`, `error_score`,
-  `return_train_score`, several scorers at once, and a `refit` that names a scorer.
+- `crossValScore`, `crossValidate` and `GridSearchCV`: weights or other fit parameters (`params`), `n_jobs`,
+  `error_score`, a callable `refit`; `crossValidate`'s `return_estimator` and `return_indices`.
 - `rocAucScore`: `'ovo'` and `max_fpr`. The classification metrics: `sample_weight`, and the warning on a zero
   denominator.
 - `StandardScaler`: `sample_weight`.

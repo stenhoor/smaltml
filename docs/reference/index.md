@@ -38,6 +38,7 @@ From `@smaltworks/smaltml/selection`:
 - [`KFold`](./selection/k-fold), [`StratifiedKFold`](./selection/stratified-k-fold), [`GroupKFold`](./selection/group-k-fold):
   folds for cross-validation.
 - [`crossValScore`](./selection/cross-val-score): a score per fold.
+- [`crossValidate`](./selection/cross-validate): scores per fold for several scorers, on test and training rows.
 - [`GridSearchCV`](./selection/grid-search-cv): the best of a grid of parameters, by cross-validation.
 
 ## Pipelines

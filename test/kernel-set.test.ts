@@ -51,6 +51,7 @@ function data() {
 const { X, y, y2 } = data();
 
 type Fittable = { fitSync(X: Matrix, y: Float64Array): { toJSON(): unknown }; fit(X: Matrix, y: Float64Array, o: object): Promise<{ toJSON(): unknown }> };
+const y3 = Float64Array.from(y, (v) => (v < -0.3 ? 0 : v < 0.3 ? 1 : 2));
 const models: [string, () => Fittable, () => Float64Array][] = [
   ['LinearRegression', () => new LinearRegression(), () => y],
   ['Ridge', () => new Ridge({ alpha: 3 }), () => y],
@@ -59,10 +60,16 @@ const models: [string, () => Fittable, () => Float64Array][] = [
   ['LogisticRegression, newton-cholesky', () => new LogisticRegression({ solver: 'newton-cholesky' }), () => y2],
 ];
 
+/** The fits on the logistic objective, by lbfgs: they call the row kernels. */
+const logistic: [string, () => Fittable, () => Float64Array, 'binaryLogisticRows' | 'multinomialLogisticRows'][] = [
+  ['LogisticRegression, 2 classes', () => new LogisticRegression({ maxIter: 20 }), () => y2, 'binaryLogisticRows'],
+  ['LogisticRegression, 3 classes', () => new LogisticRegression({ maxIter: 20 }), () => y3, 'multinomialLogisticRows'],
+];
+
 describe('useKernels', () => {
   test('starts with smaltml\'s own kernels, and null puts them back', () => {
     expect(kernelsInUse()).toEqual({ name: 'smaltml', kernels: [], rejected: [] });
-    expect(useKernels(plugin())).toEqual({ name: 'nudged', kernels: ['gramPart', 'matMul'], rejected: [] });
+    expect(useKernels(plugin())).toEqual({ name: 'nudged', kernels: ['gramPart', 'matMul', 'binaryLogisticRows', 'multinomialLogisticRows'], rejected: [] });
     expect(kernelsInUse().name).toBe('nudged');
     const replaced = gram(X);
     expect(useKernels(null)).toEqual({ name: 'smaltml', kernels: [], rejected: [] });
@@ -104,6 +111,35 @@ describe('useKernels', () => {
     }
   });
 
+  test('lbfgs logistic fits use the row kernels, and give other last bits with them', () => {
+    for (const [name, make, target, kernel] of logistic) {
+      const own = make().fitSync(X, target()).toJSON();
+      useKernels(plugin());
+      const before = calls[kernel];
+      const replaced = make().fitSync(X, target()).toJSON();
+      expect(calls[kernel], name).toBeGreaterThan(before);
+      expect(replaced, name).not.toEqual(own);
+      useKernels(null);
+    }
+  });
+
+  test('a row kernel that is off by more than rounding isn\'t used', () => {
+    const set = plugin();
+    const wrong: KernelSet = {
+      name: 'wrong rows',
+      version: KERNELS_VERSION,
+      kernels: {
+        binaryLogisticRows: (z, y, w, at, m, loss) => set.kernels.binaryLogisticRows!(z, y, w, at, m, loss) + 1e-6,
+        multinomialLogisticRows: (z, stride, K, y, w, at, m, loss) => {
+          const out = set.kernels.multinomialLogisticRows!(z, stride, K, y, w, at, m, loss);
+          z[0]! += 1e-6;
+          return out;
+        },
+      },
+    };
+    expect(useKernels(wrong).rejected).toEqual(['binaryLogisticRows', 'multinomialLogisticRows']);
+  });
+
   test('a kernel that fails the check at start isn\'t used', () => {
     const wrong: KernelSet = {
       name: 'wrong',
@@ -134,7 +170,7 @@ describe('useKernels', () => {
 });
 
 describe('replaced kernels on several threads', () => {
-  for (const [name, make, target] of models) {
+  for (const [name, make, target] of [...models, ...logistic.map(([a, b, c]) => [a, b, c] as const)]) {
     test(`${name}: the workers load the set, and fits equal fitSync, bit for bit`, async () => {
       useKernels(plugin({ module: pluginModule }));
       const one = make().fitSync(X, target()).toJSON();

@@ -16,14 +16,18 @@ interface KernelSet {
   kernels: {
     gramPart?: (X: Matrix, mean: ArrayLike<number> | undefined, from: number, to: number, weights?: ArrayLike<number>, ones?: boolean) => Float64Array;
     matMul?: (n: number, p: number, k: number, a: Float64Array, b: Float64Array) => Float64Array;
+    binaryLogisticRows?: (z: Float64Array, y: Int32Array, weights: ArrayLike<number> | undefined, at: number, m: number, loss: number) => number;
+    multinomialLogisticRows?: (z: Float64Array, stride: number, K: number, y: Int32Array, weights: ArrayLike<number> | undefined, at: number, m: number, loss: number) => number;
   };
   threads?: { module: string | URL; options?: unknown };
 }
 
+type KernelName = 'gramPart' | 'matMul' | 'binaryLogisticRows' | 'multinomialLogisticRows';
+
 interface KernelsInUse {
   name: string;
-  kernels: ('gramPart' | 'matMul')[];
-  rejected: ('gramPart' | 'matMul')[];
+  kernels: KernelName[];
+  rejected: KernelName[];
 }
 ```
 
@@ -46,6 +50,12 @@ Nothing in smaltml looks for a plugin, and the models and solvers don't change; 
       `newton-cholesky`.
     - `matMul`: A · B, A n × p and B p × k, both column by column: n × k, column by column. It is behind `matMulSync`
       and `matMul` on the CPU.
+    - `binaryLogisticRows`: the binary logistic objective's step over rows `at` to `at + m − 1`, whose scores are
+      `z[0]` to `z[m − 1]`. It returns `loss` plus their loss, Σ w (log(1 + eᶻ) − y z), and replaces each score by its
+      residual w (σ(z) − y). It is behind LogisticRegression's `lbfgs` fits with two classes.
+    - `multinomialLogisticRows`: the same for K classes, whose scores are `z[c · stride + i]`. It returns `loss` plus
+      Σ w (max + log Σ e^(z − max) − z_y), and replaces each score by its residual w (softmax − one-hot). It is behind
+      `lbfgs` fits with more classes.
   - `threads`: how the thread pool's workers load the same kernels: each imports `module`, and calls its default
     export with `options` for the set. Without it, fits run on one thread while the set is in use.
 

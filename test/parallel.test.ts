@@ -52,6 +52,9 @@ describe('the thread pool', () => {
   });
 });
 
+/** For the tests that fit logistic models on one thread and on several: slow next to other test files on few cores. */
+const FITS_TIMEOUT = 30_000;
+
 describe('fits on several threads equal fitSync, bit for bit', () => {
   const cases = [
     ['LinearRegression', () => new LinearRegression(), () => y],
@@ -73,7 +76,8 @@ describe('fits on several threads equal fitSync, bit for bit', () => {
         const many = await (make() as { fit(X: Matrix, y: Float64Array, o: object): Promise<{ toJSON(): unknown }> }).fit(X, target(), { threads });
         expect(many.toJSON(), `${threads} threads`).toEqual(one.toJSON());
       }
-    });
+      // Three fits; a 3-class newton-cholesky fit takes 4–5 s on one 4-core machine alone, past vitest's default 5 s.
+    }, FITS_TIMEOUT);
   }
 
   test('several targets on several threads equal fitSync', async () => {
@@ -115,6 +119,6 @@ describe('weighted fits on several threads equal fitSync, bit for bit', () => {
       const one = make().fitSync(X, target, { sampleWeight: w });
       const many = await make().fit(X, target, { threads: 4, sampleWeight: w });
       expect(many.toJSON()).toEqual(one.toJSON());
-    });
+    }, FITS_TIMEOUT);
   }
 });

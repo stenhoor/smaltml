@@ -39,8 +39,8 @@ other:
 
 - **Measured fresh, together.** smaltml, smaltml with SIMD and scikit-learn, run in turn on the same machine in the
   same session, three times each, compared on the median. On one thread:
-  `node bench/smaltml.mjs`, `node bench/smaltml.mjs --simd ../smaltml-simd/dist/smaltml-simd-kernels.js` and
-  `OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python3 bench/reference.py`, after `npm run build` here and in the plugin.
+  `node bench/smaltml.mjs`, `node bench/smaltml.mjs --simd` and
+  `OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python3 bench/reference.py`, after `npm run build`.
   Never an older run, another machine's numbers, or a figure from a document, mixed in.
 - **One table per data size:** each operation, scikit-learn's time, and smaltml ÷ scikit-learn without and with SIMD
   (below 1 is faster than scikit-learn).
@@ -53,7 +53,8 @@ other:
 | Command | What it does |
 | --- | --- |
 | `npm ci` | Installs dependencies |
-| `npm run check` | Typecheck (TypeScript 7, the `typescript7` dev dependency), then the tests (vitest): the compare cases, every docs example, the entry points. Before every commit |
+| `npm run check` | Typecheck (TypeScript 7, the `typescript7` dev dependency), then the tests (vitest), on smaltml's own TypeScript kernels: the compare cases, every docs example, the entry points. Before every commit |
+| `npm run test:simd` | The compare, parallel and hardware tests with the SIMD kernels on (`test/simd-setup.ts`), plain and with fused multiply-add. CI runs it. Before pushing a change to `src/simd/` or to a kernel |
 | `npm run test:browser` | In headless Chromium: Run on every playground of the site (`test/browser/docs.mjs`), then WebGPU and the worker against the CPU (`test/browser/hardware.mjs`, WebGPU on SwiftShader). CI runs it |
 | `npm run bench` / `bench:python` / `bench:report` | Times smaltml and scikit-learn on the same data; the report writes docs/research/benchmarks.md. Rerun after performance work |
 | `npm run bench:gpu` | Times WebGPU against the CPU in Chromium on a real GPU (refuses SwiftShader); needs a machine with one. `-- --browser PATH` for a Chromium other than Playwright's |
@@ -77,6 +78,16 @@ Playwright is a dev dependency, pinned to CI's version (1.64.1). Its Chromium is
 - **The CPU path is the product** (section 3): 64-bit floats, every browser, Node. WebGPU is an accelerator, checked
   against the CPU within a stated tolerance (`test/browser/hardware.mjs`). On the CPU, an asynchronous call gives
   exactly its `*Sync` twin's result.
+- **The SIMD kernels** ([ADR 0040](docs/adr/0040-simd-kernels-in-smaltml.md), carrying ADR 0035) are
+  `src/simd/`, the entry `@smaltworks/smaltml/simd`, and the only WebAssembly in smaltml. They replace kernels only
+  through `useKernels`, with smaltml's own kernels' signatures and results, and smaltml checks each at start. They are
+  written by TypeScript at run time with smaltkit's writer (`smaltkit/simd`, folded into `dist/` by the build): no
+  `.wasm` file, no toolchain, every instruction from our own code. Close, not equal: SIMD sums in another order, so
+  results move in the last bits, every compare case passes within its tolerance with them on (`npm run test:simd`),
+  and threaded fits equal `fitSync` exactly (the workers load `dist/smaltml-simd-kernels.js`). Plain SIMD by default;
+  fused multiply-add and the logistic row steps only when asked. A new kernel needs the contract to name it first
+  (`src/core/kernels.ts`), tests against plain loops on odd sizes (`test/simd-*.test.ts`), and the compare tests
+  passing with it on.
 - **Asynchronous API over a synchronous core** (section 5): every `fit`, `predict`, `predictProba` and `transform` has
   a `*Sync` twin; the core touches neither the DOM nor Node.
 - **Entry points** (section 9): each area of `src/` is one, listed in `package.json` `exports`, `scripts/build.mjs`
@@ -96,7 +107,8 @@ Playwright is a dev dependency, pinned to CI's version (1.64.1). Its Chromium is
   (`UPDATE_DOCS=1 npx vitest run test/docs-examples.test.ts` writes them). `<!-- docs:error CODE -->` marks one that
   must fail; `<!-- docs:skip -->` marks a block that isn't run and isn't setup for those below (signatures, sketches).
   `noplay` blocks still run as setup, so don't use them for code that can't run.
-- **No runtime dependencies.** smaltkit is a dev dependency, pinned to a commit, for the site's playgrounds; smaltty is
+- **No runtime dependencies.** smaltkit is a dev dependency, pinned to a commit, for the site's playgrounds and for
+  `smaltkit/simd`, which the build folds into the SIMD entry (ADR 0040); smaltty is
   one, pinned to a release tag (the one smaltkit takes), for `test/smaltty.test.ts`, which checks smaltml's source
   with smaltty beside tsc (the owner's yes, 2026-11-15). Ask the owner before adding any other package.
 - No fixed sleeps in tests. Probe tests (`test/zz-*.test.ts`) are scratch: never commit them.

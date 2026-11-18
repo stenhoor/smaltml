@@ -105,7 +105,7 @@ function sources(dir: string): [string, string][] {
     return statSync(p).isDirectory() ? sources(p) : p.endsWith('.ts') ? [[`/src/${p.slice(SRC.length)}`, readFileSync(p, 'utf8')] as [string, string]] : [];
   });
 }
-const AREAS = ['core', 'preprocessing', 'linear', 'metrics', 'selection', 'pipeline', 'io', 'gpu', 'parallel', 'registry', 'worker'];
+const AREAS = ['core', 'preprocessing', 'linear', 'metrics', 'selection', 'pipeline', 'io', 'gpu', 'parallel', 'registry', 'worker', 'tree', 'simd'];
 const checkTypes = typeChecker({
   files: Object.fromEntries(sources(SRC)),
   packages: { '@smaltworks/smaltml': '/src/index.ts', ...Object.fromEntries(AREAS.map((a) => [`@smaltworks/smaltml/${a}`, `/src/${a}/index.ts`])) },

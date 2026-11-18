@@ -7,7 +7,7 @@ import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
 const res = (f) => JSON.parse(readFileSync(new URL(`./results/${f}`, import.meta.url), 'utf8'));
 const files = readdirSync(new URL('./results', import.meta.url));
 const runs = (prefix) => files.filter((f) => f.startsWith(prefix)).map(res).sort((a, b) => !!a.simd - !!b.simd || a.threads - b.threads);
-// smaltml.json (one thread) and smaltml-N.json (fits on up to N threads); the same with smaltml-simd's kernels,
+// smaltml.json (one thread) and smaltml-N.json (fits on up to N threads); the same with smaltml's SIMD kernels,
 // smaltml-simd.json and smaltml-simd-N.json; scikit-learn-N.json.
 const mls = runs('smaltml');
 const ml = mls[0];
@@ -34,7 +34,7 @@ for (const size of Object.keys(ml.milliseconds)) {
   lines.push('', `Iterations: Lasso ${it.lasso} (scikit-learn ${its?.lasso}), logistic regression ${it.logistic2} and ${it.logistic3} (scikit-learn ${its?.logistic2} and ${its?.logistic3}).`, '');
 }
 const simd = mls.find((m) => m.simd);
-if (simd) lines.push(`"SIMD" columns: smaltml with smaltml-simd's kernels (${simd.simd.name}: ${simd.simd.kernels.join(', ')}), its defaults, as smaltml turns it on where it is installed. The others use smaltml's own kernels.`, '');
+if (simd) lines.push(`"SIMD" columns: smaltml with its SIMD kernels (${simd.simd.name}: ${simd.simd.kernels.join(', ')}), their defaults, as smaltml turns them on by itself. The others use smaltml's own TypeScript kernels.`, '');
 lines.push(`Run ${ml.date}: ${ml.library} on ${ml.runtime}; ${sk.map((s) => `${s.library} on ${s.runtime} (${s.blas})`)[0]}. CPU: ${ml.cpu}. smaltml's runs on several threads use fit() with threads 'auto' (up to that many); predictions and StandardScaler run on one thread in every smaltml column.`);
 
 // WebGPU against the CPU, in the browser: bench/gpu.mjs.

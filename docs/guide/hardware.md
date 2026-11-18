@@ -34,29 +34,43 @@ Elsewhere, fits run on one thread with the same result. `sharedMemoryAvailable()
 [`configureThreads`](../reference/parallel/configure-threads) sets where the workers' script is, for bundlers that
 move it, and the most threads `'auto'` uses.
 
-## Plugin kernels
+## SIMD kernels
 
-smaltml's kernels are TypeScript, and JavaScript has no SIMD. A plugin can replace the heaviest of them, such as the
-XᵀX behind the linear models, with its own: smaltml-simd's run on WebAssembly SIMD
-([ADR 0035](../adr/0035-simd-kernels-in-a-plugin)). Install it, and smaltml uses it: the first asynchronous fit or
-`matMul` looks for it and turns it on. An app that doesn't install it runs exactly as without it.
+smaltml's kernels are TypeScript, and JavaScript has no SIMD. smaltml also has the heaviest of them written as
+WebAssembly SIMD ([ADR 0040](../adr/0040-simd-kernels-in-smaltml)): XᵀX, behind the linear models and
+`newton-cholesky`; the matrix product, behind `matMulSync`; and the logistic objectives' products over X, behind
+LogisticRegression's `lbfgs` and `newton-cholesky`. They are in their own entry point, `@smaltworks/smaltml/simd`,
+written from TypeScript at run time: no `.wasm` file and no dependency.
 
-The plugin calls [`useKernels`](../reference/use-kernels). Each kernel it gives is checked first against smaltml's
-own, and the thread pool's workers load the same kernels, so a fit on several threads still gives exactly what
-`fitSync` gives. Results move in the last bits, since the plugin sums in another order: close to smaltml's own, not
-equal, and within every compare case's tolerance against scikit-learn. `kernelsInUse()` says which kernels run.
+smaltml turns them on by itself where the engine has WebAssembly SIMD (Chrome 91, Firefox 89, Safari 16.4, Node,
+and later): the first asynchronous fit or `matMul` does. They go through [`useKernels`](../reference/use-kernels):
+each kernel is checked first against smaltml's own, and the thread pool's workers load the same kernels, so a fit on
+several threads still gives exactly what `fitSync` gives. Results move in the last bits, since SIMD sums in another
+order: close to smaltml's own, not equal, and within every compare case's tolerance against scikit-learn.
+`kernelsInUse()` says which kernels run.
 
-<!-- docs:skip -->
+- **Synchronous code first:** the `*Sync` calls don't turn them on. `await kernelsReady()` first, and they use them
+  from the start; otherwise they use smaltml's own kernels until the first asynchronous call.
+- **Bundled apps:** a bundler doesn't follow smaltml's look-up, so an app that bundles smaltml imports
+  `@smaltworks/smaltml/simd` and calls [`useSimd()`](../reference/simd/use-simd) itself, and copies
+  `smaltml-simd-kernels.js` beside its bundle for the thread pool's workers.
+- **Options:** `useSimd({ fusedMultiplyAdd: true })` where the engine has relaxed SIMD, a little faster, with last bits
+  that can differ between processors; `useSimd({ logistic: true })`, the logistic row steps on SIMD too. Both are off
+  by default.
+- **Turning them off:** [`useKernels(null)`](../reference/use-kernels), before the first asynchronous fit or after: an
+  app's own choice is kept.
+
+[`simdSupport()`](../reference/simd/simd-support) says whether this engine can run them, and fused multiply-add:
+
 ```ts
-import { kernelsReady } from '@smaltworks/smaltml';
+import { simdSupport } from '@smaltworks/smaltml/simd';
 
-await kernelsReady(); // { name: 'smaltml-simd', … } where the plugin is installed; for code that calls *Sync first
+simdSupport()
 ```
 
-In a bundled app, the bundler doesn't follow smaltml's look-up: import the plugin and call `await useSimd()` from
-`@smaltworks/smaltml-simd` yourself.
-
-[Plugins](./plugins) lists smaltml's plugins, with what each changes and its benchmark.
+| simd | relaxed |
+| --- | --- |
+| true | true |
 
 ## Choosing the device
 
@@ -142,5 +156,4 @@ the worker is the same code as a fit on the page, so it gives the same result, b
 
 - [`matMul`](../reference/gpu/mat-mul), [`gpuAvailable`](../reference/gpu/gpu-available),
   [`configureThreads`](../reference/parallel/configure-threads), [`useKernels`](../reference/use-kernels),
-  [Plugins](./plugins),
-  [`startWorker`](../reference/worker/start-worker), [`connect`](../reference/worker/connect)
+  [`useSimd`](../reference/simd/use-simd), [`startWorker`](../reference/worker/start-worker), [`connect`](../reference/worker/connect)

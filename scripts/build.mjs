@@ -18,6 +18,7 @@ export const entries = {
   pipeline: 'src/pipeline/index.ts',
   multioutput: 'src/multioutput/index.ts',
   tree: 'src/tree/index.ts',
+  simd: 'src/simd/index.ts',
   io: 'src/io/index.ts',
   gpu: 'src/gpu/index.ts',
   registry: 'src/registry/index.ts',
@@ -30,6 +31,8 @@ export const entries = {
 export const workerScripts = {
   'smaltml-worker': 'src/worker/worker.ts',
   'smaltml-threads': 'src/parallel/worker.ts',
+  // The SIMD kernel set the thread pool's workers import (src/simd/kernels.ts).
+  'smaltml-simd-kernels': 'src/simd/kernels.ts',
 };
 
 await esbuild.build({

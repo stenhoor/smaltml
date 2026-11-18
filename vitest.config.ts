@@ -12,5 +12,7 @@ export default defineConfig({
   },
   test: {
     include: ['test/**/*.test.ts'],
+    // smaltml's own kernels, unless SMALTML_SIMD=1 (npm run test:simd): then its SIMD kernels.
+    setupFiles: [process.env.SMALTML_SIMD === '1' ? 'test/simd-setup.ts' : 'test/setup.ts'],
   },
 });

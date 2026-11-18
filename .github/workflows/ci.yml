@@ -27,6 +27,20 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  # The compare, parallel and hardware tests with smaltml's SIMD kernels on (ADR 0040): every compare case against
+  # scikit-learn within its tolerance, and threaded fits equal to fitSync, with plain SIMD and with fused multiply-add.
+  simd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:simd
+
   # Every playground of the docs site, run in Chromium, must show its page's tested result.
   browser:
     runs-on: ubuntu-latest

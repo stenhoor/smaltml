@@ -1,5 +1,5 @@
 /**
- * The core: smaltml's matrix, errors, model interfaces, seeded random numbers, and the kernels a plugin can replace.
+ * The core: smaltml's matrix, errors, model interfaces, seeded random numbers, and the kernels another set can replace.
  * @module
  */
 export { Matrix, type MatrixInput, type VectorInput } from './matrix.js';

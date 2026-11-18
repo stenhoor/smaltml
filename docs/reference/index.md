@@ -82,8 +82,10 @@ From `@smaltworks/smaltml/selection`:
 
 - [`matMul`](./gpu/mat-mul): the matrix product, on the CPU or the GPU. `@smaltworks/smaltml/gpu`
 - [`gpuAvailable`](./gpu/gpu-available): whether WebGPU is there. `@smaltworks/smaltml/gpu`
-- [`useKernels`](./use-kernels): a plugin's kernels, such as smaltml-simd's, in place of smaltml's own.
+- [`useKernels`](./use-kernels): other kernels in place of smaltml's own, such as its SIMD kernels.
   `@smaltworks/smaltml/core`
+- [`useSimd`](./simd/use-simd) and [`simdSupport`](./simd/simd-support): smaltml's WebAssembly SIMD kernels, and
+  whether the engine can run them. `@smaltworks/smaltml/simd`
 - [`startWorker`](./worker/start-worker) and [`connect`](./worker/connect): smaltml in a Web Worker.
   `@smaltworks/smaltml/worker`
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { binaryLogistic, gram, multinomialLogistic, xtv, xw } from '../src/core/kernels.js';
+import { binaryLogistic, gram, multinomialLogistic, xtv, xw, xwEach } from '../src/core/kernels.js';
 import { leastSquares } from '../src/core/linalg.js';
 import { Matrix } from '../src/core/matrix.js';
 import { Random } from '../src/core/random.js';
@@ -34,6 +34,19 @@ describe('the kernels equal plain loops', () => {
         near(g, Float64Array.from({ length: p }, (_, j) => { let s = 0; for (let i = 0; i < n; i++) s += at(i, j, m) * v[i]!; return s; }), 1e-9);
         const w = Float64Array.from({ length: p }, (_, j) => Math.sin(j + 1));
         near(xw(X, w, 0.5, m), Float64Array.from({ length: n }, (_, i) => { let s = 0.5; for (let j = 0; j < p; j++) s += at(i, j, m) * w[j]!; return s; }));
+      }
+    });
+
+    test(`xwEach equals xw class by class, bit for bit, on ${n} × ${p}`, () => {
+      for (const k of [1, 2, 3, 4, 5, 7]) {
+        const ws = Array.from({ length: k }, (_, c) => Float64Array.from({ length: p }, (_, j) => Math.sin(c * 31 + j) * (j % 3 === 0 ? 0 : 1)));
+        const bs = Array.from({ length: k }, (_, c) => 0.25 * c - 0.4);
+        // A range of rows that starts and ends inside blocks, as the threads' chunks do.
+        const from = Math.floor(n / 3);
+        const to = n - Math.floor(n / 5);
+        const outs = ws.map(() => new Float64Array(n));
+        xwEach(X, ws, bs, outs, from, to);
+        for (let c = 0; c < k; c++) expect(outs[c]).toEqual(xw(X, ws[c]!, bs[c]!, undefined, new Float64Array(n), from, to));
       }
     });
 

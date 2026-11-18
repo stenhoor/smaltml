@@ -7,8 +7,9 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { gram, xtv, xw } from '../src/core/kernels.js';
 import { Matrix } from '../src/core/matrix.js';
 import { Random } from '../src/core/random.js';
-import { ElasticNet, Lasso, LinearRegression, LogisticRegression, Ridge, StandardScaler, configureThreads, pipeline, stopThreads } from '../src/index.js';
+import { ElasticNet, Lasso, LinearRegression, LogisticRegression, RandomForestClassifier, RandomForestRegressor, Ridge, StandardScaler, configureThreads, pipeline, stopThreads } from '../src/index.js';
 import { gramParallel, threadPool, xtvParallel, xwParallel } from '../src/parallel/index.js';
+import { growOnThreads } from '../src/ensemble/threads.js';
 
 // The workers run the built script; the tests bundle it from the source once.
 beforeAll(async () => {
@@ -121,4 +122,51 @@ describe('weighted fits on several threads equal fitSync, bit for bit', () => {
       expect(many.toJSON()).toEqual(one.toJSON());
     }, FITS_TIMEOUT);
   }
+});
+
+describe('forests grown on several threads equal fitSync, bit for bit (ADR 0039, item 5)', () => {
+  // 600 named rows: threads asked for by number, so the pool runs below the 'auto' threshold.
+  const r = new Random(23);
+  const cols = { a: [] as number[], b: [] as number[], c: [] as number[], d: [] as number[] };
+  for (let i = 0; i < 600; i++) for (const k of ['a', 'b', 'c', 'd'] as const) cols[k].push(r.next() * 4 - 2);
+  const yr = cols.a.map((a, i) => a * 2 - cols.b[i]! + Math.sin(3 * cols.c[i]!) + 0.2 * r.next());
+  const yc = yr.map((v) => (v > 1 ? 'high' : v > -1 ? 'mid' : 'low'));
+  const weights = yr.map((_, i) => 0.5 + (i % 5));
+
+  test.each([
+    ['defaults, out of bag', { nEstimators: 13, oobScore: true }, undefined],
+    ['sample weights, a share of the rows', { nEstimators: 9, maxSamples: 0.6, oobScore: true }, weights],
+    ['no bootstrap', { nEstimators: 5, bootstrap: false, maxFeatures: 2 }, weights],
+  ] as const)('regressor: %s', async (_name, params, sampleWeight) => {
+    const opts = sampleWeight ? { sampleWeight } : {};
+    const one = new RandomForestRegressor({ ...params, seed: 4 }).fitSync(cols, yr, opts);
+    const three = await new RandomForestRegressor({ ...params, seed: 4 }).fit(cols, yr, { ...opts, threads: 3 });
+    expect(three.toJSON()).toEqual(one.toJSON());
+    expect(Array.from(three.predictSync(cols))).toEqual(Array.from(one.predictSync(cols)));
+    if ('oobScore' in params) expect(Array.from(three.oobPrediction)).toEqual(Array.from(one.oobPrediction));
+  }, FITS_TIMEOUT);
+
+  test.each([
+    ['defaults, out of bag', { nEstimators: 11, oobScore: true }, undefined],
+    ['balanced, sample weights', { nEstimators: 7, classWeight: 'balanced', criterion: 'entropy', oobScore: true }, weights],
+  ] as const)('classifier: %s', async (_name, params, sampleWeight) => {
+    const opts = sampleWeight ? { sampleWeight } : {};
+    const one = new RandomForestClassifier({ ...params, seed: 8 }).fitSync(cols, yc, opts);
+    const three = await new RandomForestClassifier({ ...params, seed: 8 }).fit(cols, yc, { ...opts, threads: 3 });
+    expect(three.toJSON()).toEqual(one.toJSON());
+    expect(Array.from(three.predictProbaSync(cols).data)).toEqual(Array.from(one.predictProbaSync(cols).data));
+    expect(Array.from(three.oobDecisionFunction.data)).toEqual(Array.from(one.oobDecisionFunction.data));
+  }, FITS_TIMEOUT);
+
+  test('the pool grows the trees, not this thread', async () => {
+    const m = Matrix.from(cols);
+    const job = { classifier: false, X: m, y: Float64Array.from(yr), weights: null, params: {}, bootstrap: true, draws: m.rows, oob: false };
+    const grown = await growOnThreads(3, job, [1, 2, 3, 4]);
+    expect(grown).not.toBeNull();
+    expect(grown!.map((g) => g.tree.kind)).toEqual(Array(4).fill('DecisionTreeRegressor'));
+  });
+
+  test('a missing value fails with its code before any thread starts', async () => {
+    await expect(new RandomForestRegressor({ nEstimators: 2 }).fit({ a: [1, NaN, 3] }, [1, 2, 3], { threads: 3 })).rejects.toMatchObject({ code: 'ML_VALUE' });
+  });
 });

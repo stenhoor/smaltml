@@ -108,6 +108,18 @@ window.results = (async () => {
     const one = make().fitSync(T, target);
     check(JSON.stringify(many.toJSON()) === JSON.stringify(one.toJSON()), what + ' on 4 threads equals fitSync, bit for bit');
   }
+  // Forests (ADR 0039, item 5): each worker grows whole trees from their streams, so the forest equals fitSync's.
+  const F = matrix(1500, 6, 2);
+  const fY = Array.from({ length: 1500 }, (_, i) => F.data[i] * 2 - F.data[1500 + i]);
+  const fLabels = fY.map((v) => (v > 0.5 ? 'high' : v > -0.5 ? 'mid' : 'low'));
+  for (const [what, make, target] of [
+    ['RandomForestRegressor', () => new ml.RandomForestRegressor({ nEstimators: 8, oobScore: true, seed: 3 }), fY],
+    ['RandomForestClassifier', () => new ml.RandomForestClassifier({ nEstimators: 8, oobScore: true, seed: 3 }), fLabels],
+  ]) {
+    const many = await make().fit(F, target, { threads: 4 });
+    const one = make().fitSync(F, target);
+    check(JSON.stringify(many.toJSON()) === JSON.stringify(one.toJSON()), what + ' on 4 threads equals fitSync, bit for bit');
+  }
   // A plugin's kernels (ADR 0035): the workers import the set's module, so threaded fits still equal fitSync.
   const plugin = (await import('/kernel-plugin.js')).default;
   const own = new ml.Ridge().fitSync(T, tY).toJSON();

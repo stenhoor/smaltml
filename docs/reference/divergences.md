@@ -56,7 +56,7 @@ Each of these fails with `ML_PARAM` or isn't a parameter yet:
   down a learned side), `ccp_alpha` (cost-complexity pruning) and `cost_complexity_pruning_path`, the criteria
   `absolute_error` and `poisson`, `monotonic_cst`, several outputs, `decision_path`, `export_text` and `plot_tree`.
 - `RandomForestRegressor` and `RandomForestClassifier`: what the trees don't support (above); `classWeight:
-  'balanced_subsample'`, `warm_start`, `n_jobs` (trees are grown one after another), `monotonic_cst`, `apply` and
+  'balanced_subsample'`, `warm_start`, `n_jobs` (`fit`'s `threads` instead), `monotonic_cst`, `apply` and
   `decision_path`, several outputs.
 - `MultiOutputRegressor`: `n_jobs`; `crossValScore` and `GridSearchCV` on it (scikit-learn averages R² over the
   targets), and a `pipeline` that ends in it.

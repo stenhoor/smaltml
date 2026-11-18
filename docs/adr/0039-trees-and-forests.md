@@ -41,7 +41,7 @@ Two things make phase 2 unlike phase 1:
       `classWeight`, `sampleWeight`, `seed`; `predict`, `predictProba`, `apply`, `featureImportances`, `getDepth`,
       `getNLeaves`. Missing values (`NaN`) as scikit-learn 1.3+ sends them down a learned side. Saved as JSON.
    2. `RandomForestRegressor` and `RandomForestClassifier`: `nEstimators`, `bootstrap`, `maxSamples`, `oobScore`, the
-      trees' parameters, `seed`; fitted trees in the thread pool (item 5).
+      trees' parameters, `seed`; fitted trees in the thread pool (item 5). Done, 2026-11-18 (below).
    3. `ExtraTreesRegressor` and `ExtraTreesClassifier`: random thresholds, no bootstrap by default.
    Each lands as its own pull request, with its compare cases, reference pages and examples.
 
@@ -96,6 +96,23 @@ What they settled:
   version multiplied the weights by the draws, as earlier scikit-learn did, and the compare tests caught it: with
   `classWeight: 'balanced'`, held-out accuracy was 0.6923 against scikit-learn's 0.6782 (40 seeds each).
 - **Rows no tree left out** get 0 out of bag and count in the score, with a warning (`ML_OOB`), as scikit-learn does.
+
+## Forests on threads (2026-11-18)
+
+Item 5, as decided: `fit` grows the trees on the thread pool (`threads`, default `'auto'`), and the forest equals
+`fitSync`'s to the last bit (test/parallel.test.ts).
+
+- **A stream per tree.** The forest's seed gives each tree one number, its stream; from it the tree draws its bootstrap
+  sample and then its own seed for the column draws (`src/ensemble/grow.ts`). A tree depends only on its stream, so
+  any thread can grow it. This changed what a seeded forest grows from the first release, where one stream gave every
+  tree's draws in turn; that release had been out for minutes, with no saved forests to keep.
+- **Whole trees per worker.** The pool takes a new task, `trees`: X in shared memory, the targets, the weights and a
+  run of streams; each worker grows its trees with the same code as `fitSync` and sends them back as their saved
+  documents, with the out-of-bag rows and predictions. The main thread adds the out-of-bag predictions up in tree
+  order, as `fitSync` does.
+- **When.** `'auto'` uses the pool where X's values times the trees reach `PARALLEL_MIN_VALUES`, as the kernels'
+  threshold counts X's values. X is checked on the main thread first, so a missing value fails with `ML_VALUE`, not
+  a worker's message.
 
 ## Consequences
 

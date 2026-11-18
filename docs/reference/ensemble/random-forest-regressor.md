@@ -22,7 +22,7 @@ class RandomForestRegressor implements Regressor {
     minImpurityDecrease?: number;
     seed?: number;
   });
-  fit(X: MatrixInput, y: VectorInput, options?: { sampleWeight?: ArrayLike<number> }): Promise<this>;
+  fit(X: MatrixInput, y: VectorInput, options?: { sampleWeight?: ArrayLike<number>; threads?: number | 'auto' }): Promise<this>;
   fitSync(X: MatrixInput, y: VectorInput, options?: { sampleWeight?: ArrayLike<number> }): this;
   predict(X: MatrixInput): Promise<Float64Array>;
   predictSync(X: MatrixInput): Float64Array;
@@ -60,6 +60,11 @@ steadier prediction than one deep tree. scikit-learn's
 `fit` and `fitSync` take `sampleWeight`, one weight per row, 0 or more. With `bootstrap`, a row's chance of being drawn
 is in proportion to its weight, and each tree weighs a row by the times it was drawn; without, each tree weighs the
 rows by `sampleWeight`. Both as scikit-learn 1.9 does.
+
+`fit` also takes `threads` (default `'auto'`): the trees grow on several cores where shared memory allows (Node, or a
+cross-origin isolated page) and the work is large enough, each worker growing whole trees. Each tree draws its sample
+and its columns from its own stream, which the forest's `seed` gives, so the forest is `fitSync`'s to the last bit on
+any number of threads ([The CPU, WebGPU and workers](../../guide/hardware)).
 
 ## Returns
 
@@ -99,8 +104,8 @@ forest.predictSync([[2.5, 0], [6.5, 1]])
 
 | value |
 | --- |
-| 2.42 |
-| 5.905 |
+| 2.12 |
+| 6.185 |
 
 ## Working demo
 
@@ -117,7 +122,7 @@ const homes = await new RandomForestRegressor({ nEstimators: 50, oobScore: true,
 
 | importances | oobScore |
 | --- | --- |
-| [0.542105, 0.449431, 0.00846328] | 0.904232 |
+| [0.55509, 0.435206, 0.00970379] | 0.876912 |
 
 ## See also
 

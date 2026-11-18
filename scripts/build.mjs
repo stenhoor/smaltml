@@ -18,6 +18,7 @@ export const entries = {
   pipeline: 'src/pipeline/index.ts',
   multioutput: 'src/multioutput/index.ts',
   tree: 'src/tree/index.ts',
+  ensemble: 'src/ensemble/index.ts',
   simd: 'src/simd/index.ts',
   io: 'src/io/index.ts',
   gpu: 'src/gpu/index.ts',

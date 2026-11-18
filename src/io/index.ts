@@ -8,6 +8,7 @@ import { LinearRegression } from '../linear/linear-regression.js';
 import { LogisticRegression } from '../linear/logistic-regression.js';
 import { ElasticNet, Lasso, Ridge } from '../linear/penalized.js';
 import { DecisionTreeClassifier, DecisionTreeRegressor } from '../tree/index.js';
+import { RandomForestClassifier, RandomForestRegressor } from '../ensemble/index.js';
 import { ColumnTransformer, Pipeline } from '../pipeline/index.js';
 import { MinMaxScaler, OneHotEncoder, OrdinalEncoder, RobustScaler, SimpleImputer, StandardScaler } from '../preprocessing/index.js';
 
@@ -27,6 +28,8 @@ const LOADERS: Record<string, (doc: ModelDocument) => Model> = {
   ElasticNet: (d) => ElasticNet.fromJSON(d),
   DecisionTreeRegressor: (d) => DecisionTreeRegressor.fromJSON(d),
   DecisionTreeClassifier: (d) => DecisionTreeClassifier.fromJSON(d),
+  RandomForestRegressor: (d) => RandomForestRegressor.fromJSON(d),
+  RandomForestClassifier: (d) => RandomForestClassifier.fromJSON(d),
   Pipeline: (d) => Pipeline.fromJSON(d, loadDocument),
   ColumnTransformer: (d) => ColumnTransformer.fromJSON(d, loadDocument),
 };

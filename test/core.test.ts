@@ -22,6 +22,8 @@ import {
   MultiOutputRegressor,
   DecisionTreeClassifier,
   DecisionTreeRegressor,
+  RandomForestClassifier,
+  RandomForestRegressor,
   cloneModel,
   crossValScore,
   crossValidate,
@@ -851,5 +853,92 @@ describe('decision trees', () => {
     expect(code(() => new DecisionTreeRegressor().predictSync(X))).toBe('ML_NOT_FITTED');
     const t = new DecisionTreeRegressor({ seed: 0 }).fitSync(X, y);
     expect(code(() => t.predictSync([[1, 2]]))).toBe('ML_SHAPE');
+  });
+});
+
+describe('random forests', () => {
+  const r = new Random(5);
+  const X = Array.from({ length: 80 }, () => [r.next() * 4, r.next() * 2 - 1, r.next()]);
+  const y = X.map((x) => (x[0]! > 2 ? 5 : 1) + (x[1]! > 0 ? 2 : 0) + x[2]! * 0.1);
+  const labels = X.map((x) => (x[0]! > 2 ? 'big' : x[1]! > 0 ? 'up' : 'down'));
+
+  test('without bootstrap and with every column, every tree is the single tree', () => {
+    const f = new RandomForestRegressor({ nEstimators: 3, bootstrap: false, seed: 1 }).fitSync(X, y);
+    const t = new DecisionTreeRegressor({ seed: 0 }).fitSync(X, y);
+    // The mean of three equal numbers, in floating point: equal to the last bit or two.
+    const p = f.predictSync(X);
+    t.predictSync(X).forEach((v, i) => expect(p[i]).toBeCloseTo(v, 12));
+    expect(f.estimators).toHaveLength(3);
+  });
+
+  test('a seed repeats the forest; fit equals fitSync; it saves and loads', async () => {
+    const a = await new RandomForestClassifier({ nEstimators: 10, seed: 4, oobScore: true }).fit(X, labels);
+    const b = new RandomForestClassifier({ nEstimators: 10, seed: 4, oobScore: true }).fitSync(X, labels);
+    expect(Array.from(a.predictProbaSync(X).data)).toEqual(Array.from(b.predictProbaSync(X).data));
+    expect(a.oobScore).toBe(b.oobScore);
+    expect(a.classes).toEqual(['big', 'down', 'up']);
+    const back = loadModel(saveModel(a)) as RandomForestClassifier;
+    expect(back.predictSync(X)).toEqual(a.predictSync(X));
+    expect(Array.from(back.predictProbaSync(X).data)).toEqual(Array.from(a.predictProbaSync(X).data));
+    expect(back.oobScore).toBe(a.oobScore);
+    expect(back.seed).toBe(4);
+    const reg = new RandomForestRegressor({ nEstimators: 5, maxSamples: 0.5, seed: 2 }).fitSync(X, y, { sampleWeight: X.map((_, i) => 1 + (i % 3)) });
+    const regBack = loadModel(saveModel(reg)) as RandomForestRegressor;
+    expect(Array.from(regBack.predictSync(X))).toEqual(Array.from(reg.predictSync(X)));
+    expect(Array.from(regBack.featureImportances)).toEqual(Array.from(reg.featureImportances));
+    expect(await reg.predict(X)).toEqual(reg.predictSync(X));
+  });
+
+  test('probabilities sum to 1, importances to 1, and the out-of-bag values cover every row', () => {
+    const f = new RandomForestClassifier({ nEstimators: 30, seed: 3, oobScore: true }).fitSync(X, labels);
+    const P = f.predictProbaSync(X);
+    for (let i = 0; i < P.rows; i++) expect(P.column(0)[i]! + P.column(1)[i]! + P.column(2)[i]!).toBeCloseTo(1, 12);
+    expect(f.featureImportances.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 12);
+    // The labels come from the first two columns: the third, noise to them, ranks last.
+    expect(f.featureImportances[2]).toBeLessThan(Math.min(f.featureImportances[0]!, f.featureImportances[1]!));
+    expect(f.oobDecisionFunction.rows).toBe(80);
+    expect(f.oobScore).toBeGreaterThan(0.8);
+    const g = new RandomForestRegressor({ nEstimators: 30, seed: 3, oobScore: true }).fitSync(X, y);
+    expect(g.oobPrediction).toHaveLength(80);
+    expect(g.oobScore).toBeGreaterThan(0.8);
+  });
+
+  test('rows no tree left out: a warning, and 0s, as scikit-learn', () => {
+    const warned = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const f = new RandomForestRegressor({ nEstimators: 1, seed: 1, oobScore: true }).fitSync(X, y);
+      expect(warned.mock.calls.filter(([m]) => String(m).startsWith('smaltml ML_OOB:'))).toHaveLength(1);
+      expect(Array.from(f.oobPrediction).some((v) => v === 0)).toBe(true);
+    } finally {
+      warned.mockRestore();
+    }
+  });
+
+  test('rows of weight 0 are never drawn, so always out of bag', () => {
+    const w = X.map((_, i) => (i < 10 ? 0 : 1));
+    const f = new RandomForestRegressor({ nEstimators: 5, seed: 6 }).fitSync(X, y, { sampleWeight: w });
+    for (const t of f.estimators) expect(t.tree.nSamples[0]).toBeLessThanOrEqual(70);
+  });
+
+  test('in a grid search', async () => {
+    const g = await new GridSearchCV(new RandomForestRegressor({ nEstimators: 5, seed: 0 }), { maxDepth: [1, 3] }, { cv: new KFold({ nSplits: 3 }) }).fit(X, y);
+    expect(g.bestParams.maxDepth).toBe(3);
+  });
+
+  test('the errors, and what isn\'t supported yet', () => {
+    expect(code(() => new RandomForestRegressor({ nEstimators: 0 }))).toBe('ML_PARAM');
+    expect(code(() => new RandomForestRegressor({ maxSamples: 0.5, bootstrap: false }))).toBe('ML_PARAM');
+    expect(code(() => new RandomForestRegressor({ oobScore: true, bootstrap: false }))).toBe('ML_PARAM');
+    expect(code(() => new RandomForestRegressor({ maxSamples: 1.5 }))).toBe('ML_PARAM');
+    expect(code(() => new RandomForestRegressor({ maxDepth: 0 }))).toBe('ML_PARAM');
+    expect(code(() => new RandomForestRegressor({ criterion: 'poisson' }))).toBe('ML_PARAM');
+    expect(code(() => new RandomForestClassifier({ classWeight: 'balanced_subsample' as never }))).toBe('ML_PARAM');
+    expect(code(() => new RandomForestClassifier({ classWeight: { nope: 2 } }).fitSync(X, labels))).toBe('ML_PARAM');
+    expect(code(() => new RandomForestRegressor().fitSync(X, y, { sampleWeight: X.map(() => 0) }))).toBe('ML_VALUE');
+    expect(code(() => new RandomForestRegressor().predictSync(X))).toBe('ML_NOT_FITTED');
+    const f = new RandomForestRegressor({ nEstimators: 2, seed: 0 }).fitSync(X, y);
+    expect(code(() => f.oobScore)).toBe('ML_PARAM');
+    expect(code(() => f.oobPrediction)).toBe('ML_PARAM');
+    expect(code(() => f.predictSync([[1, 2]]))).toBe('ML_SHAPE');
   });
 });

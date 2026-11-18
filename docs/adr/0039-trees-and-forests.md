@@ -71,11 +71,31 @@ Two things make phase 2 unlike phase 1:
 ## Still to decide
 
 1. **The statistical margin for forests:** proposed, held-out accuracy within 0.02 and R² within 0.02 of
-   scikit-learn's mean over 5 seeds, on each compare dataset. To be confirmed on the first forest.
+   scikit-learn's mean over 5 seeds, on each compare dataset; then 0.02 on small data and 0.005 on one dataset of 2000
+   rows or more. Set with the first forest, below.
 2. **`export_text` and `plot_tree`:** text export is cheap and useful in the notebooks; plotting belongs to smaltkit's
    charts, not smaltml.
 3. **Speed:** scikit-learn's trees are Cython. The benchmarks (docs/research) will compare from the first tree, as
    phase 1's did.
+
+## The first forests (2026-11-18)
+
+`RandomForestRegressor` and `RandomForestClassifier` landed without threads (item 5 follows in its own pull request).
+What they settled:
+
+- **The margins, measured.** A seed-to-seed spread decides how far two means of a few seeds can fall apart by chance,
+  so each margin is held to at least about three standard errors of that difference, from scikit-learn's spread over
+  30 other seeds on the same data: 0.02 on 120 rows (20 seeds each, as out-of-bag accuracy there varies by about
+  0.02 from seed to seed) and on 2000 rows (5 seeds), and 0.005 for the 2000-row regressor with its defaults (5
+  seeds), whose scores vary least (about 0.0013 R² on the test rows, 0.0025 out of bag). Both the held-out score and
+  the out-of-bag score are checked. A classifier's out-of-bag accuracy on 2000 rows varies by about 0.006, so 0.005
+  would need some 25 seeds; it is held to 0.02.
+- **Weights follow scikit-learn 1.9.** With bootstrap, a row's chance of being drawn is in proportion to its weight
+  (`sampleWeight` times its class weight), and each tree weighs a row by its draws; without, the trees take the
+  weights. `'balanced'` comes from weighted class counts; a `maxSamples` share is of the weights' sum. The first
+  version multiplied the weights by the draws, as earlier scikit-learn did, and the compare tests caught it: with
+  `classWeight: 'balanced'`, held-out accuracy was 0.6923 against scikit-learn's 0.6782 (40 seeds each).
+- **Rows no tree left out** get 0 out of bag and count in the score, with a warning (`ML_OOB`), as scikit-learn does.
 
 ## Consequences
 

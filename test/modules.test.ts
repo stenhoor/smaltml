@@ -12,18 +12,19 @@ const ALLOWED: Record<string, string[]> = {
   preprocessing: ['core', 'preprocessing'],
   linear: ['core', 'linear', 'gpu', 'parallel', 'smaltkit'],
   tree: ['core', 'tree'],
+  ensemble: ['core', 'tree', 'ensemble'],
   // smaltkit, folded into the build: smaltkit/simd's WebAssembly writer for the SIMD kernels, and smaltkit/gpu's
   // device and matrix product for gpu, and so for every area that uses gpu.
   simd: ['core', 'simd', 'smaltkit'],
   metrics: ['core', 'metrics'],
-  selection: ['core', 'selection', 'io', 'metrics', 'preprocessing', 'linear', 'tree', 'pipeline', 'gpu', 'parallel', 'smaltkit'],
+  selection: ['core', 'selection', 'io', 'metrics', 'preprocessing', 'linear', 'tree', 'ensemble', 'pipeline', 'gpu', 'parallel', 'smaltkit'],
   pipeline: ['core', 'pipeline'],
-  multioutput: ['core', 'multioutput', 'io', 'preprocessing', 'linear', 'tree', 'pipeline', 'gpu', 'parallel', 'smaltkit'],
-  io: ['core', 'io', 'preprocessing', 'linear', 'tree', 'pipeline', 'gpu', 'parallel', 'smaltkit'],
+  multioutput: ['core', 'multioutput', 'io', 'preprocessing', 'linear', 'tree', 'ensemble', 'pipeline', 'gpu', 'parallel', 'smaltkit'],
+  io: ['core', 'io', 'preprocessing', 'linear', 'tree', 'ensemble', 'pipeline', 'gpu', 'parallel', 'smaltkit'],
   gpu: ['core', 'gpu', 'smaltkit'],
   parallel: ['core', 'parallel'],
-  registry: ['core', 'registry', 'io', 'preprocessing', 'linear', 'tree', 'pipeline', 'gpu', 'parallel', 'smaltkit'],
-  worker: ['core', 'worker', 'io', 'preprocessing', 'linear', 'tree', 'pipeline', 'gpu', 'parallel', 'smaltkit'],
+  registry: ['core', 'registry', 'io', 'preprocessing', 'linear', 'tree', 'ensemble', 'pipeline', 'gpu', 'parallel', 'smaltkit'],
+  worker: ['core', 'worker', 'io', 'preprocessing', 'linear', 'tree', 'ensemble', 'pipeline', 'gpu', 'parallel', 'smaltkit'],
 };
 
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { exports: Record<string, unknown> };

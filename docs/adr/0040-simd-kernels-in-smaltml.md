@@ -52,7 +52,9 @@ smaltml's dependencies on the plugin's repository. Three places were offered for
 ## Consequences
 
 - One repository and one release for smaltml and its kernels: no pins between them, no plugin site, no second CI.
-- smaltml's package now carries WebAssembly, in one optional entry, which the "WebAssembly: plugins only" rule
-  (smaltworks DECISIONS.md, 2026-11-15) didn't foresee: that record needs updating.
+- **The family's WebAssembly rule holds** (the owner, 2026-11-18): the kernels are TypeScript that writes WebAssembly
+  bytes at run time, compiled live by the engine, not a precompiled binary, so they fit the family's practice
+  ("WebAssembly: plugins only", smaltworks DECISIONS.md, 2026-11-15: our own code from source, optional, narrow,
+  behind a TypeScript interface). That record's wording, which names plugins, is to be brought in line there.
 - Apps get SIMD without installing anything; an app that wants smaltml's own kernels calls `useKernels(null)`.
 - The plugin extension point stays: `useKernels` and the contract are unchanged, for other plugins.

@@ -52,6 +52,10 @@ import { simdSupport } from '@smaltworks/smaltml/simd';
 simdSupport()
 ```
 
+| simd | relaxed |
+| --- | --- |
+| true | true |
+
 ## See also
 
 [`useSimd`](./use-simd), [The CPU, WebGPU and workers](../../guide/hardware)

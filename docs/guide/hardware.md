@@ -60,11 +60,17 @@ order: close to smaltml's own, not equal, and within every compare case's tolera
 - **Turning them off:** [`useKernels(null)`](../reference/use-kernels), before the first asynchronous fit or after: an
   app's own choice is kept.
 
+[`simdSupport()`](../reference/simd/simd-support) says whether this engine can run them, and fused multiply-add:
+
 ```ts
 import { simdSupport } from '@smaltworks/smaltml/simd';
 
-simdSupport() // whether this engine can run them, and fused multiply-add
+simdSupport()
 ```
+
+| simd | relaxed |
+| --- | --- |
+| true | true |
 
 ## Choosing the device
 

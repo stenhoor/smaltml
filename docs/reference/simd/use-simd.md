@@ -75,6 +75,10 @@ useKernels(null);
 ({ on, name: used.name, kernels: used.kernels.join(', ') })
 ```
 
+| on | name | kernels |
+| --- | --- | --- |
+| true | smaltml-simd | gramPart, matMul, logisticProducts |
+
 ## See also
 
 [`simdSupport`](./simd-support), [`useKernels`](../use-kernels), [The CPU, WebGPU and workers](../../guide/hardware)

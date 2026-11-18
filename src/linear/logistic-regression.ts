@@ -1,5 +1,5 @@
 import { fail, warn } from '../core/errors.js';
-import { binaryLogistic, cholesky, choleskySolve, finishLogistic, multinomialLogistic, weightedGram, xw } from '../core/kernels.js';
+import { BLOCK, binaryLogistic, cholesky, choleskySolve, finishLogistic, multinomialLogistic, prepareLogistic, weightedGram, xw } from '../core/kernels.js';
 import { logisticOnGpu } from '../gpu/logistic.js';
 import { minimize, minimizeAsync, type MinimizeResult } from '../core/linalg.js';
 import { logisticParallel, threadPool, weightedGramParallel, xwParallel, type ThreadOptions } from '../parallel/index.js';
@@ -440,6 +440,16 @@ export class LogisticRegression implements Classifier {
       });
       return this.#finish(job, result);
     }
+    // The products kernel, where one is in use, keeps X for this fit; released when the fit ends.
+    const products = prepareLogistic(m);
+    try {
+      return this.#optimize(job, m, target, k, l2, withIntercept, weights, total, products);
+    } finally {
+      products?.release();
+    }
+  }
+
+  #optimize(job: Job, m: Matrix, target: Int32Array, k: number, l2: number, withIntercept: boolean, weights: Float64Array | undefined, total: number, products: ReturnType<typeof prepareLogistic>): this {
     if (this.solver === 'newton-cholesky') {
       const solver =
         k === 1
@@ -451,8 +461,8 @@ export class LogisticRegression implements Classifier {
         r = solver.next(
           c.k === 'objective'
             ? k === 1
-              ? binaryLogistic(m, target, l2, withIntercept, c.x, c.grad, weights, total)
-              : multinomialLogistic(m, target, k, l2, withIntercept, c.x, c.grad, weights, total)
+              ? binaryLogistic(m, target, l2, withIntercept, c.x, c.grad, weights, total, products)
+              : multinomialLogistic(m, target, k, l2, withIntercept, c.x, c.grad, weights, total, products)
             : c.k === 'scores'
               ? xw(m, c.w, c.b)
               : weightedGram(m, c.weights, withIntercept),
@@ -462,8 +472,8 @@ export class LogisticRegression implements Classifier {
     }
     const objective =
       k === 1
-        ? (x: Float64Array, g: Float64Array) => binaryLogistic(m, target, l2, withIntercept, x, g, weights, total)
-        : (x: Float64Array, g: Float64Array) => multinomialLogistic(m, target, k, l2, withIntercept, x, g, weights, total);
+        ? (x: Float64Array, g: Float64Array) => binaryLogistic(m, target, l2, withIntercept, x, g, weights, total, products)
+        : (x: Float64Array, g: Float64Array) => multinomialLogistic(m, target, k, l2, withIntercept, x, g, weights, total, products);
     return this.#finish(job, minimize(objective, job.x0, job.options));
   }
 
@@ -621,9 +631,12 @@ export class LogisticRegression implements Classifier {
     const n = m.rows;
     const k = s.coef.rows;
     const out = new Float64Array(n * k);
-    for (let c = 0; c < k; c++) {
-      const w = Float64Array.from({ length: m.cols }, (_, j) => s.coef.data[j * k + c]!);
-      xw(m, w, s.intercept[c]!, undefined, out.subarray(c * n, (c + 1) * n));
+    const ws = Array.from({ length: k }, (_, c) => Float64Array.from({ length: m.cols }, (_, j) => s.coef.data[j * k + c]!));
+    const outs = Array.from({ length: k }, (_, c) => out.subarray(c * n, (c + 1) * n));
+    // Every class's scores for a block of rows before the next block, so each block of X is read from memory once.
+    for (let r0 = 0; r0 < n; r0 += BLOCK) {
+      const r1 = Math.min(n, r0 + BLOCK);
+      for (let c = 0; c < k; c++) xw(m, ws[c]!, s.intercept[c]!, undefined, outs[c], r0, r1);
     }
     return new Matrix(n, k, out);
   }

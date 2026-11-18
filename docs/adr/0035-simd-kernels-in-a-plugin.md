@@ -2,7 +2,8 @@
 
 - **Status:** accepted, 2026-11-17 (the owner). The owner's direction and decisions of 2026-11-15 are recorded under
   Decision (items 2 and 10); those of 2026-11-17 in items 3, 5 and 8 and under "Still to decide", items 1 and 4. Items 3 and
-  8 were amended on acceptance, as each says.
+  8 were amended on acceptance, as each says. Items 4 and 5 were amended on 2026-11-18 (the owner), as each says: the
+  logistic products as a kernel, and the WebAssembly writer moved to smaltkit (see "Amendments of 2026-11-18").
 - **Date:** 2026-11-15
 - **Amends:** [ADR 0024](./0024-smaltml-scope-and-architecture): section 8 ("Where it is hardest") and "Still to
   decide", item 5 (whether smaltml may write its own WebAssembly kernels).
@@ -126,6 +127,11 @@ The probe isn't in the repository. Its code and benchmark move to smaltml-simd a
    WebAssembly doesn't have as a SIMD instruction. Measured on 2026-11-17, and added: its row steps, with the
    plugin's own exp (amended on acceptance, "Still to decide", item 4).
 
+   Amended 2026-11-18: **the logistic objectives' products too** (X·w and Xᵀr, `logisticProducts`). They are
+   memory-bound when X is read on each evaluation, as above; the kernel keeps its own copy of X for the length of a
+   fit instead, so each evaluation reads it from the kernel's memory and the SIMD arithmetic is what remains. See
+   "Amendments of 2026-11-18".
+
 5. **The plugin writes its WebAssembly from TypeScript, in its own code.** Its kernels are TypeScript functions that
    emit the WebAssembly bytes at run time, as the probe does: no compiler toolchain, no `.wasm` file built elsewhere,
    no outside package, nothing loaded from another site. The code that writes each instruction is in the repository,
@@ -134,6 +140,13 @@ The probe isn't in the repository. Its code and benchmark move to smaltml-simd a
    and a second language and toolchain would cost more than they give. smaltml's side doesn't depend on the plugin's
    language, so the choice can be revisited inside smaltml-simd, by an amendment here, if the kernels outgrow an
    emitter.
+
+   Amended 2026-11-18 (the owner): **the writer is smaltkit's, `smaltkit/simd`.** The encodings, the instruction
+   writer, the module builder, the f64x2 exp, log1p and log, `Room` (a memory that never grows) and `simdSupport` moved
+   from smaltml-simd's `src/wasm/` to smaltkit (stenhoor/smaltkit#51), so any smalt product can write SIMD kernels the
+   same way. Still our own code, still TypeScript writing bytes at run time; smaltml-simd keeps smaltml's kernels and
+   takes smaltkit as its one runtime dependency, pinned to a commit. The modules the kernels write are the same, byte
+   for byte.
 
 6. **Plain SIMD by default; fused multiply-add only when asked** (`useSimd({ fusedMultiplyAdd: true })`, where the
    browser has relaxed SIMD). Plain SIMD gives the same result on every machine; fused multiply-add can differ in the
@@ -167,6 +180,48 @@ The probe isn't in the repository. Its code and benchmark move to smaltml-simd a
     README carries the Official plugin badge with smaltml's mark. Its docs are a plugin site (BRAND.md,
     "Documentation": guide per plugin, API reference), and smaltml's site lists it on a plugins page, as smaltdb.dev
     lists smaltdb's.
+
+## Amendments of 2026-11-18
+
+### The logistic products: `logisticProducts`
+
+A profile of an `lbfgs` fit (200k × 50, 2 classes, one thread, smaltml's own kernels, `main` of 2026-11-18): 75% of the
+time in `binaryLogisticPart`, the products X·w and Xᵀr; 21% in the row step (exp, log); under 1% in the optimizer. A
+SIMD kernel that copied each block of X into its memory on each evaluation spent most of its time on the copy (9.8 ms
+of 17.4 per evaluation, against 4 ms of arithmetic), so the kernel keeps X for the fit.
+
+- **The contract** (still version 1: a kernel added): `logisticProducts(X)` gives `null` (smaltml's own then) or an
+  object with `binaryPart` and `multinomialPart`, the results of smaltml's `binaryLogisticPart` and
+  `multinomialLogisticPart` on that X, the row step passed in (`binaryLogisticRows` or `multinomialLogisticRows`, so
+  the row step stays smaltml's or the plugin's, as item 4 has it), and `release()`.
+- **When:** `lbfgs` and `newton-cholesky` fits prepare it once and release it when the fit ends. The thread pool's
+  workers keep one per X, so a threaded fit equals `fitSync` (item 7).
+- **The cost:** a second copy of X, in the kernel's memory, while a fit runs (80 MB at 200k × 50; one per worker on
+  several threads). Where X won't fit in a WebAssembly memory (4 GiB), the kernel gives `null` and smaltml's own
+  products run.
+- **Checked** at start against smaltml's own parts (1,100 rows of 9 columns, from two starting rows, binary and 3
+  classes, with and without weights and an intercept), in the plugin's tests against plain loops, and by smaltml's
+  compare, parallel and hardware tests with the plugin on (259, plain and with fused multiply-add).
+
+**Measured** on 2026-11-18, on one machine, in the form smaltml's CLAUDE.md sets: smaltml (`841cc18`), smaltml with
+the plugin (`77984a4`: `gramPart`, `matMul`, `logisticProducts`) and scikit-learn 1.9.1, three runs each in turn, one
+thread, compared on the median. Below 1 is faster than scikit-learn.
+
+| 200k × 50 | scikit-learn (ms) | smaltml ÷ scikit-learn | smaltml with SIMD ÷ scikit-learn |
+| --- | ---: | ---: | ---: |
+| LogisticRegression, lbfgs, 2 classes | 1,530 | 1.89× | 1.11× |
+| LogisticRegression, lbfgs, 3 classes | 3,965 | 2.04× | 0.92× |
+| LogisticRegression, newton-cholesky | 771 | 2.74× | 1.14× |
+
+The same run's other operations are in that PR's description. Those builds also had two changes of smaltml's own,
+not of the plugin: predictProba computes every class's scores block by block (X read once, not once per class), and
+`gramPart` takes each row's √weight once rather than once per column.
+
+### The writer in smaltkit
+
+The owner's decision (option 1 of three: the writer as a kit; kernel templates later, when a second product needs
+SIMD; no compiler from JavaScript to SIMD for now). Item 5, amended. smaltworks' DECISIONS.md, "WebAssembly: plugins
+only", still describes the writer as the plugin's: to update there.
 
 ## Consequences
 

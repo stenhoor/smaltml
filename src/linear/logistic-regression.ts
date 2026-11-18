@@ -1,5 +1,5 @@
 import { fail, warn } from '../core/errors.js';
-import { binaryLogistic, cholesky, choleskySolve, finishLogistic, multinomialLogistic, prepareLogistic, weightedGram, xw } from '../core/kernels.js';
+import { BLOCK, binaryLogistic, cholesky, choleskySolve, finishLogistic, multinomialLogistic, prepareLogistic, weightedGram, xw } from '../core/kernels.js';
 import { logisticOnGpu } from '../gpu/logistic.js';
 import { minimize, minimizeAsync, type MinimizeResult } from '../core/linalg.js';
 import { logisticParallel, threadPool, weightedGramParallel, xwParallel, type ThreadOptions } from '../parallel/index.js';
@@ -631,9 +631,12 @@ export class LogisticRegression implements Classifier {
     const n = m.rows;
     const k = s.coef.rows;
     const out = new Float64Array(n * k);
-    for (let c = 0; c < k; c++) {
-      const w = Float64Array.from({ length: m.cols }, (_, j) => s.coef.data[j * k + c]!);
-      xw(m, w, s.intercept[c]!, undefined, out.subarray(c * n, (c + 1) * n));
+    const ws = Array.from({ length: k }, (_, c) => Float64Array.from({ length: m.cols }, (_, j) => s.coef.data[j * k + c]!));
+    const outs = Array.from({ length: k }, (_, c) => out.subarray(c * n, (c + 1) * n));
+    // Every class's scores for a block of rows before the next block, so each block of X is read from memory once.
+    for (let r0 = 0; r0 < n; r0 += BLOCK) {
+      const r1 = Math.min(n, r0 + BLOCK);
+      for (let c = 0; c < k; c++) xw(m, ws[c]!, s.intercept[c]!, undefined, outs[c], r0, r1);
     }
     return new Matrix(n, k, out);
   }

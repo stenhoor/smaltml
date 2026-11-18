@@ -73,19 +73,22 @@ export function ownGramPart(X: Matrix, mean: ArrayLike<number> | undefined, from
   const A = new Float64Array(p * p);
   const B = BLOCK;
   const buf = new Float64Array(B * p);
+  // √weight of each row of the block, once per row.
+  const root = new Float64Array(weights ? B : 0);
   for (let r0 = from; r0 < to; r0 += B) {
     const m = Math.min(B, to - r0);
+    if (weights) for (let i = 0; i < m; i++) root[i] = Math.sqrt(weights[r0 + i]!);
     // Each row times √weight, so the plain sums of products below are the weighted ones.
     for (let j = 0; j < cols; j++) {
       const off = j * n + r0;
       const mu = mean ? mean[j]! : 0;
       const bj = j * B;
-      if (weights) for (let i = 0; i < m; i++) buf[bj + i] = (d[off + i]! - mu) * Math.sqrt(weights[r0 + i]!);
+      if (weights) for (let i = 0; i < m; i++) buf[bj + i] = (d[off + i]! - mu) * root[i]!;
       else for (let i = 0; i < m; i++) buf[bj + i] = d[off + i]! - mu;
     }
     if (ones) {
       const bj = cols * B;
-      if (weights) for (let i = 0; i < m; i++) buf[bj + i] = Math.sqrt(weights[r0 + i]!);
+      if (weights) buf.set(root.subarray(0, m), bj);
       else buf.fill(1, bj, bj + m);
     }
     let j = 0;

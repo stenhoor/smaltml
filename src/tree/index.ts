@@ -128,6 +128,20 @@ function growParams(c: ReturnType<typeof checkParams>, criterion: Criterion, n: 
 }
 
 /** Weights checked: one per row, finite, none negative, not all 0. */
+/** X, the targets and the weights without the rows of weight 0; the same objects where every row has weight. */
+function withWeight(m: Matrix, targets: Targets, weights: Float64Array): { m: Matrix; targets: Targets; weights: Float64Array } {
+  const rows: number[] = [];
+  for (let i = 0; i < weights.length; i++) if (weights[i]! > 0) rows.push(i);
+  if (rows.length === m.rows) return { m, targets, weights };
+  const n = m.rows;
+  const k = rows.length;
+  const data = new Float64Array(k * m.cols);
+  for (let j = 0; j < m.cols; j++) for (let r = 0; r < k; r++) data[j * k + r] = m.data[j * n + rows[r]!]!;
+  const pick = <T extends Float64Array | Int32Array>(a: T): T => a.constructor === Int32Array ? (Int32Array.from(rows, (i) => a[i]!) as T) : (Float64Array.from(rows, (i) => a[i]!) as T);
+  const y = targets.kind === 'regression' ? { kind: 'regression' as const, y: pick(targets.y) } : { kind: 'classes' as const, y: pick(targets.y), K: targets.K };
+  return { m: new Matrix(k, m.cols, data, m.names), targets: y, weights: pick(weights) };
+}
+
 function rowWeights(sampleWeight: VectorInput | undefined, n: number): Float64Array {
   if (sampleWeight === undefined) return new Float64Array(n).fill(1);
   let w: Float64Array;
@@ -252,7 +266,11 @@ abstract class DecisionTree {
     let total = 0;
     for (const w of weights) total += w;
     const seed = this.checked.seed ?? Math.floor(Math.random() * 2 ** 31);
-    return { tree: grow(m, targets, weights, growParams(this.checked, criterion, m.rows, m.cols, total, seed)), seed };
+    // Rows of weight 0 take no part, as in scikit-learn: not in a node's sample count, and not a threshold's neighbour.
+    // Shares of the rows (minSamplesSplit, minSamplesLeaf) stay shares of all of X's.
+    const params = growParams(this.checked, criterion, m.rows, m.cols, total, seed);
+    const kept = withWeight(m, targets, weights);
+    return { tree: grow(kept.m, kept.targets, kept.weights, params), seed };
   }
 
   protected saved(): Record<string, unknown> | null {

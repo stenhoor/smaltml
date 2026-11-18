@@ -713,6 +713,20 @@ for name, params, weights, labels in [
         inputs["sampleWeight"] = tolist(weights)
     case(name, "DecisionTreeClassifier", inputs, tree_expected(m, Xtn, True), {"rtol": 1e-10, "atol": 1e-10})
 
+# Rows of weight 0 take no part in a tree: not in a node's sample count, not a threshold's neighbour.
+swz = np.where(np.arange(80) % 4 == 0, 0.0, swt)
+for name, params in [
+    ("tree regressor: rows of weight 0, leaves of 5 or more", {"min_samples_leaf": 5}),
+    ("tree regressor: rows of weight 0, min_samples_split a share", {"min_samples_split": 0.25, "min_samples_leaf": 2}),
+]:
+    m = DecisionTreeRegressor(random_state=0, **params).fit(Xt, yt, sample_weight=swz)
+    case(name, "DecisionTreeRegressor", {"X": tolist(Xt), "y": tolist(yt), "Xnew": tolist(Xtn), "params": params, "sampleWeight": tolist(swz)},
+         tree_expected(m, Xtn, False), {"rtol": 1e-10, "atol": 1e-10})
+params = {"max_depth": 3, "min_samples_leaf": 5}
+m = DecisionTreeClassifier(random_state=0, **params).fit(Xt, yc3, sample_weight=swz)
+case("tree classifier: rows of weight 0", "DecisionTreeClassifier", {"X": tolist(Xt), "y": tolist(yc3), "Xnew": tolist(Xtn), "params": params, "sampleWeight": tolist(swz)},
+     tree_expected(m, Xtn, True), {"rtol": 1e-10, "atol": 1e-10})
+
 out = {
     "comment": "Written by compare/run.py (npm run compare); don't edit by hand.",
     "reference": {"scikit-learn": sklearn.__version__, "numpy": np.__version__},

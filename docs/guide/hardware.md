@@ -39,7 +39,7 @@ move it, and the most threads `'auto'` uses.
 smaltml's kernels are TypeScript, and JavaScript has no SIMD. smaltml also has the heaviest of them written as
 WebAssembly SIMD ([ADR 0040](../adr/0040-simd-kernels-in-smaltml)): XᵀX, behind the linear models and
 `newton-cholesky`; the matrix product, behind `matMulSync`; and the logistic objectives' products over X, behind
-LogisticRegression's `lbfgs` and `newton-cholesky`. They are in their own entry point, `@smaltworks/smaltml/simd`,
+LogisticRegression's `lbfgs` and `newton-cholesky`, with their row steps (the exp and log between the products). They are in their own entry point, `@smaltworks/smaltml/simd`,
 written from TypeScript at run time: no `.wasm` file and no dependency.
 
 smaltml turns them on by itself where the engine has WebAssembly SIMD (Chrome 91, Firefox 89, Safari 16.4, Node,
@@ -55,8 +55,8 @@ order: close to smaltml's own, not equal, and within every compare case's tolera
   `@smaltworks/smaltml/simd` and calls [`useSimd()`](../reference/simd/use-simd) itself, and copies
   `smaltml-simd-kernels.js` beside its bundle for the thread pool's workers.
 - **Options:** `useSimd({ fusedMultiplyAdd: true })` where the engine has relaxed SIMD, a little faster, with last bits
-  that can differ between processors; `useSimd({ logistic: true })`, the logistic row steps on SIMD too. Both are off
-  by default.
+  that can differ between processors (off by default); `useSimd({ logistic: false })` keeps the logistic row steps
+  (the exp and log of lbfgs fits) on `Math`'s functions, which are on SIMD by default.
 - **Turning them off:** [`useKernels(null)`](../reference/use-kernels), before the first asynchronous fit or after: an
   app's own choice is kept.
 

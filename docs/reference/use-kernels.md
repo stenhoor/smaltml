@@ -1,5 +1,5 @@
 ---
-description: 'useKernels: use a plugin''s kernels, such as smaltml-simd''s, in place of smaltml''s own; kernelsInUse says which run.'
+description: 'useKernels: other kernels, such as smaltml''s SIMD kernels, in place of its own TypeScript ones; kernelsInUse says which run.'
 ---
 
 # useKernels
@@ -32,13 +32,15 @@ interface KernelsInUse {
 }
 ```
 
-Uses a plugin's kernels in place of smaltml's own CPU kernels, or smaltml's own again with `null`
-([ADR 0035](../adr/0035-simd-kernels-in-a-plugin)). From `@smaltworks/smaltml/core`, and the main entry point.
+Uses a set of kernels in place of smaltml's own TypeScript CPU kernels, or smaltml's own again with `null`
+([ADR 0035](../adr/0035-simd-kernels-in-a-plugin), [ADR 0040](../adr/0040-simd-kernels-in-smaltml)). From
+`@smaltworks/smaltml/core`, and the main entry point.
 
-An app normally doesn't call it: a plugin does. smaltml looks for one plugin, smaltml-simd: `kernelsReady()` imports
-it where it is installed and calls its `useSimd()`, which calls `useKernels`. smaltml's asynchronous fits and `matMul`
-wait for `kernelsReady()`; the `*Sync` calls don't, so code that calls them first awaits it. A `useKernels()` call
-made before the look-up finishes is kept. The models and solvers don't change; only the kernels they call do.
+An app normally doesn't call it, except as `useKernels(null)`. smaltml's SIMD kernels use it: `kernelsReady()`
+imports `@smaltworks/smaltml/simd` and calls its [`useSimd()`](./simd/use-simd), which calls `useKernels`, where the
+engine has WebAssembly SIMD. smaltml's asynchronous fits and `matMul` wait for `kernelsReady()`; the `*Sync` calls
+don't, so code that calls them first awaits it. A `useKernels()` call made before the look-up finishes is kept. The
+models and solvers don't change; only the kernels they call do.
 
 ## Parameters
 
@@ -59,6 +61,10 @@ made before the look-up finishes is kept. The models and solvers don't change; o
     - `multinomialLogisticRows`: the same for K classes, whose scores are `z[c · stride + i]`. It returns `loss` plus
       Σ w (max + log Σ e^(z − max) − z_y), and replaces each score by its residual w (softmax − one-hot). It is behind
       `lbfgs` fits with more classes.
+    - `logisticProducts`: the logistic objectives' products over X (X·w and Xᵀr) for one fit. Given X, it returns
+      `null` (smaltml's own products then) or an object whose `binaryPart` and `multinomialPart` give the results of
+      smaltml's own parts on that X, with the row step passed in, and whose `release()` frees what it kept. It is
+      behind LogisticRegression's `lbfgs` and `newton-cholesky` fits.
   - `threads`: how the thread pool's workers load the same kernels: each imports `module`, and calls its default
     export with `options` for the set. Without it, fits run on one thread while the set is in use.
 
@@ -66,8 +72,7 @@ made before the look-up finishes is kept. The models and solvers don't change; o
 
 What is in use: the set's name (`'smaltml'` for smaltml's own), the kernels it replaced, and the kernels it gave that
 failed the check at start (`rejected`), which stay smaltml's. `kernelsInUse()` returns the same, at any time.
-`kernelsReady()` resolves to the same once smaltml has looked for smaltml-simd (and turned it on where it is
-installed); it looks once.
+`kernelsReady()` resolves to the same once smaltml has turned its SIMD kernels on, where it can; it does so once.
 
 ## Errors
 
@@ -79,12 +84,12 @@ installed); it looks once.
 - **The check at start.** Each kernel runs on a small product first, against smaltml's own. One that throws, writes
   to its input, or differs by more than 10⁻¹² of the entries' scale isn't used, and is listed in `rejected`.
 - **Close, not equal.** A replaced kernel sums in another order, so results move in the last bits, about 10⁻¹⁴
-  relative on smaltml-simd's benchmark data. Agreement with scikit-learn holds within every compare case's tolerance.
+  relative with the SIMD kernels on the benchmark data. Agreement with scikit-learn holds within every compare case's tolerance.
 - **Threads.** With `threads`, every worker of the pool loads the set, so a fit on any number of threads still gives
   exactly what `fitSync` gives. A worker that can't load it, or ends up with other kernels, keeps the fit on one
   thread. Each call to `useKernels` restarts the pools at the next fit.
 - **A Web Worker** started by [`startWorker`](./worker/start-worker) has kernels of its own: smaltml's, unless the
-  worker's script turns the plugin on before it calls `serve`.
+  worker's script turns the SIMD kernels on (`useSimd()`) before it calls `serve`.
 
 ## Examples
 
@@ -128,4 +133,5 @@ kernelsInUse().name
 ## See also
 
 [`configureThreads`](./parallel/configure-threads), [`matMul`](./gpu/mat-mul),
-[The CPU, WebGPU and workers](../guide/hardware#plugin-kernels), [ADR 0035](../adr/0035-simd-kernels-in-a-plugin)
+[`useSimd`](./simd/use-simd), [The CPU, WebGPU and workers](../guide/hardware#simd-kernels),
+[ADR 0040](../adr/0040-simd-kernels-in-smaltml)

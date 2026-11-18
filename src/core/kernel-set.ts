@@ -1,8 +1,7 @@
 /**
- * Replaceable kernels (ADR 0035): a plugin, such as smaltml-simd, can swap the CPU kernels smaltml already has for its
- * own, with the same signatures. The models and solvers don't change. smaltml looks for one plugin, smaltml-simd, and
- * uses it where it is installed (kernelsReady(), ADR 0035 as amended 2026-11-17); it runs no code but the functions
- * it is given and that plugin's own `useSimd()`.
+ * Replaceable kernels (ADR 0035): a kernel set can swap the CPU kernels smaltml already has for its own, with the same
+ * signatures. The models and solvers don't change. smaltml's SIMD kernels (`@smaltworks/smaltml/simd`, ADR 0040) are
+ * one such set, which kernelsReady() turns on where the engine has WebAssembly SIMD; a plugin could give another.
  */
 import { fail } from './errors.js';
 import { binaryLogisticPart, multinomialLogisticPart, ownBinaryLogisticRows, ownGramPart, ownMatMul, ownMultinomialLogisticRows, replaced, type Kernels } from './kernels.js';
@@ -21,7 +20,7 @@ export const KERNELS_VERSION = 1;
 export type KernelName = keyof Kernels;
 const NAMES: readonly KernelName[] = ['gramPart', 'matMul', 'binaryLogisticRows', 'multinomialLogisticRows', 'logisticProducts'];
 
-/** A set of kernels to use in place of smaltml's own: what a plugin gives useKernels(). */
+/** A set of kernels to use in place of smaltml's own: what smaltml's SIMD entry, or a plugin, gives useKernels(). */
 export interface KernelSet {
   /** A name for the set, as kernelsInUse() reports it, such as `'smaltml-simd'`. */
   name: string;
@@ -49,19 +48,20 @@ export interface KernelsInUse {
 let inUse: KernelsInUse = { name: 'smaltml', kernels: [], rejected: [] };
 let threads: KernelSet['threads'];
 let generation = 0;
-/** Whether useKernels() was called: a choice the plugin look-up doesn't override. */
+/** Whether useKernels() was called: a choice kernelsReady() doesn't override. */
 let chosen = false;
 let ready: Promise<KernelsInUse> | null = null;
 
-/** The plugin smaltml uses where it is installed. */
-const PLUGIN = '@smaltworks/smaltml-simd';
+/** smaltml's SIMD kernels, its own entry point (ADR 0040): imported by name, so the core doesn't load them. */
+const SIMD = '@smaltworks/smaltml/simd';
 
 /**
- * Looks for smaltml-simd once, and uses it where it is installed and the engine has WebAssembly SIMD; resolves to the
- * kernels in use then. smaltml's asynchronous fits and `matMul` wait for it, so they use the plugin from the first
- * call. The `*Sync` calls don't wait: to have them use it from the start too, `await kernelsReady()` first. A
+ * Turns smaltml's SIMD kernels (`@smaltworks/smaltml/simd`) on once, where the engine has WebAssembly SIMD; resolves
+ * to the kernels in use then. smaltml's asynchronous fits and `matMul` wait for it, so they use them from the first
+ * call. The `*Sync` calls don't wait: to have them use them from the start too, `await kernelsReady()` first. A
  * `useKernels()` call made before the look-up finishes is kept: `useKernels(null)` keeps smaltml's own kernels.
- * Without the plugin, or where it can't load (a bundled app that doesn't import it), smaltml's own kernels stay.
+ * Where the entry can't load (a bundled app that doesn't import it), smaltml's own kernels stay: such an app imports
+ * `@smaltworks/smaltml/simd` and calls `useSimd()` itself.
  */
 export function kernelsReady(): Promise<KernelsInUse> {
   return (ready ??= lookForPlugin());
@@ -69,19 +69,19 @@ export function kernelsReady(): Promise<KernelsInUse> {
 
 async function lookForPlugin(): Promise<KernelsInUse> {
   if (chosen) return kernelsInUse();
-  let plugin: { useSimd?: () => Promise<boolean> };
+  let simd: { useSimd?: () => Promise<boolean> };
   try {
-    // By a variable, so bundlers leave the import alone and an app without the plugin builds as before.
-    const name = PLUGIN;
-    plugin = (await import(/* @vite-ignore */ /* webpackIgnore: true */ name)) as typeof plugin;
+    // By a variable, so bundlers leave the import alone, and an app that doesn't import the entry builds without it.
+    const name = SIMD;
+    simd = (await import(/* @vite-ignore */ /* webpackIgnore: true */ name)) as typeof simd;
   } catch {
     return kernelsInUse();
   }
-  if (!chosen && typeof plugin.useSimd === 'function') {
+  if (!chosen && typeof simd.useSimd === 'function') {
     try {
-      await plugin.useSimd();
+      await simd.useSimd();
     } catch {
-      // The plugin failed to start: smaltml's own kernels stay.
+      // The SIMD kernels failed to start: smaltml's own kernels stay.
     }
   }
   return kernelsInUse();

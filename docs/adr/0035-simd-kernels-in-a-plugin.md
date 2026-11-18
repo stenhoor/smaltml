@@ -4,6 +4,9 @@
   Decision (items 2 and 10); those of 2026-11-17 in items 3, 5 and 8 and under "Still to decide", items 1 and 4. Items 3 and
   8 were amended on acceptance, as each says. Items 4 and 5 were amended on 2026-11-18 (the owner), as each says: the
   logistic products as a kernel, and the WebAssembly writer moved to smaltkit (see "Amendments of 2026-11-18").
+- **Superseded in part** by [ADR 0040](./0040-simd-kernels-in-smaltml), 2026-11-18: the kernels are smaltml's own,
+  in the entry point `@smaltworks/smaltml/simd`, and smaltml-simd is retired. Items 1, 3 (where they live, how
+  smaltml finds them), 9 and 10 are replaced there; the rest carries over.
 - **Date:** 2026-11-15
 - **Amends:** [ADR 0024](./0024-smaltml-scope-and-architecture): section 8 ("Where it is hardest") and "Still to
   decide", item 5 (whether smaltml may write its own WebAssembly kernels).

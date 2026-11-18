@@ -158,7 +158,7 @@ async function startPool(size: number, url: string | URL): Promise<ThreadPool | 
  * memory, too little data (`values`, X's size), workers that can't start, or replaced kernels the workers can't load.
  */
 export async function threadPool(threads: Threads | undefined, values: number): Promise<ThreadPool | null> {
-  // Every asynchronous fit comes here first: smaltml-simd, where installed, is in use from the first one.
+  // Every asynchronous fit comes here first: smaltml's SIMD kernels, where the engine has them, are in use from the first.
   await kernelsReady();
   const want = threads ?? 'auto';
   if (want !== 'auto' && (!Number.isInteger(want) || want < 1)) fail('ML_PARAM', `threads is 'auto' or a whole number of at least 1, not ${String(want)}`);

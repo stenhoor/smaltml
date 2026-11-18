@@ -12,6 +12,8 @@ const ALLOWED: Record<string, string[]> = {
   preprocessing: ['core', 'preprocessing'],
   linear: ['core', 'linear', 'gpu', 'parallel'],
   tree: ['core', 'tree'],
+  // smaltkit/simd's WebAssembly writer, folded into the build: only the SIMD kernels use it.
+  simd: ['core', 'simd', 'smaltkit'],
   metrics: ['core', 'metrics'],
   selection: ['core', 'selection', 'io', 'metrics', 'preprocessing', 'linear', 'tree', 'pipeline', 'gpu', 'parallel'],
   pipeline: ['core', 'pipeline'],
@@ -27,8 +29,8 @@ const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url),
 
 describe('entry points', () => {
   test('package.json exports every area, and only those', () => {
-    // ./worker-script and ./threads-script are workers' scripts, not areas.
-    const areas = Object.keys(pkg.exports).filter((k) => !['.', './package.json', './worker-script', './threads-script'].includes(k)).map((k) => k.slice(2));
+    // ./worker-script, ./threads-script and ./simd-kernels-script are workers' scripts, not areas.
+    const areas = Object.keys(pkg.exports).filter((k) => !['.', './package.json', './worker-script', './threads-script', './simd-kernels-script'].includes(k)).map((k) => k.slice(2));
     expect(areas.sort()).toEqual(Object.keys(ALLOWED).sort());
   });
 
@@ -44,7 +46,7 @@ describe('entry points', () => {
     });
     const used = new Set(
       Object.keys(result.metafile.inputs)
-        .map((f) => /^src\/(\w+)\//.exec(f)?.[1] ?? (f === 'src/version.ts' ? 'core' : f))
+        .map((f) => /^src\/(\w+)\//.exec(f)?.[1] ?? (f === 'src/version.ts' ? 'core' : /node_modules\/smaltkit\//.test(f) ? 'smaltkit' : f))
         .filter(Boolean),
     );
     expect([...used].sort()).toEqual(expect.arrayContaining([area]));

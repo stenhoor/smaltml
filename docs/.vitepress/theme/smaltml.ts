@@ -2,12 +2,14 @@
 //
 // Every ```ts example runs where it stands. A page's examples share one scope, as a notebook's cells do: an example
 // runs after the examples above it (its setup), so a model fitted above is there below. Imports of
-// `@smaltworks/smaltml` (or any of its entry points) take smaltml's exports; the types are removed with smaltkit's
-// TypeScript (smaltty). The example's last line, if it is an expression, is its result, shown as a table.
+// `@smaltworks/smaltml` (or any of its entry points) take smaltml's exports, with its SIMD entry's (`/simd`); the
+// types are removed with smaltkit's TypeScript (smaltty). The example's last line, if it is an expression, is its
+// result, shown as a table.
 //
 // test/docs-examples.test.ts runs every example the same way (runExample) and checks its printed result.
 import { stripTypes } from 'smaltkit/typescript'
 import * as smaltml from '../../../src/index'
+import * as simd from '../../../src/simd/index'
 import type { PlayResult, SetupStep } from './playground'
 
 /** The code of a setup step. */
@@ -55,7 +57,7 @@ export async function runExample(code: string, setup: readonly SetupStep[]): Pro
   const source = [...before, withResult(code)].map((c) => rewriteImports(c)).join('\n;\n')
   const js = stripTypes(source, { filename: 'example.ts' })
   const fn = new AsyncFunction('__smaltml', js)
-  return fn(smaltml)
+  return fn({ ...smaltml, ...simd })
 }
 
 /**

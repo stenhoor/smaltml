@@ -6,7 +6,7 @@
 import type { Matrix } from './matrix.js';
 
 /**
- * The kernels a plugin can replace (useKernels(), in kernel-set.ts), with the same signatures as smaltml's own. Each
+ * The kernels another set can replace, such as smaltml's SIMD kernels (useKernels(), in kernel-set.ts), with the same signatures as smaltml's own. Each
  * one, called from here, runs the replacement when there is one and smaltml's own otherwise.
  */
 export interface Kernels {
@@ -274,7 +274,7 @@ function log1pExp(z: number): number {
  * The binary logistic objective's row step, for rows `at` to `at + m − 1` of y and weights, whose scores are z[0] to
  * z[m − 1]: returns `loss` plus their loss, Σ w (log(1 + e^z) − y z), added row by row, and replaces each score by its
  * residual w (σ(z) − y), which the gradient Xᵀr needs. The running loss goes in, so the sum over every block keeps one
- * order. A plugin can replace it (useKernels()).
+ * order. Another kernel set can replace it (useKernels()).
  */
 export function binaryLogisticRows(z: Float64Array, y: Int32Array, weights: ArrayLike<number> | undefined, at: number, m: number, loss = 0): number {
   const k = replaced.binaryLogisticRows;
@@ -300,7 +300,7 @@ export function ownBinaryLogisticRows(z: Float64Array, y: Int32Array, weights: A
 /**
  * The multinomial logistic objective's row step, for rows `at` to `at + m − 1` of y and weights, whose K classes'
  * scores are z[c · stride + i]: returns `loss` plus their loss, Σ w (max + log Σ e^(z − max) − z_y), added row by row,
- * and replaces each score by its residual w (softmax − one-hot). A plugin can replace it (useKernels()).
+ * and replaces each score by its residual w (softmax − one-hot). Another kernel set can replace it (useKernels()).
  */
 export function multinomialLogisticRows(z: Float64Array, stride: number, K: number, y: Int32Array, weights: ArrayLike<number> | undefined, at: number, m: number, loss = 0): number {
   const k = replaced.multinomialLogisticRows;

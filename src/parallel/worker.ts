@@ -23,7 +23,7 @@ function matrix(m: SharedMatrix): Matrix {
 }
 
 /**
- * The logistic products kernel's copy of each X, where a plugin gives one: kept while X is, so every evaluation of a
+ * The logistic products kernel's copy of each X, where the set gives one: kept while X is, so every evaluation of a
  * fit reads the same copy, and its chunks give what fitSync's do.
  */
 const products = new WeakMap<Matrix, LogisticProducts | null>();
@@ -32,7 +32,10 @@ function productsFor(X: Matrix): LogisticProducts | null {
   return products.get(X)!;
 }
 
-/** Imports a plugin's module and uses the kernel set it gives, as the main thread does (ADR 0035, item 8). */
+/**
+ * Imports a kernel set's module (smaltml's SIMD kernels, or a plugin's) and uses the set it gives, as the main thread
+ * does (ADR 0035, item 8).
+ */
 async function loadKernels(id: number, module: string, options: unknown): Promise<Response> {
   const mod = (await import(/* @vite-ignore */ module)) as { default?: (options: unknown) => KernelSet | Promise<KernelSet> };
   if (typeof mod.default !== 'function') throw new Error(`${module} has no default export that gives a kernel set`);

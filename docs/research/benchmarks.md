@@ -21,16 +21,15 @@ stands.
 - **smaltml:** the built package (`dist/`), in Node: on one thread, calling the synchronous methods, and with fits on
   up to 4 threads (`fit(X, y, { threads: 'auto' })`, `configureThreads({ max: 4 })`), which leaves fits below about a
   million values on one thread. Predictions and `StandardScaler` run on one thread in both.
-- **smaltml with SIMD:** the same runs with [smaltml-simd](../guide/plugins)'s kernels, its defaults, as smaltml turns
-  the plugin on where it is installed: XᵀX (`gramPart`) and the matrix product (`matMul`) on WebAssembly SIMD; its
-  logistic kernels stay off (`useSimd({ logistic: true })`). The decision trees use neither kernel, so their SIMD
-  columns time the same code.
+- **smaltml with SIMD:** the same runs with smaltml's [SIMD kernels](../guide/hardware#simd-kernels), their defaults,
+  as smaltml turns them on by itself: XᵀX (`gramPart`), the matrix product (`matMul`) and the logistic objectives'
+  products (`logisticProducts`) on WebAssembly SIMD; the logistic row steps stay off (`useSimd({ logistic: true })`).
+  The decision trees use none of them, so their SIMD columns time the same code.
 - **scikit-learn:** on one thread (`OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1`) and on every core, with its default
   BLAS. Its trees run on one thread either way.
-- **Rerun:** `npm run bench` (smaltml), then with the plugin built beside this repository,
-  `node bench/smaltml.mjs --simd ../smaltml-simd/dist/smaltml-simd-kernels.js` and the same with `--threads 4`;
-  `npm run bench:python` (scikit-learn; needs `compare/requirements.txt`); then `npm run bench:report`, which writes
-  the tables below from `bench/results/`.
+- **Rerun:** `npm run bench` (smaltml, with and without SIMD, on one thread and on 4), `npm run bench:python`
+  (scikit-learn; needs `compare/requirements.txt`), then `npm run bench:report`, which writes the tables below from
+  `bench/results/`.
 
 `smaltml ÷ …` is how many times longer smaltml takes than scikit-learn on the same number of threads: below 1 is
 faster.

@@ -3,7 +3,9 @@
 // fit(X, y, { threads: N }) and it writes bench/results/smaltml-N.json. With --simd, smaltml's SIMD kernels run
 // (dist/simd.js's useSimd(), its defaults, as smaltml turns them on by itself), and it writes smaltml-simd.json or
 // smaltml-simd-N.json. Without it, smaltml's own TypeScript kernels (useKernels(null)).
-//   node bench/smaltml.mjs [--threads N] [--simd]
+// With --simd --logistic, the logistic row steps on SIMD too (useSimd({ logistic: true })), written to
+// smaltml-simd-logistic.json or smaltml-simd-logistic-N.json.
+//   node bench/smaltml.mjs [--threads N] [--simd [--logistic]]
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { cpus } from 'node:os';
 import { performance } from 'node:perf_hooks';
@@ -19,11 +21,12 @@ const f64 = (f) => {
 const at = process.argv.indexOf('--threads');
 const threads = at > 0 ? Number(process.argv[at + 1]) : 1;
 const simdOn = process.argv.includes('--simd');
+const logistic = simdOn && process.argv.includes('--logistic');
 // smaltml's own kernels, unless --simd: its SIMD kernels, as smaltml turns them on (the same copy of smaltml).
 let kernels = ml.useKernels(null);
 if (simdOn) {
   const { useSimd } = await import('../dist/simd.js');
-  if (!(await useSimd())) throw new Error(`the SIMD kernels weren't used: ${JSON.stringify(ml.kernelsInUse())}`);
+  if (!(await useSimd({ logistic }))) throw new Error(`the SIMD kernels weren't used: ${JSON.stringify(ml.kernelsInUse())}`);
   kernels = ml.kernelsInUse();
 }
 const median = async (f, reps) => {
@@ -77,6 +80,6 @@ const out = {
   milliseconds: results,
 };
 mkdirSync(new URL('./results', import.meta.url).pathname, { recursive: true });
-writeFileSync(new URL(`./results/smaltml${simdOn ? '-simd' : ''}${threads === 1 ? '' : `-${threads}`}.json`, import.meta.url).pathname, JSON.stringify(out, null, 2) + '\n');
+writeFileSync(new URL(`./results/smaltml${simdOn ? '-simd' : ''}${logistic ? '-logistic' : ''}${threads === 1 ? '' : `-${threads}`}.json`, import.meta.url).pathname, JSON.stringify(out, null, 2) + '\n');
 console.log(JSON.stringify(out, null, 2));
 await ml.stopThreads();

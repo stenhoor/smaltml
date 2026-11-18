@@ -4,6 +4,7 @@
 import { binaryLogisticPart, binaryLogisticRows, gramPart, multinomialLogisticPart, multinomialLogisticRows, prepareLogistic, xtvPart, xw, type LogisticProducts } from '../core/kernels.js';
 import { useKernels, type KernelSet } from '../core/kernel-set.js';
 import { Matrix } from '../core/matrix.js';
+import { cumulativeWeights, growTree } from '../ensemble/grow.js';
 import type { Request, Response, SharedMatrix } from './protocol.js';
 
 const nodeModule = (name: string): Promise<unknown> => import(/* @vite-ignore */ name);
@@ -46,6 +47,17 @@ async function loadKernels(id: number, module: string, options: unknown): Promis
 function handle(req: Request): Response | Promise<Response> {
   const t = req.task;
   if (t.op === 'kernels') return loadKernels(req.id, t.module, t.options);
+  if (t.op === 'trees') {
+    // X with its column names, as fitSync()'s trees see it, so the trees save the same documents.
+    const X = new Matrix(t.X.rows, t.X.cols, new Float64Array(t.X.buffer), t.names ?? undefined);
+    const job = { classifier: t.classifier, X, y: t.y, weights: t.weights, params: t.params, bootstrap: t.bootstrap, draws: t.draws, oob: t.oob };
+    const cumulative = t.bootstrap ? cumulativeWeights(t.weights) : null;
+    const trees = t.streams.map((s) => {
+      const g = growTree(job, cumulative, s);
+      return { doc: g.tree.toJSON(), outOfBag: g.outOfBag, oob: g.oob };
+    });
+    return { id: req.id, ok: true, parts: [], trees };
+  }
   const X = matrix(t.X);
   const mean = 'mean' in t ? (t.mean ?? undefined) : undefined;
   switch (t.op) {

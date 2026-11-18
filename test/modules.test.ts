@@ -12,7 +12,8 @@ const ALLOWED: Record<string, string[]> = {
   preprocessing: ['core', 'preprocessing'],
   linear: ['core', 'linear', 'gpu', 'parallel', 'smaltkit'],
   tree: ['core', 'tree'],
-  ensemble: ['core', 'tree', 'ensemble'],
+  // parallel, for growing trees on the thread pool (ADR 0039, item 5).
+  ensemble: ['core', 'tree', 'ensemble', 'parallel'],
   // smaltkit, folded into the build: smaltkit/simd's WebAssembly writer for the SIMD kernels, and smaltkit/gpu's
   // device and matrix product for gpu, and so for every area that uses gpu.
   simd: ['core', 'simd', 'smaltkit'],

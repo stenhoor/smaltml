@@ -23,7 +23,7 @@ class RandomForestClassifier implements Classifier {
     minImpurityDecrease?: number;
     seed?: number;
   });
-  fit(X: MatrixInput, y: Labels, options?: { sampleWeight?: ArrayLike<number> }): Promise<this>;
+  fit(X: MatrixInput, y: Labels, options?: { sampleWeight?: ArrayLike<number>; threads?: number | 'auto' }): Promise<this>;
   fitSync(X: MatrixInput, y: Labels, options?: { sampleWeight?: ArrayLike<number> }): this;
   predict(X: MatrixInput): Promise<Label[]>;
   predictSync(X: MatrixInput): Label[];
@@ -57,7 +57,8 @@ probable class. scikit-learn's
   [`RandomForestRegressor`](./random-forest-regressor#parameters). The out-of-bag score is the accuracy.
 
 `fit` and `fitSync` take `sampleWeight`, as for [`RandomForestRegressor`](./random-forest-regressor#parameters),
-multiplied by the row's class weight.
+multiplied by the row's class weight. `fit` also takes `threads`, as for
+[`RandomForestRegressor`](./random-forest-regressor#parameters): the same forest as `fitSync` on any number of threads.
 
 ## Returns
 
@@ -115,7 +116,7 @@ await flowers.predictProba({ length: [1.5, 4.4, 5.9], width: [0.3, 1.4, 2.1] })
 | --- | --- | --- |
 | 0.98 | 0.02 | 0 |
 | 0 | 0.98 | 0.02 |
-| 0 | 0.06 | 0.94 |
+| 0 | 0 | 1 |
 
 ## See also
 

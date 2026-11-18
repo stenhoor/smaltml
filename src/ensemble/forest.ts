@@ -5,7 +5,7 @@
  * scikit-learn's forest for the same random_state.
  */
 import { fail, warn } from '../core/errors.js';
-import { Matrix, toVector, type MatrixInput, type VectorInput } from '../core/matrix.js';
+import { assertFinite, Matrix, toVector, type MatrixInput, type VectorInput } from '../core/matrix.js';
 import { checkColumns, checkDocument, document, notFitted, toLabels, uniqueLabels, type Label, type Labels, type ModelDocument } from '../core/model.js';
 import { Random } from '../core/random.js';
 import {
@@ -15,6 +15,9 @@ import {
   type DecisionTreeParams,
   type DecisionTreeRegressorParams,
 } from '../tree/index.js';
+import type { ThreadOptions } from '../parallel/index.js';
+import { cumulativeWeights, growTree, type Grown, type GrowJob } from './grow.js';
+import { growOnThreads } from './threads.js';
 
 /** What both forests take, beside their trees' parameters. */
 export interface ForestParams extends Omit<DecisionTreeParams, 'seed'> {
@@ -49,7 +52,7 @@ export interface RandomForestClassifierParams extends ForestParams {
   classWeight?: DecisionTreeClassifierParams['classWeight'];
 }
 
-export interface ForestFitOptions {
+export interface ForestFitOptions extends ThreadOptions {
   /**
    * Each row's weight, 0 or more. With bootstrap, a row's chance of being drawn is in proportion to its weight; without,
    * each tree weighs the rows by it. Default 1 for every row.
@@ -93,19 +96,18 @@ function rowWeights(sampleWeight: VectorInput | undefined, n: number): Float64Ar
   return w;
 }
 
-/** A grown tree, with the rows its bootstrap left out (for the out-of-bag score). */
-interface Grown<T> {
-  tree: T;
-  outOfBag: Int32Array | null;
+/** The forest's plan: its seed, how many rows each sample draws, and each tree's stream. */
+interface Plan {
+  seed: number;
+  draws: number;
+  streams: number[];
 }
 
 /**
- * Grows the trees, each with a seed for its column draws. With bootstrap, each tree's rows are a sample drawn with
- * replacement, each row with a chance in proportion to its weight (sampleWeight times its class's weight), and the tree
- * weighs each row by the times it was drawn; without, each tree weighs the rows by their weight. Both as scikit-learn
- * 1.9 does. `weights` is `null` where every row weighs 1.
+ * Each tree's stream, from the forest's seed: one number per tree, from which that tree draws its sample and its own
+ * seed (src/ensemble/grow.ts), so trees can be grown in any order, on any thread.
  */
-function growForest<T>(c: ReturnType<typeof checkForest>, n: number, weights: Float64Array | null, grow: (seed: number, w: Float64Array | undefined) => T): { trees: Grown<T>[]; seed: number } {
+function plan(c: ReturnType<typeof checkForest>, n: number, weights: Float64Array | null): Plan {
   let total = n;
   if (weights) {
     total = 0;
@@ -116,49 +118,16 @@ function growForest<T>(c: ReturnType<typeof checkForest>, n: number, weights: Fl
   const r = new Random(seed);
   // A whole maxSamples is that many draws; a share is of the weights' sum (the rows, where they weigh 1), at least 1.
   const draws = c.maxSamples === null ? n : Number.isInteger(c.maxSamples) ? c.maxSamples : Math.max(1, Math.floor(c.maxSamples * total));
-  // The weights summed row by row: a draw is the first row whose running sum passes a uniform number below the total.
-  let cumulative: Float64Array | null = null;
-  if (c.bootstrap && weights) {
-    cumulative = new Float64Array(n);
-    let sum = 0;
-    for (let i = 0; i < n; i++) cumulative[i] = sum += weights[i]!;
-  }
-  const trees: Grown<T>[] = [];
-  for (let t = 0; t < c.nEstimators; t++) {
-    const treeSeed = r.uint32() >>> 1;
-    if (!c.bootstrap) {
-      trees.push({ tree: grow(treeSeed, weights ?? undefined), outOfBag: null });
-      continue;
-    }
-    const counts = new Float64Array(n);
-    if (cumulative) {
-      const end = cumulative[n - 1]!;
-      for (let d = 0; d < draws; d++) {
-        const u = r.next() * end;
-        let lo = 0;
-        let hi = n - 1;
-        while (lo < hi) {
-          const mid = (lo + hi) >>> 1;
-          if (cumulative[mid]! > u) hi = mid;
-          else lo = mid + 1;
-        }
-        counts[lo]! += 1;
-      }
-    } else for (let d = 0; d < draws; d++) counts[r.int(n)]! += 1;
-    const out: number[] = [];
-    for (let i = 0; i < n; i++) if (counts[i] === 0) out.push(i);
-    trees.push({ tree: grow(treeSeed, counts), outOfBag: Int32Array.from(out) });
-  }
-  return { trees, seed };
+  return { seed, draws, streams: Array.from({ length: c.nEstimators }, () => r.uint32() >>> 1) };
 }
 
-/** The rows `rows` of X, as a matrix. */
-function pickRows(m: Matrix, rows: Int32Array): Matrix {
-  const n = m.rows;
-  const k = rows.length;
-  const data = new Float64Array(k * m.cols);
-  for (let j = 0; j < m.cols; j++) for (let r = 0; r < k; r++) data[j * k + r] = m.data[j * n + rows[r]!]!;
-  return new Matrix(k, m.cols, data, m.names);
+/** What a tree checks of X at fit, checked before trees are grown on other threads, whose errors carry no code. */
+function checkX(m: Matrix): void {
+  if (m.rows === 0) fail('ML_SHAPE', 'X has no rows');
+  for (let k = 0; k < m.data.length; k++) {
+    if (Number.isNaN(m.data[k]!)) fail('ML_VALUE', `X column ${m.columnName(Math.floor(k / m.rows))} has a missing value (NaN): trees don't take missing values yet; fill them first (SimpleImputer)`);
+  }
+  assertFinite(m);
 }
 
 const OOB_FEW = 'some rows were drawn by every tree, so no tree could score them out of bag: their out-of-bag values are 0, and they count in oobScore as such. Use more trees (nEstimators)';
@@ -221,6 +190,20 @@ abstract class Forest<T extends DecisionTreeRegressor | DecisionTreeClassifier> 
     const s = this.fittedState();
     if (s.oobScore === undefined) fail('ML_PARAM', `${this.kind} was fitted without oobScore: true, so it has no out-of-bag score`);
     return s.oobScore;
+  }
+
+  /**
+   * The trees, grown in order on this thread, or with `threads` on the thread pool, each worker growing whole trees
+   * from their streams: the same trees, to the last bit.
+   */
+  protected async growAsync(job: GrowJob, p: Plan, threads: ThreadOptions['threads']): Promise<Grown<T>[]> {
+    checkX(job.X);
+    return ((await growOnThreads(threads, job, p.streams)) ?? this.growSync(job, p)) as Grown<T>[];
+  }
+
+  protected growSync(job: GrowJob, p: Plan): Grown<T>[] {
+    const cumulative = job.bootstrap ? cumulativeWeights(job.weights) : null;
+    return p.streams.map((s) => growTree(job, cumulative, s) as Grown<T>);
   }
 
   protected forestParams(): ForestParams {
@@ -296,26 +279,44 @@ export class RandomForestRegressor extends Forest<DecisionTreeRegressor> {
     return this.#oobPrediction;
   }
 
+  /**
+   * Fits the forest. With `threads` (default `'auto'`), the trees grow on several cores where shared memory allows and
+   * the work is large enough, each worker growing whole trees: the same forest as fitSync() to the last bit.
+   */
   async fit(X: MatrixInput, y: VectorInput, options: ForestFitOptions = {}): Promise<this> {
-    return this.fitSync(X, y, options);
+    const { job, p } = this.#job(X, y, options);
+    return this.#finish(job, p, await this.growAsync(job, p, options.threads));
   }
 
   fitSync(X: MatrixInput, y: VectorInput, options: ForestFitOptions = {}): this {
+    const { job, p } = this.#job(X, y, options);
+    return this.#finish(job, p, this.growSync(job, p));
+  }
+
+  #job(X: MatrixInput, y: VectorInput, options: ForestFitOptions): { job: GrowJob; p: Plan } {
     const m = Matrix.from(X);
     const target = Float64Array.from(toVector(y, m.rows));
     const weights = rowWeights(options.sampleWeight, m.rows);
-    const params = { ...this.trees, criterion: this.criterion };
-    const { trees, seed } = growForest(this.checked, m.rows, weights, (s, w) => new DecisionTreeRegressor({ ...params, seed: s }).fitSync(m, target, w ? { sampleWeight: w } : {}));
+    const c = this.checked;
+    const p = plan(c, m.rows, weights);
+    const job: GrowJob = { classifier: false, X: m, y: target, weights, params: { ...this.trees, criterion: this.criterion }, bootstrap: c.bootstrap, draws: p.draws, oob: c.oobScore };
+    return { job, p };
+  }
+
+  #finish(job: GrowJob, p: Plan, trees: Grown<DecisionTreeRegressor>[]): this {
+    const m = job.X;
+    const target = job.y as Float64Array;
+    const seed = p.seed;
     let oobScore: number | undefined;
     this.#oobPrediction = null;
     if (this.checked.oobScore) {
       const sum = new Float64Array(m.rows);
       const count = new Float64Array(m.rows);
-      for (const { tree, outOfBag } of trees) {
-        if (!outOfBag || outOfBag.length === 0) continue;
-        const p = tree.predictSync(pickRows(m, outOfBag));
+      // In tree order, as the trees were planned: the same sums on any number of threads.
+      for (const { outOfBag, oob } of trees) {
+        if (!outOfBag || !oob) continue;
         for (let k = 0; k < outOfBag.length; k++) {
-          sum[outOfBag[k]!]! += p[k]!;
+          sum[outOfBag[k]!]! += oob[k]!;
           count[outOfBag[k]!]! += 1;
         }
       }
@@ -398,18 +399,33 @@ export class RandomForestClassifier extends Forest<DecisionTreeClassifier> {
     return this.#oobDecision;
   }
 
+  /** Fits the forest; with `threads`, as RandomForestRegressor's fit(): the same forest as fitSync() to the last bit. */
   async fit(X: MatrixInput, y: Labels, options: ForestFitOptions = {}): Promise<this> {
-    return this.fitSync(X, y, options);
+    const { job, p, classes } = this.#job(X, y, options);
+    return this.#finish(job, p, classes, await this.growAsync(job, p, options.threads));
   }
 
   fitSync(X: MatrixInput, y: Labels, options: ForestFitOptions = {}): this {
+    const { job, p, classes } = this.#job(X, y, options);
+    return this.#finish(job, p, classes, this.growSync(job, p));
+  }
+
+  #job(X: MatrixInput, y: Labels, options: ForestFitOptions): { job: GrowJob; p: Plan; classes: Label[] } {
     const m = Matrix.from(X);
     const labels = toLabels(y, m.rows);
     const classes = uniqueLabels(labels);
     const weights = withClassWeights(rowWeights(options.sampleWeight, m.rows), labels, classes, this.classWeight ?? null);
+    const c = this.checked;
+    const p = plan(c, m.rows, weights);
     // The class weights are in the rows' weights (and so in the bootstrap's chances): the trees take none of their own.
-    const params = { ...this.trees, criterion: this.criterion };
-    const { trees, seed } = growForest(this.checked, m.rows, weights, (s, w) => new DecisionTreeClassifier({ ...params, seed: s }).fitSync(m, y, w ? { sampleWeight: w } : {}));
+    const job: GrowJob = { classifier: true, X: m, y: labels, weights, params: { ...this.trees, criterion: this.criterion }, bootstrap: c.bootstrap, draws: p.draws, oob: c.oobScore };
+    return { job, p, classes };
+  }
+
+  #finish(job: GrowJob, p: Plan, classes: Label[], trees: Grown<DecisionTreeClassifier>[]): this {
+    const m = job.X;
+    const labels = job.y as Label[];
+    const seed = p.seed;
     const K = classes.length;
     let oobScore: number | undefined;
     this.#oobDecision = null;
@@ -417,13 +433,12 @@ export class RandomForestClassifier extends Forest<DecisionTreeClassifier> {
       const n = m.rows;
       const sum = new Float64Array(n * K);
       const count = new Float64Array(n);
-      for (const { tree, outOfBag } of trees) {
-        if (!outOfBag || outOfBag.length === 0) continue;
-        const p = tree.predictProbaSync(pickRows(m, outOfBag));
+      for (const { outOfBag, oob } of trees) {
+        if (!outOfBag || !oob) continue;
         const k = outOfBag.length;
         for (let r = 0; r < k; r++) {
           const i = outOfBag[r]!;
-          for (let c = 0; c < K; c++) sum[c * n + i]! += p.data[c * k + r]!;
+          for (let c = 0; c < K; c++) sum[c * n + i]! += oob[c * k + r]!;
           count[i]! += 1;
         }
       }

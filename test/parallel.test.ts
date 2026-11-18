@@ -10,6 +10,7 @@ import { Random } from '../src/core/random.js';
 import { ElasticNet, Lasso, LinearRegression, LogisticRegression, RandomForestClassifier, RandomForestRegressor, Ridge, StandardScaler, configureThreads, pipeline, stopThreads } from '../src/index.js';
 import { gramParallel, threadPool, xtvParallel, xwParallel } from '../src/parallel/index.js';
 import { growOnThreads } from '../src/ensemble/threads.js';
+import { asPrepared, prepareX } from '../src/tree/cart.js';
 
 // The workers run the built script; the tests bundle it from the source once.
 beforeAll(async () => {
@@ -159,7 +160,8 @@ describe('forests grown on several threads equal fitSync, bit for bit (ADR 0039,
   }, FITS_TIMEOUT);
 
   test('the pool grows the trees, not this thread', async () => {
-    const m = Matrix.from(cols);
+    // X as the forest gives it: prepared for trees.
+    const m = asPrepared(prepareX(cols), true);
     const job = { classifier: false, X: m, y: Float64Array.from(yr), weights: null, params: {}, bootstrap: true, draws: m.rows, oob: false };
     const grown = await growOnThreads(3, job, [1, 2, 3, 4]);
     expect(grown).not.toBeNull();

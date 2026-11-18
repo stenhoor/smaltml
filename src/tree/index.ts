@@ -16,7 +16,7 @@ import {
   type Labels,
   type ModelDocument,
 } from '../core/model.js';
-import { applyTree, depthOf, featureImportances, grow, type Criterion, type Targets, type TreeArrays } from './cart.js';
+import { applyTree, depthOf, featureImportances, grow, prepareX, type Criterion, type Targets, type TreeArrays } from './cart.js';
 
 export { LEAF, UNDEFINED, type TreeArrays } from './cart.js';
 
@@ -127,21 +127,6 @@ function growParams(c: ReturnType<typeof checkParams>, criterion: Criterion, n: 
   };
 }
 
-/** Weights checked: one per row, finite, none negative, not all 0. */
-/** X, the targets and the weights without the rows of weight 0; the same objects where every row has weight. */
-function withWeight(m: Matrix, targets: Targets, weights: Float64Array): { m: Matrix; targets: Targets; weights: Float64Array } {
-  const rows: number[] = [];
-  for (let i = 0; i < weights.length; i++) if (weights[i]! > 0) rows.push(i);
-  if (rows.length === m.rows) return { m, targets, weights };
-  const n = m.rows;
-  const k = rows.length;
-  const data = new Float64Array(k * m.cols);
-  for (let j = 0; j < m.cols; j++) for (let r = 0; r < k; r++) data[j * k + r] = m.data[j * n + rows[r]!]!;
-  const pick = <T extends Float64Array | Int32Array>(a: T): T => a.constructor === Int32Array ? (Int32Array.from(rows, (i) => a[i]!) as T) : (Float64Array.from(rows, (i) => a[i]!) as T);
-  const y = targets.kind === 'regression' ? { kind: 'regression' as const, y: pick(targets.y) } : { kind: 'classes' as const, y: pick(targets.y), K: targets.K };
-  return { m: new Matrix(k, m.cols, data, m.names), targets: y, weights: pick(weights) };
-}
-
 function rowWeights(sampleWeight: VectorInput | undefined, n: number): Float64Array {
   if (sampleWeight === undefined) return new Float64Array(n).fill(1);
   let w: Float64Array;
@@ -158,19 +143,6 @@ function rowWeights(sampleWeight: VectorInput | undefined, n: number): Float64Ar
   }
   if (!(sum > 0)) fail('ML_VALUE', 'sampleWeight is 0 for every row: at least one row needs weight');
   return Float64Array.from(w);
-}
-
-function prepareX(X: MatrixInput): Matrix {
-  const m = Matrix.from(X);
-  if (m.rows === 0) fail('ML_SHAPE', 'X has no rows');
-  // scikit-learn's trees learn where missing values go; smaltml's don't yet.
-  for (let k = 0; k < m.data.length; k++) {
-    if (Number.isNaN(m.data[k]!)) fail('ML_VALUE', `X column ${m.columnName(Math.floor(k / m.rows))} has a missing value (NaN): trees don't take missing values yet; fill them first (SimpleImputer)`);
-  }
-  assertFinite(m);
-  // scikit-learn's trees read X as 32-bit floats, and split between those values: the same here, so the thresholds
-  // and every comparison are the same.
-  return new Matrix(m.rows, m.cols, Float64Array.from(m.data, Math.fround), m.names);
 }
 
 function saveTree(t: TreeArrays) {
@@ -266,11 +238,10 @@ abstract class DecisionTree {
     let total = 0;
     for (const w of weights) total += w;
     const seed = this.checked.seed ?? Math.floor(Math.random() * 2 ** 31);
-    // Rows of weight 0 take no part, as in scikit-learn: not in a node's sample count, and not a threshold's neighbour.
-    // Shares of the rows (minSamplesSplit, minSamplesLeaf) stay shares of all of X's.
+    // Rows of weight 0 take no part (grow leaves them out); shares of the rows (minSamplesSplit, minSamplesLeaf) stay
+    // shares of all of X's.
     const params = growParams(this.checked, criterion, m.rows, m.cols, total, seed);
-    const kept = withWeight(m, targets, weights);
-    return { tree: grow(kept.m, kept.targets, kept.weights, params), seed };
+    return { tree: grow(m, targets, weights, params), seed };
   }
 
   protected saved(): Record<string, unknown> | null {

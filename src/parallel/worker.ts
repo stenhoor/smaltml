@@ -5,6 +5,7 @@ import { binaryLogisticPart, binaryLogisticRows, gramPart, multinomialLogisticPa
 import { useKernels, type KernelSet } from '../core/kernel-set.js';
 import { Matrix } from '../core/matrix.js';
 import { cumulativeWeights, growTree } from '../ensemble/grow.js';
+import { asPrepared } from '../tree/cart.js';
 import type { Request, Response, SharedMatrix } from './protocol.js';
 
 const nodeModule = (name: string): Promise<unknown> => import(/* @vite-ignore */ name);
@@ -48,8 +49,9 @@ function handle(req: Request): Response | Promise<Response> {
   const t = req.task;
   if (t.op === 'kernels') return loadKernels(req.id, t.module, t.options);
   if (t.op === 'trees') {
-    // X with its column names, as fitSync()'s trees see it, so the trees save the same documents.
-    const X = new Matrix(t.X.rows, t.X.cols, new Float64Array(t.X.buffer), t.names ?? undefined);
+    // X with its column names, as fitSync()'s trees see it, so the trees save the same documents: prepared for trees on
+    // the main thread already, presorted here once for this worker's trees.
+    const X = asPrepared(new Matrix(t.X.rows, t.X.cols, new Float64Array(t.X.buffer), t.names ?? undefined), true);
     const job = { classifier: t.classifier, X, y: t.y, weights: t.weights, params: t.params, bootstrap: t.bootstrap, draws: t.draws, oob: t.oob };
     const cumulative = t.bootstrap ? cumulativeWeights(t.weights) : null;
     const trees = t.streams.map((s) => {

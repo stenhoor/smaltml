@@ -9,7 +9,11 @@ export interface Port {
   start?(): void;
 }
 
-/** A Matrix as it travels: its numbers in a transferred buffer. */
+/**
+ * A Matrix as it travels: its numbers copied by postMessage's structured clone. Never transferred: a transfer detaches
+ * the buffer, and once any ArrayBuffer is detached V8 runs every typed-array loop in that thread with more checks,
+ * for good (about twice as long for a plain loop, measured).
+ */
 export interface WireMatrix {
   rows: number;
   cols: number;
@@ -39,10 +43,14 @@ export type Result =
 
 export type Response = { id: number; ok: true; result: Result } | { id: number; ok: false; error: { code?: ErrorCode; message: string } };
 
-/** A Matrix for postMessage: a copy of its numbers, whose buffer can be transferred without detaching the caller's. */
-export function toWire(m: Matrix): [WireMatrix, ArrayBuffer] {
-  const data = m.data.slice();
-  return [{ rows: m.rows, cols: m.cols, data, ...(m.names ? { names: [...m.names] } : {}) }, data.buffer as ArrayBuffer];
+/**
+ * A Matrix for postMessage, which copies it. Where its numbers are a view into a larger buffer, they are cut out first,
+ * so the clone doesn't copy the whole buffer.
+ */
+export function toWire(m: Matrix): WireMatrix {
+  const whole = m.data.byteOffset === 0 && m.data.byteLength === m.data.buffer.byteLength;
+  const data = whole ? m.data : m.data.slice();
+  return { rows: m.rows, cols: m.cols, data, ...(m.names ? { names: [...m.names] } : {}) };
 }
 
 export function fromWire(w: WireMatrix): Matrix {

@@ -42,17 +42,17 @@ faster.
 
 | Operation | smaltml, 1 thread | smaltml, 4 threads | smaltml, SIMD, 1 thread | smaltml, SIMD, 4 threads | scikit-learn, 1 thread | scikit-learn, 4 threads | smaltml ÷ scikit-learn, 1 thread | smaltml ÷ scikit-learn, 4 threads | smaltml ÷ scikit-learn, SIMD, 1 thread | smaltml ÷ scikit-learn, SIMD, 4 threads |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| StandardScaler fit + transform | 1.41 | 1.62 | 1.58 | 1.48 | 1.51 | 1.58 | 0.9× | 1.0× | 1.0× | 0.9× |
-| LinearRegression fit | 3.11 | 3.28 | 2.61 | 2.43 | 4.30 | 4.95 | 0.7× | 0.7× | 0.6× | 0.5× |
-| LinearRegression predict | 0.17 | 0.20 | 0.17 | 0.18 | 0.22 | 0.23 | 0.8× | 0.9× | 0.8× | 0.8× |
-| Ridge fit | 2.38 | 2.28 | 1.33 | 1.23 | 1.49 | 1.60 | 1.6× | 1.4× | 0.9× | 0.8× |
-| Lasso fit (alpha 0.1) | 2.35 | 2.30 | 1.36 | 1.47 | 1.60 | 1.68 | 1.5× | 1.4× | 0.8× | 0.9× |
-| LogisticRegression fit, 2 classes | 127 | 76.8 | 51.3 | 51.5 | 60.5 | 57.6 | 2.1× | 1.3× | 0.8× | 0.9× |
-| LogisticRegression fit, 2 classes, newton-cholesky | 39.6 | 23.5 | 22.9 | 17.0 | 11.8 | 19.1 | 3.4× | 1.2× | 1.9× | 0.9× |
-| LogisticRegression fit, 3 classes | 184 | 188 | 170 | 152 | 120 | 145 | 1.5× | 1.3× | 1.4× | 1.0× |
-| LogisticRegression predictProba, 3 classes | 1.18 | 1.29 | 1.30 | 1.19 | 0.96 | 1.09 | 1.2× | 1.2× | 1.4× | 1.1× |
-| DecisionTreeRegressor fit, depth 10 | 150 | 143 | 140 | 136 | 131 | 134 | 1.1× | 1.1× | 1.1× | 1.0× |
-| DecisionTreeClassifier fit, 3 classes, depth 10 | 148 | 153 | 150 | 142 | 147 | 148 | 1.0× | 1.0× | 1.0× | 1.0× |
+| StandardScaler fit + transform | 1.35 | 1.32 | 1.38 | 1.62 | 1.78 | 1.57 | 0.8× | 0.8× | 0.8× | 1.0× |
+| LinearRegression fit | 3.61 | 4.92 | 2.18 | 2.63 | 4.69 | 4.63 | 0.8× | 1.1× | 0.5× | 0.6× |
+| LinearRegression predict | 0.22 | 0.35 | 0.17 | 0.31 | 0.24 | 0.19 | 0.9× | 1.9× | 0.7× | 1.6× |
+| Ridge fit | 2.31 | 3.77 | 1.15 | 2.19 | 2.08 | 1.43 | 1.1× | 2.6× | 0.6× | 1.5× |
+| Lasso fit (alpha 0.1) | 2.65 | 4.07 | 1.43 | 1.95 | 1.97 | 1.52 | 1.3× | 2.7× | 0.7× | 1.3× |
+| LogisticRegression fit, 2 classes | 81.8 | 115 | 39.1 | 43.1 | 50.8 | 51.6 | 1.6× | 2.2× | 0.8× | 0.8× |
+| LogisticRegression fit, 2 classes, newton-cholesky | 22.5 | 23.3 | 11.9 | 16.4 | 12.2 | 18.9 | 1.9× | 1.2× | 1.0× | 0.9× |
+| LogisticRegression fit, 3 classes | 197 | 235 | 105 | 90.2 | 123 | 124 | 1.6× | 1.9× | 0.9× | 0.7× |
+| LogisticRegression predictProba, 3 classes | 1.22 | 1.27 | 1.59 | 1.15 | 1.02 | 1.02 | 1.2× | 1.3× | 1.6× | 1.1× |
+| DecisionTreeRegressor fit, depth 10 | 146 | 138 | 132 | 147 | 139 | 131 | 1.1× | 1.0× | 1.0× | 1.1× |
+| DecisionTreeClassifier fit, 3 classes, depth 10 | 159 | 145 | 140 | 160 | 169 | 142 | 0.9× | 1.0× | 0.8× | 1.1× |
 
 Iterations: Lasso 5 (scikit-learn 5), logistic regression 100 and 100 (scikit-learn 100 and 100).
 
@@ -60,21 +60,21 @@ Iterations: Lasso 5 (scikit-learn 5), logistic regression 100 and 100 (scikit-le
 
 | Operation | smaltml, 1 thread | smaltml, 4 threads | smaltml, SIMD, 1 thread | smaltml, SIMD, 4 threads | scikit-learn, 1 thread | scikit-learn, 4 threads | smaltml ÷ scikit-learn, 1 thread | smaltml ÷ scikit-learn, 4 threads | smaltml ÷ scikit-learn, SIMD, 1 thread | smaltml ÷ scikit-learn, SIMD, 4 threads |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| StandardScaler fit + transform | 81.8 | 91.3 | 78.9 | 97.5 | 135 | 128 | 0.6× | 0.7× | 0.6× | 0.8× |
-| LinearRegression fit | 254 | 143 | 116 | 66.5 | 484 | 270 | 0.5× | 0.5× | 0.2× | 0.2× |
-| LinearRegression predict | 11.2 | 11.3 | 10.2 | 9.72 | 10.2 | 8.12 | 1.1× | 1.4× | 1.0× | 1.2× |
-| Ridge fit | 194 | 101 | 101 | 63.4 | 78.8 | 71.1 | 2.5× | 1.4× | 1.3× | 0.9× |
-| Lasso fit (alpha 0.1) | 186 | 90.1 | 93.3 | 68.9 | 103 | 60.9 | 1.8× | 1.5× | 0.9× | 1.1× |
-| LogisticRegression fit, 2 classes | 2,790 | 1,189 | 1,729 | 9,542 | 1,418 | 3,072 | 2.0× | 0.4× | 1.2× | 3.1× |
-| LogisticRegression fit, 2 classes, newton-cholesky | 1,831 | 895 | 854 | 1,168 | 784 | 597 | 2.3× | 1.5× | 1.1× | 2.0× |
-| LogisticRegression fit, 3 classes | 8,117 | 3,862 | 3,980 | 13,144 | 4,159 | 7,114 | 2.0× | 0.5× | 1.0× | 1.8× |
-| LogisticRegression predictProba, 3 classes | 41.4 | 38.7 | 40.9 | 42.8 | 39.6 | 29.5 | 1.0× | 1.3× | 1.0× | 1.5× |
-| DecisionTreeRegressor fit, depth 10 | 10,663 | 10,664 | 11,105 | 10,678 | 9,822 | 9,960 | 1.1× | 1.1× | 1.1× | 1.1× |
-| DecisionTreeClassifier fit, 3 classes, depth 10 | 12,276 | 11,945 | 11,106 | 11,671 | 11,424 | 10,875 | 1.1× | 1.1× | 1.0× | 1.1× |
+| StandardScaler fit + transform | 75.2 | 74.6 | 75.8 | 90.3 | 150 | 130 | 0.5× | 0.6× | 0.5× | 0.7× |
+| LinearRegression fit | 227 | 144 | 123 | 69.8 | 489 | 248 | 0.5× | 0.6× | 0.3× | 0.3× |
+| LinearRegression predict | 9.93 | 17.1 | 10.7 | 16.4 | 16.5 | 8.63 | 0.6× | 2.0× | 0.7× | 1.9× |
+| Ridge fit | 198 | 87.6 | 93.6 | 54.4 | 76.8 | 72.4 | 2.6× | 1.2× | 1.2× | 0.8× |
+| Lasso fit (alpha 0.1) | 206 | 116 | 88.9 | 65.6 | 119 | 46.8 | 1.7× | 2.5× | 0.7× | 1.4× |
+| LogisticRegression fit, 2 classes | 2,777 | 1,130 | 1,478 | 9,056 | 1,990 | 2,912 | 1.4× | 0.4× | 0.7× | 3.1× |
+| LogisticRegression fit, 2 classes, newton-cholesky | 1,902 | 877 | 868 | 1,100 | 924 | 582 | 2.1× | 1.5× | 0.9× | 1.9× |
+| LogisticRegression fit, 3 classes | 8,496 | 3,406 | 3,055 | 12,849 | 4,409 | 7,292 | 1.9× | 0.5× | 0.7× | 1.8× |
+| LogisticRegression predictProba, 3 classes | 41.2 | 43.5 | 40.2 | 59.9 | 33.2 | 31.0 | 1.2× | 1.4× | 1.2× | 1.9× |
+| DecisionTreeRegressor fit, depth 10 | 10,084 | 10,046 | 10,614 | 10,973 | 10,219 | 9,516 | 1.0× | 1.1× | 1.0× | 1.2× |
+| DecisionTreeClassifier fit, 3 classes, depth 10 | 10,675 | 11,452 | 11,662 | 11,682 | 10,904 | 10,273 | 1.0× | 1.1× | 1.1× | 1.1× |
 
 Iterations: Lasso 4 (scikit-learn 4), logistic regression 100 and 100 (scikit-learn 100 and 100).
 
-"SIMD" columns: smaltml with its SIMD kernels (smaltml-simd: gramPart, matMul, logisticProducts), their defaults, as smaltml turns them on by itself. The others use smaltml's own TypeScript kernels.
+"SIMD" columns: smaltml with its SIMD kernels (smaltml-simd: gramPart, matMul, binaryLogisticRows, multinomialLogisticRows, logisticProducts), their defaults, as smaltml turns them on by itself. The others use smaltml's own TypeScript kernels.
 
 Run 2026-11-18: smaltml 0.1.0 on Node 22.23.4; scikit-learn 1.9.1, NumPy 2.5.4 on Python 3.13.18 (openblas 0.3.31.dev, openblas 0.3.34.106.0, openmp). CPU: Intel(R) Xeon(R) Processor @ 2.10GHz, 4 cores. smaltml's runs on several threads use fit() with threads 'auto' (up to that many); predictions and StandardScaler run on one thread in every smaltml column.
 

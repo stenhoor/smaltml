@@ -19,7 +19,8 @@ export interface SimdOptions {
   fusedMultiplyAdd?: boolean;
   /**
    * The logistic objectives' row steps too, for LogisticRegression's lbfgs fits, on smaltkit's f64x2 exp, log1p and
-   * log, within a few rounding steps of Math's. Off by default (the owner, 2026-11-17).
+   * log, within a few rounding steps of Math's. On by default (the owner, 2026-11-18: lbfgs was 0.72–0.91 times
+   * scikit-learn's time with them, 0.94–1.20 without, at 200k × 50); `false` keeps Math's.
    */
   logistic?: boolean;
   /**
@@ -40,8 +41,8 @@ export function setName(fused: boolean): string {
 }
 
 /**
- * The kernel set: gramPart (XᵀX) and matMul (A · B) on WebAssembly SIMD, compiled here, and with `logistic` the
- * logistic objectives' row steps. Fused multiply-add only when asked for and the engine
+ * The kernel set: gramPart (XᵀX), matMul (A · B), the logistic products and, unless `logistic` is false, the
+ * logistic objectives' row steps, on WebAssembly SIMD, compiled here. Fused multiply-add only when asked for and the engine
  * has relaxed SIMD. Fails where the engine has no WebAssembly SIMD; useSimd() checks that first.
  */
 export default async function kernelSet(options: SimdOptions = {}): Promise<KernelSet> {
@@ -52,7 +53,7 @@ export default async function kernelSet(options: SimdOptions = {}): Promise<Kern
   const gram = new SimdGram(gramMod!);
   const product = new SimdMatMul(matMulMod!);
   const products = new SimdProducts(productsMod!);
-  const logistic = options.logistic ? new SimdLogistic(await WebAssembly.compile(logisticModule(fused))) : undefined;
+  const logistic = (options.logistic ?? true) ? new SimdLogistic(await WebAssembly.compile(logisticModule(fused))) : undefined;
   return {
     name: setName(fused),
     version: KERNELS_VERSION,

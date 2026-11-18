@@ -23,7 +23,7 @@ stands.
   million values on one thread. Predictions and `StandardScaler` run on one thread in both.
 - **smaltml with SIMD:** the same runs with smaltml's [SIMD kernels](../guide/hardware#simd-kernels), their defaults,
   as smaltml turns them on by itself: XᵀX (`gramPart`), the matrix product (`matMul`) and the logistic objectives'
-  products (`logisticProducts`) on WebAssembly SIMD; the logistic row steps stay off (`useSimd({ logistic: true })`).
+  products (`logisticProducts`) and their row steps on WebAssembly SIMD.
   The decision trees use none of them, so their SIMD columns time the same code.
 - **scikit-learn:** on one thread (`OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1`) and on every core, with its default
   BLAS. Its trees run on one thread either way.

@@ -85,7 +85,7 @@ Playwright is a dev dependency, pinned to CI's version (1.64.1). Its Chromium is
   `.wasm` file, no toolchain, every instruction from our own code. Close, not equal: SIMD sums in another order, so
   results move in the last bits, every compare case passes within its tolerance with them on (`npm run test:simd`),
   and threaded fits equal `fitSync` exactly (the workers load `dist/smaltml-simd-kernels.js`). Plain SIMD by default;
-  fused multiply-add and the logistic row steps only when asked. A new kernel needs the contract to name it first
+  fused multiply-add only when asked; the logistic row steps on by default (the owner, 2026-11-18). A new kernel needs the contract to name it first
   (`src/core/kernels.ts`), tests against plain loops on odd sizes (`test/simd-*.test.ts`), and the compare tests
   passing with it on.
 - **Asynchronous API over a synchronous core** (section 5): every `fit`, `predict`, `predictProba` and `transform` has

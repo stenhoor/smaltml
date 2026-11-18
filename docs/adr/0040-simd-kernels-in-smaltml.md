@@ -41,7 +41,7 @@ smaltml's dependencies on the plugin's repository. Three places were offered for
    kernels written from TypeScript at run time with our own writer (item 5, as amended), plain SIMD by default and
    fused multiply-add only when asked (item 6), results close to smaltml's own and not equal, every compare case within
    its tolerance, threaded fits equal to `fitSync` (item 7), and the logistic row steps off by default (its "Still to
-   decide", item 4).
+   decide", item 4) (on by default since, below).
 6. **Tests:** smaltml's test suite runs on its own TypeScript kernels (`test/setup.ts`), so its results stay
    bit-exact. `npm run test:simd` runs the compare, parallel and hardware tests with every SIMD kernel on, plain and
    with fused multiply-add, as the plugin's CI did; CI runs it. The kernels' own tests (against plain loops, on odd
@@ -57,6 +57,15 @@ kept per device; and the tiled matrix product in 32-bit floats, its shader uncha
 `device: 'auto' | 'cpu' | 'gpu'` and its threshold (ADR 0034), its error codes, and the logistic objective's shader.
 Like the SIMD kernels, the shaders are source (WGSL text) that the browser compiles where it runs, not a precompiled
 binary, and the build folds smaltkit's module into `dist/`, so there is still no runtime dependency.
+
+## The logistic row steps, on by default (the owner, 2026-11-18)
+
+Item 5 carried ADR 0035's "the logistic row steps off by default", set on 2026-11-17 from benchmarks later found to be
+slowed by running as TypeScript. Measured again on 2026-11-18, on one machine, three runs each in turn, one thread,
+median, against scikit-learn 1.9.1: at 200k × 50, lbfgs took 1.20× scikit-learn's time with SIMD and 0.91× with the
+row steps on too (2 classes), and 0.94× and 0.72× (3 classes); at 10k × 20, 0.99× either way (2 classes) and 0.84×
+and 0.63× (3 classes). The owner turned them on by default. `useSimd({ logistic: false })` keeps `Math`'s exp and
+log. Every compare case passes with them on (`npm run test:simd` runs with them).
 
 ## Consequences
 

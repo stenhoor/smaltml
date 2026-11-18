@@ -15,8 +15,8 @@ interface SimdOptions {
 }
 ```
 
-Turns smaltml's SIMD kernels on: XᵀX (`gramPart`), the matrix product (`matMul`) and the logistic objectives' products
-over X (`logisticProducts`), written as WebAssembly SIMD ([ADR 0040](../../adr/0040-simd-kernels-in-smaltml)). From
+Turns smaltml's SIMD kernels on: XᵀX (`gramPart`), the matrix product (`matMul`), the logistic objectives' products
+over X (`logisticProducts`) and their row steps, written as WebAssembly SIMD ([ADR 0040](../../adr/0040-simd-kernels-in-smaltml)). From
 `@smaltworks/smaltml/simd`. smaltml calls it by itself at the first asynchronous fit or `matMul`, where the engine has
 WebAssembly SIMD ([The CPU, WebGPU and workers](../../guide/hardware#simd-kernels)); call it yourself in a bundled
 app, or to choose its options.
@@ -26,7 +26,7 @@ app, or to choose its options.
 - `fusedMultiplyAdd`: relaxed SIMD's fused multiply-add, where the engine has it (`simdSupport().relaxed`): a little
   faster, with last bits that can differ between processors. Off by default.
 - `logistic`: the logistic objectives' row steps (the exp and log between X·w and Xᵀr) on SIMD too, with our own exp,
-  log1p and log, within a few rounding steps of `Math`'s. Off by default.
+  log1p and log, within a few rounding steps of `Math`'s. On by default; `false` keeps `Math`'s.
 - `kernelsModule`: where the thread pool's workers load the kernels from. By default `smaltml-simd-kernels.js`, beside
   smaltml's own files (`@smaltworks/smaltml/simd-kernels-script`); set it when a bundler moves files.
 
@@ -60,7 +60,7 @@ import { useSimd } from '@smaltworks/smaltml/simd';
 
 await useSimd({ fusedMultiplyAdd: true });
 const model = new Ridge().fitSync(X, y); // XᵀX on SIMD, fused
-kernelsInUse(); // { name: 'smaltml-simd, fused multiply-add', kernels: ['gramPart', 'matMul', 'logisticProducts'], … }
+kernelsInUse(); // { name: 'smaltml-simd, fused multiply-add', kernels: ['gramPart', 'matMul', 'binaryLogisticRows', …], … }
 ```
 
 ## Working demo
@@ -77,7 +77,7 @@ useKernels(null);
 
 | on | name | kernels |
 | --- | --- | --- |
-| true | smaltml-simd | gramPart, matMul, logisticProducts |
+| true | smaltml-simd | gramPart, matMul, binaryLogisticRows, multinomialLogisticRows, logisticProducts |
 
 ## See also
 

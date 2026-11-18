@@ -53,7 +53,7 @@ const near = (a: ArrayLike<number>, b: ArrayLike<number>, rel: number) => {
 
 test('simd() replaces gramPart, and useKernels(null) puts smaltml\'s back', async () => {
   assert.equal(await turnOn(), true);
-  assert.deepEqual(kernelsInUse(), { name: 'smaltml-simd', kernels: ['gramPart', 'matMul', 'logisticProducts'], rejected: [] });
+  assert.deepEqual(kernelsInUse(), { name: 'smaltml-simd', kernels: ['gramPart', 'matMul', 'binaryLogisticRows', 'multinomialLogisticRows', 'logisticProducts'], rejected: [] });
   useKernels(null);
   assert.equal(kernelsInUse().name, 'smaltml');
   assert.equal(await turnOn({ fusedMultiplyAdd: true }), true);
@@ -117,11 +117,11 @@ test('lbfgs logistic fits with the SIMD row kernels agree with smaltml\'s own wi
   }
 });
 
-test('the logistic row kernels are off unless asked for; the logistic products are on', async () => {
+test('the logistic row kernels are on by default, and off with logistic: false', async () => {
   await turnOn();
-  assert.deepEqual(kernelsInUse().kernels, ['gramPart', 'matMul', 'logisticProducts']);
-  await turnOn({ logistic: true });
   assert.deepEqual(kernelsInUse().kernels, ['gramPart', 'matMul', 'binaryLogisticRows', 'multinomialLogisticRows', 'logisticProducts']);
+  await turnOn({ logistic: false });
+  assert.deepEqual(kernelsInUse().kernels, ['gramPart', 'matMul', 'logisticProducts']);
 });
 
 test('the bundle imports nothing', () => {

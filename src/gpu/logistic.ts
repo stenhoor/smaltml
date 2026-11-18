@@ -1,5 +1,6 @@
 import type { Matrix } from '../core/matrix.js';
 import { gpuDevice } from './index.js';
+import { computePipeline, GPU_BUFFER, GPU_MAP_READ, gpuBufferLimit } from 'smaltkit/gpu';
 
 /** Classes the GPU objective takes (two, as one score, up to this many); more stay on the CPU. */
 export const GPU_MAX_CLASSES = 8;
@@ -82,11 +83,7 @@ export interface GpuLogistic {
   destroy(): void;
 }
 
-const MAP_READ = 0x0001;
-const COPY_SRC = 0x0004;
-const COPY_DST = 0x0008;
-const UNIFORM = 0x0040;
-const STORAGE = 0x0080;
+const { MAP_READ, COPY_SRC, COPY_DST, UNIFORM, STORAGE } = GPU_BUFFER;
 
 /**
  * Uploads X (as 32-bit floats) and the class indexes, and returns the objective's sums on the GPU; null where there is
@@ -99,11 +96,11 @@ export async function logisticOnGpu(X: Matrix, y: Int32Array, K: number, interce
   const n = X.rows;
   const p = X.cols;
   const width = p + (intercept ? 1 : 0);
-  const limit = Math.min(d.limits.maxStorageBufferBindingSize, d.limits.maxBufferSize);
+  const limit = gpuBufferLimit(d);
   const groups = Math.ceil(n / WG);
   const stride = K * width + 1;
   if (n * p * 4 > limit || groups * stride * 4 > limit || groups > d.limits.maxComputeWorkgroupsPerDimension) return null;
-  const pipeline = d.createComputePipeline({ layout: 'auto', compute: { module: d.createShaderModule({ code: SHADER }), entryPoint: 'main' } });
+  const pipeline = computePipeline(d, SHADER);
   const make = (size: number, usage: number) => d.createBuffer({ size: Math.max(16, Math.ceil(size / 4) * 4), usage });
   const xBuf = make(n * p * 4, STORAGE | COPY_DST);
   d.queue.writeBuffer(xBuf, 0, Float32Array.from(X.data));
@@ -129,7 +126,7 @@ export async function logisticOnGpu(X: Matrix, y: Int32Array, K: number, interce
       pass.end();
       enc.copyBufferToBuffer(outBuf, 0, read, 0, groups * stride * 4);
       d.queue.submit([enc.finish()]);
-      await read.mapAsync(0x0001);
+      await read.mapAsync(GPU_MAP_READ);
       const parts = new Float32Array(read.getMappedRange().slice(0, groups * stride * 4));
       read.unmap();
       grad.fill(0);

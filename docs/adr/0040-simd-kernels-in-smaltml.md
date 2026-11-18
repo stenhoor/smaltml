@@ -49,6 +49,15 @@ smaltml's dependencies on the plugin's repository. Three places were offered for
 7. **smaltml-simd is retired.** Its last pull request, stenhoor/smaltml-simd#8, isn't needed: its work is here. What
    becomes of the repository (archived, or kept with a notice) is the owner's to decide.
 
+## WebGPU too (the owner, 2026-11-18)
+
+The same split for WebGPU: what any smalt product could use moves to smaltkit, as `smaltkit/gpu`
+(stenhoor/smaltkit#52): the device, asked for once and again after it is lost; compute pipelines from WGSL source,
+kept per device; and the tiled matrix product in 32-bit floats, its shader unchanged. smaltml keeps what is its own:
+`device: 'auto' | 'cpu' | 'gpu'` and its threshold (ADR 0034), its error codes, and the logistic objective's shader.
+Like the SIMD kernels, the shaders are source (WGSL text) that the browser compiles where it runs, not a precompiled
+binary, and the build folds smaltkit's module into `dist/`, so there is still no runtime dependency.
+
 ## Consequences
 
 - One repository and one release for smaltml and its kernels: no pins between them, no plugin site, no second CI.

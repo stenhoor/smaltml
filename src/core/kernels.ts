@@ -18,6 +18,33 @@ export interface Kernels {
   binaryLogisticRows?: (z: Float64Array, y: Int32Array, weights: ArrayLike<number> | undefined, at: number, m: number, loss: number) => number;
   /** The multinomial logistic objective's row step: {@link ownMultinomialLogisticRows}'s signature and result. */
   multinomialLogisticRows?: (z: Float64Array, stride: number, K: number, y: Int32Array, weights: ArrayLike<number> | undefined, at: number, m: number, loss: number) => number;
+  /**
+   * The logistic objectives' products over X (X·w and Xᵀr) for one fit: X kept by the kernel for the fit's length,
+   * read on every evaluation; `null` where it won't take this X. See {@link LogisticProducts}.
+   */
+  logisticProducts?: (X: Matrix) => LogisticProducts | null;
+}
+
+/** The binary row step's signature: {@link binaryLogisticRows}. */
+export type BinaryRows = (z: Float64Array, y: Int32Array, weights: ArrayLike<number> | undefined, at: number, m: number, loss: number) => number;
+/** The multinomial row step's signature: {@link multinomialLogisticRows}. */
+export type MultinomialRows = (z: Float64Array, stride: number, K: number, y: Int32Array, weights: ArrayLike<number> | undefined, at: number, m: number, loss: number) => number;
+
+/**
+ * One fit's logistic products, from the `logisticProducts` kernel: binaryLogisticPart() and multinomialLogisticPart()
+ * on the X it was given, with their results, and the row step passed in (`rows`, a block of `BLOCK` rows at a time,
+ * scores at stride `BLOCK`), so the row step stays smaltml's or its own kernel. release() frees X's copy.
+ */
+export interface LogisticProducts {
+  binaryPart(y: Int32Array, intercept: boolean, x: Float64Array, grad: Float64Array, from: number, to: number, weights: Float64Array | undefined, rows: BinaryRows): number;
+  multinomialPart(y: Int32Array, K: number, intercept: boolean, x: Float64Array, grad: Float64Array, from: number, to: number, weights: Float64Array | undefined, rows: MultinomialRows): number;
+  release(): void;
+}
+
+/** The `logisticProducts` kernel's products over X for one fit, or `null` (smaltml's own then): release() them after. */
+export function prepareLogistic(X: Matrix): LogisticProducts | null {
+  const k = replaced.logisticProducts;
+  return k ? k(X) : null;
 }
 
 /** The replacements in use: set only by useKernels(). */
@@ -305,8 +332,11 @@ export function ownMultinomialLogisticRows(z: Float64Array, stride: number, K: n
  * residuals, then their contribution to the gradient, while the block is still in cache. x holds w, then b when
  * there is an intercept. Returns the mean log loss plus l2 / 2 · ‖w‖².
  */
-export function binaryLogistic(X: Matrix, y: Int32Array, l2: number, intercept: boolean, x: Float64Array, grad: Float64Array, weights?: Float64Array, total = X.rows): number {
-  return finishLogistic(sumParts(X.rows, grad, (g, a, b) => binaryLogisticPart(X, y, intercept, x, g, a, b, weights)), X, l2, intercept, x, grad, 1, total);
+export function binaryLogistic(X: Matrix, y: Int32Array, l2: number, intercept: boolean, x: Float64Array, grad: Float64Array, weights?: Float64Array, total = X.rows, products?: LogisticProducts | null): number {
+  const part = products
+    ? (g: Float64Array, a: number, b: number) => products.binaryPart(y, intercept, x, g, a, b, weights, binaryLogisticRows)
+    : (g: Float64Array, a: number, b: number) => binaryLogisticPart(X, y, intercept, x, g, a, b, weights);
+  return finishLogistic(sumParts(X.rows, grad, part), X, l2, intercept, x, grad, 1, total);
 }
 
 /** Sums a logistic part over the chunks, in order: the loss returned, the gradient into `grad`. */
@@ -382,8 +412,11 @@ export function binaryLogisticPart(X: Matrix, y: Int32Array, intercept: boolean,
  * The multinomial logistic objective and its gradient in one pass over X, as binaryLogistic(): x holds K rows of
  * (w, then b when there is an intercept).
  */
-export function multinomialLogistic(X: Matrix, y: Int32Array, K: number, l2: number, intercept: boolean, x: Float64Array, grad: Float64Array, weights?: Float64Array, total = X.rows): number {
-  return finishLogistic(sumParts(X.rows, grad, (g, a, b) => multinomialLogisticPart(X, y, K, intercept, x, g, a, b, weights)), X, l2, intercept, x, grad, K, total);
+export function multinomialLogistic(X: Matrix, y: Int32Array, K: number, l2: number, intercept: boolean, x: Float64Array, grad: Float64Array, weights?: Float64Array, total = X.rows, products?: LogisticProducts | null): number {
+  const part = products
+    ? (g: Float64Array, a: number, b: number) => products.multinomialPart(y, K, intercept, x, g, a, b, weights, multinomialLogisticRows)
+    : (g: Float64Array, a: number, b: number) => multinomialLogisticPart(X, y, K, intercept, x, g, a, b, weights);
+  return finishLogistic(sumParts(X.rows, grad, part), X, l2, intercept, x, grad, K, total);
 }
 
 /** multinomialLogistic()'s sums over rows `from` to `to`, as binaryLogisticPart() gives the binary ones. */

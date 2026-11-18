@@ -5,7 +5,7 @@
  * it is given and that plugin's own `useSimd()`.
  */
 import { fail } from './errors.js';
-import { ownBinaryLogisticRows, ownGramPart, ownMatMul, ownMultinomialLogisticRows, replaced, type Kernels } from './kernels.js';
+import { binaryLogisticPart, multinomialLogisticPart, ownBinaryLogisticRows, ownGramPart, ownMatMul, ownMultinomialLogisticRows, replaced, type Kernels } from './kernels.js';
 import { Matrix } from './matrix.js';
 import { Random } from './random.js';
 
@@ -19,7 +19,7 @@ export const KERNELS_VERSION = 1;
 
 /** The names of the kernels a set can replace. */
 export type KernelName = keyof Kernels;
-const NAMES: readonly KernelName[] = ['gramPart', 'matMul', 'binaryLogisticRows', 'multinomialLogisticRows'];
+const NAMES: readonly KernelName[] = ['gramPart', 'matMul', 'binaryLogisticRows', 'multinomialLogisticRows', 'logisticProducts'];
 
 /** A set of kernels to use in place of smaltml's own: what a plugin gives useKernels(). */
 export interface KernelSet {
@@ -155,6 +155,8 @@ function passes(name: KernelName, k: NonNullable<Kernels[KernelName]>): boolean 
         return binaryRowsPass(k as NonNullable<Kernels['binaryLogisticRows']>);
       case 'multinomialLogisticRows':
         return multinomialRowsPass(k as NonNullable<Kernels['multinomialLogisticRows']>);
+      case 'logisticProducts':
+        return productsPass(k as NonNullable<Kernels['logisticProducts']>);
     }
   } catch {
     return false;
@@ -263,4 +265,45 @@ function multinomialRowsPass(k: NonNullable<Kernels['multinomialLogisticRows']>)
     if (!near(got, want, (i) => (w && i % stride < 37 ? Math.max(w[3 + (i % stride)]!, 1) : 1))) return false;
   }
   return true;
+}
+
+/**
+ * The logistic products on 1,100 rows of 9 columns (blocks of 512 and a remainder, odd column count), from row 0 and
+ * from row 37, binary and with 3 classes, with and without weights and an intercept: against smaltml's own parts, both
+ * with smaltml's own row steps.
+ */
+function productsPass(k: NonNullable<Kernels['logisticProducts']>): boolean {
+  const r = new Random(39);
+  const n = 1100;
+  const p = 9;
+  const X = new Matrix(n, p, values(r, n * p, 4));
+  const before = X.data.slice();
+  const prepared = k(X);
+  if (prepared === null) return true; // it takes no X this small: nothing to check, and it is never used on one
+  try {
+    const y2 = Int32Array.from({ length: n }, () => (r.next() < 0.5 ? 1 : 0));
+    const y3 = Int32Array.from({ length: n }, () => Math.min(2, Math.floor(r.next() * 3)));
+    const weights = Float64Array.from({ length: n }, () => r.next() * 2);
+    for (const [from, to] of [[0, n], [37, 1001]] as const) {
+      for (const w of [undefined, weights]) {
+        for (const intercept of [false, true]) {
+          for (const K of [1, 3]) {
+            const width = p + (intercept ? 1 : 0);
+            const x = values(r, K * width, 0.6);
+            const want = new Float64Array(K * width);
+            const got = new Float64Array(K * width).fill(7); // a part fills grad, whatever it held
+            const lossWant = K === 1 ? binaryLogisticPart(X, y2, intercept, x, want, from, to, w) : multinomialLogisticPart(X, y3, K, intercept, x, want, from, to, w);
+            const lossGot = K === 1 ? prepared.binaryPart(y2, intercept, x, got, from, to, w, ownBinaryLogisticRows) : prepared.multinomialPart(y3, K, intercept, x, got, from, to, w, ownMultinomialLogisticRows);
+            if (!(Math.abs(lossGot - lossWant) <= TOLERANCE * Math.abs(lossWant))) return false;
+            // Each gradient entry is a sum of ~1,000 terms of size up to |x| · weight: relative to the sum of their sizes.
+            const scale = (to - from) * 4 * 2;
+            if (!near(got, want, () => scale)) return false;
+          }
+        }
+      }
+    }
+    return X.data.every((v, i) => v === before[i]);
+  } finally {
+    prepared.release();
+  }
 }

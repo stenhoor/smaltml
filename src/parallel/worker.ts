@@ -1,7 +1,7 @@
 // The thread pool's worker script (dist/smaltml-threads.js): runs the kernels over the chunks of rows it is given, on
 // matrices in shared memory, and sends back one part per chunk. In Node it runs under worker_threads; in a browser,
 // as a module Worker on a cross-origin isolated page.
-import { binaryLogisticPart, gramPart, multinomialLogisticPart, xtvPart, xw } from '../core/kernels.js';
+import { binaryLogisticPart, binaryLogisticRows, gramPart, multinomialLogisticPart, multinomialLogisticRows, prepareLogistic, xtvPart, xw, type LogisticProducts } from '../core/kernels.js';
 import { useKernels, type KernelSet } from '../core/kernel-set.js';
 import { Matrix } from '../core/matrix.js';
 import type { Request, Response, SharedMatrix } from './protocol.js';
@@ -20,6 +20,16 @@ function matrix(m: SharedMatrix): Matrix {
     views.set(m.buffer, v);
   }
   return v;
+}
+
+/**
+ * The logistic products kernel's copy of each X, where a plugin gives one: kept while X is, so every evaluation of a
+ * fit reads the same copy, and its chunks give what fitSync's do.
+ */
+const products = new WeakMap<Matrix, LogisticProducts | null>();
+function productsFor(X: Matrix): LogisticProducts | null {
+  if (!products.has(X)) products.set(X, prepareLogistic(X));
+  return products.get(X)!;
 }
 
 /** Imports a plugin's module and uses the kernel set it gives, as the main thread does (ADR 0035, item 8). */
@@ -53,9 +63,16 @@ function handle(req: Request): Response | Promise<Response> {
       const y = new Int32Array(t.y);
       const w = t.weights ? new Float64Array(t.weights) : undefined;
       const width = X.cols + (t.intercept ? 1 : 0);
+      const prepared = productsFor(X);
       const parts = t.chunks.map(([a, b]) => {
         const g = new Float64Array(t.K === 1 ? width : t.K * width);
-        const loss = t.K === 1 ? binaryLogisticPart(X, y, t.intercept, t.x, g, a, b, w) : multinomialLogisticPart(X, y, t.K, t.intercept, t.x, g, a, b, w);
+        const loss = prepared
+          ? t.K === 1
+            ? prepared.binaryPart(y, t.intercept, t.x, g, a, b, w, binaryLogisticRows)
+            : prepared.multinomialPart(y, t.K, t.intercept, t.x, g, a, b, w, multinomialLogisticRows)
+          : t.K === 1
+            ? binaryLogisticPart(X, y, t.intercept, t.x, g, a, b, w)
+            : multinomialLogisticPart(X, y, t.K, t.intercept, t.x, g, a, b, w);
         return { loss, values: g };
       });
       return { id: req.id, ok: true, parts };

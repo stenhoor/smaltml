@@ -34,6 +34,20 @@ Two more of the family's rules:
   event-driven: never poll, sleep or schedule checks for it. Merging stays with the owner.
   (Both rules: smaltworks' [session rules](https://github.com/stenhoor/smaltworks/blob/main/context/session-rules.md).)
 
+**Reporting speed to the owner** (the owner, 2026-11-18). Every speed result goes to the owner in this form, and no
+other:
+
+- **Measured fresh, together.** smaltml, smaltml with SIMD and scikit-learn, run in turn on the same machine in the
+  same session, three times each, compared on the median. On one thread:
+  `node bench/smaltml.mjs`, `node bench/smaltml.mjs --simd ../smaltml-simd/dist/smaltml-simd-kernels.js` and
+  `OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python3 bench/reference.py`, after `npm run build` here and in the plugin.
+  Never an older run, another machine's numbers, or a figure from a document, mixed in.
+- **One table per data size:** each operation, scikit-learn's time, and smaltml ÷ scikit-learn without and with SIMD
+  (below 1 is faster than scikit-learn).
+- **Then a few lines:** faster, level and slower, as the table shows. Nothing that isn't in the table: no estimates,
+  no projections, no comparisons of smaltml with itself in place of scikit-learn.
+- **Say how it was measured** before the table: when, which builds, how many runs.
+
 ## Commands
 
 | Command | What it does |

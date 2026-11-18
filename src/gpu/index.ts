@@ -8,6 +8,7 @@ import { fail } from '../core/errors.js';
 import { kernelsReady } from '../core/kernel-set.js';
 import { matMulKernel } from '../core/kernels.js';
 import { Matrix, type MatrixInput } from '../core/matrix.js';
+import { gpuDevice as kitDevice, gpuMatMul as kitMatMul, gpuMatMulFits } from 'smaltkit/gpu';
 
 /**
  * Where work runs: `'auto'` (the default) uses the GPU when the browser has WebGPU and the work is large enough to gain
@@ -26,28 +27,12 @@ export interface DeviceOptions {
  */
 export const GPU_MIN_WORK = 1 << 22;
 
-let device: Promise<GPUDevice | null> | undefined;
-
-/** The WebGPU device smaltml uses, or null where there is none (Node, or a browser without WebGPU). Asked for once. */
+/**
+ * The WebGPU device smaltml uses, or null where there is none (Node, or a browser without WebGPU): smaltkit's compute
+ * device (`smaltkit/gpu`), asked for once and again after it is lost.
+ */
 export function gpuDevice(): Promise<GPUDevice | null> {
-  return (device ??= (async () => {
-    const gpu = (globalThis as { navigator?: Navigator }).navigator?.gpu;
-    if (!gpu) return null;
-    try {
-      const adapter = await gpu.requestAdapter();
-      if (!adapter) return null;
-      const d = await adapter.requestDevice({
-        requiredLimits: { maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize, maxBufferSize: adapter.limits.maxBufferSize },
-      });
-      // A lost device is asked for again next time.
-      void d.lost.then(() => {
-        device = undefined;
-      });
-      return d;
-    } catch {
-      return null;
-    }
-  })());
+  return kitDevice();
 }
 
 /** Whether this browser gives smaltml a WebGPU device. */
@@ -97,118 +82,14 @@ export function matMulSync(A: MatrixInput, B: MatrixInput): Matrix {
   return new Matrix(a.rows, b.cols, matMulKernel(a.rows, a.cols, b.cols, a.data, b.data));
 }
 
-// The kernel: a 16 × 16 tile of the output per workgroup, with the matching tiles of A and B staged in workgroup memory.
-// Everything is column-major, as Matrix is.
-const TILE = 16;
-const SHADER = /* wgsl */ `
-struct Dims { n: u32, p: u32, k: u32, pad: u32 }
-@group(0) @binding(0) var<uniform> dims: Dims;
-@group(0) @binding(1) var<storage, read> a: array<f32>;
-@group(0) @binding(2) var<storage, read> b: array<f32>;
-@group(0) @binding(3) var<storage, read_write> out: array<f32>;
-var<workgroup> ta: array<array<f32, ${TILE}>, ${TILE}>;
-var<workgroup> tb: array<array<f32, ${TILE}>, ${TILE}>;
-
-@compute @workgroup_size(${TILE}, ${TILE})
-fn main(@builtin(global_invocation_id) g: vec3<u32>, @builtin(local_invocation_id) l: vec3<u32>) {
-  let i = g.x;
-  let j = g.y;
-  var sum = 0.0;
-  let tiles = (dims.p + ${TILE}u - 1u) / ${TILE}u;
-  for (var t = 0u; t < tiles; t++) {
-    let ca = t * ${TILE}u + l.y;
-    let rb = t * ${TILE}u + l.x;
-    ta[l.y][l.x] = select(0.0, a[ca * dims.n + i], i < dims.n && ca < dims.p);
-    tb[l.y][l.x] = select(0.0, b[j * dims.p + rb], j < dims.k && rb < dims.p);
-    workgroupBarrier();
-    for (var q = 0u; q < ${TILE}u; q++) {
-      sum += ta[q][l.x] * tb[l.y][q];
-    }
-    workgroupBarrier();
-  }
-  if (i < dims.n && j < dims.k) {
-    out[j * dims.n + i] = sum;
-  }
-}`;
-
-// The WebGPU spec's buffer usage and map mode flags, as numbers: TypeScript's DOM library types them but doesn't declare
-// the GPUBufferUsage and GPUMapMode objects.
-const MAP_READ = 0x0001;
-const COPY_SRC = 0x0004;
-const COPY_DST = 0x0008;
-const UNIFORM = 0x0040;
-const STORAGE = 0x0080;
-const MAP_MODE_READ = 0x0001;
-
-const pipelines = new WeakMap<GPUDevice, GPUComputePipeline>();
-
-function pipelineFor(d: GPUDevice): GPUComputePipeline {
-  let p = pipelines.get(d);
-  if (!p) {
-    p = d.createComputePipeline({ layout: 'auto', compute: { module: d.createShaderModule({ code: SHADER }), entryPoint: 'main' } });
-    pipelines.set(d, p);
-  }
-  return p;
-}
-
-/** A · B on the GPU, in 32-bit floats, in chunks of rows that fit the device's buffer limits. */
+/**
+ * A · B on the GPU, in 32-bit floats: smaltkit's matrix product (`smaltkit/gpu`), a 16 × 16 tile per workgroup, A in
+ * chunks of rows that fit the device's buffers.
+ */
 async function gpuMatMul(a: Matrix, b: Matrix): Promise<Matrix> {
   const d = await gpuDevice();
   if (!d) return fail('ML_PARAM', "device 'gpu' needs WebGPU, which isn't available here");
-  const n = a.rows;
-  const p = a.cols;
-  const k = b.cols;
-  const out = new Float64Array(n * k);
-  if (n === 0 || k === 0) return new Matrix(n, k, out);
-  if (p === 0) return new Matrix(n, k, out);
-  const limit = Math.min(d.limits.maxStorageBufferBindingSize, d.limits.maxBufferSize);
-  if (p * k * 4 > limit) fail('ML_SHAPE', `B (${p} × ${k}) is larger than this GPU's buffers`);
-  const maxGroups = d.limits.maxComputeWorkgroupsPerDimension;
-  const rowsPerChunk = Math.max(1, Math.min(Math.floor(limit / (4 * Math.max(p, k))), maxGroups * TILE));
-  const pipeline = pipelineFor(d);
-  const usage = STORAGE | COPY_DST;
-  const bBuf = d.createBuffer({ size: p * k * 4, usage });
-  d.queue.writeBuffer(bBuf, 0, Float32Array.from(b.data));
-  try {
-    for (let r0 = 0; r0 < n; r0 += rowsPerChunk) {
-      const m = Math.min(rowsPerChunk, n - r0);
-      // This chunk's rows of A, column-major.
-      const chunk = new Float32Array(m * p);
-      for (let c = 0; c < p; c++) chunk.set(a.data.subarray(c * n + r0, c * n + r0 + m), c * m);
-      const dims = d.createBuffer({ size: 16, usage: UNIFORM | COPY_DST });
-      d.queue.writeBuffer(dims, 0, new Uint32Array([m, p, k, 0]));
-      const aBuf = d.createBuffer({ size: chunk.byteLength, usage });
-      d.queue.writeBuffer(aBuf, 0, chunk);
-      const size = m * k * 4;
-      const oBuf = d.createBuffer({ size, usage: STORAGE | COPY_SRC });
-      const read = d.createBuffer({ size, usage: MAP_READ | COPY_DST });
-      const bind = d.createBindGroup({
-        layout: pipeline.getBindGroupLayout(0),
-        entries: [
-          { binding: 0, resource: { buffer: dims } },
-          { binding: 1, resource: { buffer: aBuf } },
-          { binding: 2, resource: { buffer: bBuf } },
-          { binding: 3, resource: { buffer: oBuf } },
-        ],
-      });
-      const enc = d.createCommandEncoder();
-      const pass = enc.beginComputePass();
-      pass.setPipeline(pipeline);
-      pass.setBindGroup(0, bind);
-      pass.dispatchWorkgroups(Math.ceil(m / TILE), Math.ceil(k / TILE));
-      pass.end();
-      enc.copyBufferToBuffer(oBuf, 0, read, 0, size);
-      d.queue.submit([enc.finish()]);
-      await read.mapAsync(MAP_MODE_READ);
-      const result = new Float32Array(read.getMappedRange().slice(0));
-      read.unmap();
-      for (let j = 0; j < k; j++) {
-        for (let i = 0; i < m; i++) out[j * n + r0 + i] = result[j * m + i]!;
-      }
-      for (const buf of [dims, aBuf, oBuf, read]) buf.destroy();
-    }
-  } finally {
-    bBuf.destroy();
-  }
-  return new Matrix(n, k, out);
+  const [n, p, k] = [a.rows, a.cols, b.cols];
+  if (n > 0 && p > 0 && k > 0 && !gpuMatMulFits(d, p, k)) fail('ML_SHAPE', `B (${p} × ${k}) is larger than this GPU's buffers`);
+  return new Matrix(n, k, await kitMatMul(d, n, p, k, a.data, b.data));
 }

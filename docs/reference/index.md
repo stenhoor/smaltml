@@ -34,6 +34,8 @@ From `@smaltworks/smaltml/preprocessing`:
 
 - [`DecisionTreeRegressor`](./tree/decision-tree-regressor), [`DecisionTreeClassifier`](./tree/decision-tree-classifier):
   CART decision trees. `@smaltworks/smaltml/tree`
+- [`RandomForestRegressor`](./ensemble/random-forest-regressor), [`RandomForestClassifier`](./ensemble/random-forest-classifier):
+  random forests of those trees. `@smaltworks/smaltml/ensemble`
 
 ## Model selection
 

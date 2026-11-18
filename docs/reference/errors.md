@@ -31,6 +31,7 @@ Where scikit-learn warns and goes on, smaltml warns on the console (`console.war
 
 | Code | Meaning | What to do |
 | --- | --- | --- |
+| `ML_OOB` | A forest fitted with `oobScore: true` had rows that every tree's bootstrap sample drew, so no tree could score them out of bag; their `oobPrediction` or `oobDecisionFunction` row is 0s and they count in `oobScore` as such, as scikit-learn does. | Use more trees (`nEstimators`). |
 | `ML_CONVERGENCE` | An iterative fit (`LogisticRegression`, `Lasso`, `ElasticNet`) stopped at `maxIter` before it converged; its `converged` is `false`. scikit-learn's `ConvergenceWarning`. | Scale the columns (`StandardScaler`), raise `maxIter`, or for `Lasso` and `ElasticNet` raise `alpha`. |
 
 ## Examples

@@ -33,7 +33,9 @@ export function fail(code: ErrorCode, message: string): never {
 /** The codes smaltml's warnings carry. Each has an entry in the reference (docs/reference/errors.md). */
 export type WarningCode =
   /** An iterative fit stopped before it converged: scikit-learn's `ConvergenceWarning`. */
-  'ML_CONVERGENCE';
+  | 'ML_CONVERGENCE'
+  /** A forest's out-of-bag score had rows no tree left out, scored as 0: scikit-learn's `UserWarning` there. */
+  | 'ML_OOB';
 
 /**
  * Warns on the console, where scikit-learn would warn: the work goes on and its result stands. The message starts with

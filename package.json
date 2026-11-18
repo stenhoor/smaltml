@@ -66,6 +66,10 @@
       "types": "./dist/types/tree/index.d.ts",
       "default": "./dist/tree.js"
     },
+    "./ensemble": {
+      "types": "./dist/types/ensemble/index.d.ts",
+      "default": "./dist/ensemble.js"
+    },
     "./simd": {
       "types": "./dist/types/simd/index.d.ts",
       "default": "./dist/simd.js"

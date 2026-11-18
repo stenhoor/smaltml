@@ -713,6 +713,88 @@ for name, params, weights, labels in [
         inputs["sampleWeight"] = tolist(weights)
     case(name, "DecisionTreeClassifier", inputs, tree_expected(m, Xtn, True), {"rtol": 1e-10, "atol": 1e-10})
 
+# Rows of weight 0 take no part in a tree: not in a node's sample count, not a threshold's neighbour.
+swz = np.where(np.arange(80) % 4 == 0, 0.0, swt)
+for name, params in [
+    ("tree regressor: rows of weight 0, leaves of 5 or more", {"min_samples_leaf": 5}),
+    ("tree regressor: rows of weight 0, min_samples_split a share", {"min_samples_split": 0.25, "min_samples_leaf": 2}),
+]:
+    m = DecisionTreeRegressor(random_state=0, **params).fit(Xt, yt, sample_weight=swz)
+    case(name, "DecisionTreeRegressor", {"X": tolist(Xt), "y": tolist(yt), "Xnew": tolist(Xtn), "params": params, "sampleWeight": tolist(swz)},
+         tree_expected(m, Xtn, False), {"rtol": 1e-10, "atol": 1e-10})
+params = {"max_depth": 3, "min_samples_leaf": 5}
+m = DecisionTreeClassifier(random_state=0, **params).fit(Xt, yc3, sample_weight=swz)
+case("tree classifier: rows of weight 0", "DecisionTreeClassifier", {"X": tolist(Xt), "y": tolist(yc3), "Xnew": tolist(Xtn), "params": params, "sampleWeight": tolist(swz)},
+     tree_expected(m, Xtn, True), {"rtol": 1e-10, "atol": 1e-10})
+
+# Random forests (appended, ADR 0039). Exact where the forest is determined: no bootstrap and every column, so each
+# tree is the single tree. Otherwise smaltml draws its own samples, so the cases compare the mean score over five seeds
+# on held-out rows, and the out-of-bag score, within a margin.
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.metrics import accuracy_score, r2_score
+# Leaves large enough that no two columns split a node's rows the same way: with such a tie, which column wins
+# depends on the seed, in scikit-learn as in smaltml.
+fixed = {"bootstrap": False, "max_features": None, "n_estimators": 4}
+for name, params in [
+    ("forest regressor: no bootstrap, every column", {**fixed, "min_samples_leaf": 5}),
+    ("forest regressor: no bootstrap, sample weights", {**fixed, "max_depth": 4, "min_samples_leaf": 3}),
+]:
+    weights = swt if "weights" in name else None
+    m = RandomForestRegressor(random_state=0, **params).fit(Xt, yt, sample_weight=weights)
+    inputs = {"X": tolist(Xt), "y": tolist(yt), "Xnew": tolist(Xtn), "params": params}
+    if weights is not None:
+        inputs["sampleWeight"] = tolist(weights)
+    case(name, "forest-exact", inputs, {"predict": tolist(m.predict(Xtn)), "importances": tolist(m.feature_importances_)}, {"rtol": 1e-10, "atol": 1e-10})
+for name, params in [
+    ("forest classifier: no bootstrap, every column", {**fixed, "max_depth": 3, "min_samples_leaf": 6}),
+    ("forest classifier: no bootstrap, balanced", {**fixed, "class_weight": "balanced", "max_depth": 3, "min_samples_leaf": 6}),
+]:
+    m = RandomForestClassifier(random_state=0, **params).fit(Xt, yc3)
+    case(name, "forest-exact", {"X": tolist(Xt), "y": tolist(yc3), "Xnew": tolist(Xtn), "params": params, "classifier": True},
+         {"predict": tolist(m.predict(Xtn)), "proba": tolist(m.predict_proba(Xtn)), "classes": tolist(m.classes_),
+          "importances": tolist(m.feature_importances_)}, {"rtol": 1e-10, "atol": 1e-10})
+
+def forest_data(n, seed):
+    r = np.random.default_rng(seed)
+    X = r.normal(size=(n, 6)) * [1.0, 2.0, 0.5, 1.5, 1.0, 1.0]
+    f = 2 * X[:, 0] - X[:, 1] + np.sin(3 * X[:, 2]) + X[:, 3] * X[:, 4]
+    y = f + r.normal(scale=0.5, size=n)
+    labels = np.where(f > 1.0, "high", np.where(f > -1.0, "mid", "low"))
+    return X, y, labels
+# The margins: 0.02, and 0.005 for the 2000-row regressor, whose scores vary least. Each is at least three standard
+# errors of the difference of the two means, from scikit-learn's seed-to-seed spread on this data (measured over 30
+# seeds, 2026-11-18), with 20 seeds on the small data, whose scores vary most, and 5 on the large.
+X, y, lab = forest_data(120 + 500, 11)
+sw_forest = np.random.default_rng(13).uniform(0.2, 3.0, size=120)
+small = (X[:120], X[120:], y[:120], y[120:], lab[:120], lab[120:])
+X, y, lab = forest_data(2000 + 4000, 12)
+large = (X[:2000], X[2000:], y[:2000], y[2000:], lab[:2000], lab[2000:])
+for name, data, params, classifier, weights, margin, seeds in [
+    ("forest regressor, small: defaults, scored", small, {"n_estimators": 50, "oob_score": True}, False, None, 0.02, list(range(20))),
+    ("forest regressor, small: sample weights", small, {"n_estimators": 50, "oob_score": True}, False, sw_forest, 0.02, list(range(20))),
+    ("forest classifier, small: defaults, scored", small, {"n_estimators": 50, "oob_score": True}, True, None, 0.02, list(range(20))),
+    ("forest classifier, small: entropy, balanced, depth 6", small, {"n_estimators": 50, "criterion": "entropy", "class_weight": "balanced", "max_depth": 6, "oob_score": True}, True, None, 0.02, list(range(20))),
+    ("forest classifier, small: class weights by label, sample weights", small, {"n_estimators": 50, "class_weight": {"mid": 3.0}, "max_samples": 80, "oob_score": True}, True, sw_forest, 0.02, list(range(20))),
+    ("forest regressor, 2000 rows: defaults, scored", large, {"oob_score": True}, False, None, 0.005, [0, 1, 2, 3, 4]),
+    ("forest regressor, 2000 rows: a third of the columns, half the rows", large, {"n_estimators": 50, "max_features": 0.34, "max_samples": 0.5, "min_samples_leaf": 2, "oob_score": True}, False, None, 0.02, [0, 1, 2, 3, 4]),
+    ("forest classifier, 2000 rows: defaults, scored", large, {"n_estimators": 50, "oob_score": True}, True, None, 0.02, [0, 1, 2, 3, 4]),
+]:
+    Xa, Xb, ya, yb, la, lb = data
+    test_scores, oob_scores = [], []
+    for s in seeds:
+        if classifier:
+            m = RandomForestClassifier(random_state=s, **params).fit(Xa, la, sample_weight=weights)
+            test_scores.append(accuracy_score(lb, m.predict(Xb)))
+        else:
+            m = RandomForestRegressor(random_state=s, **params).fit(Xa, ya, sample_weight=weights)
+            test_scores.append(r2_score(yb, m.predict(Xb)))
+        oob_scores.append(m.oob_score_)
+    inputs = {"X": tolist(Xa), "y": tolist(la if classifier else ya), "Xnew": tolist(Xb), "ynew": tolist(lb if classifier else yb),
+              "params": params, "classifier": classifier, "seeds": seeds}
+    if weights is not None:
+        inputs["sampleWeight"] = tolist(weights)
+    case(name, "forest-score", inputs, {"test": float(np.mean(test_scores)), "oob": float(np.mean(oob_scores))}, {"rtol": 0, "atol": margin})
+
 out = {
     "comment": "Written by compare/run.py (npm run compare); don't edit by hand.",
     "reference": {"scikit-learn": sklearn.__version__, "numpy": np.__version__},

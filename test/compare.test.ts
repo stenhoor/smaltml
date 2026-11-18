@@ -29,6 +29,8 @@ import {
   MultiOutputRegressor,
   DecisionTreeRegressor,
   DecisionTreeClassifier,
+  RandomForestRegressor,
+  RandomForestClassifier,
   accuracyScore,
   logLoss,
   meanSquaredError,
@@ -106,7 +108,8 @@ describe(`compared with scikit-learn ${fixture.reference['scikit-learn']}`, () =
       return;
     }
     await run();
-  });
+    // The forests' statistical cases fit hundreds of trees.
+  }, 60_000);
 });
 
 function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol: Case['tol']): void | Promise<void> {
@@ -156,6 +159,43 @@ function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol:
         expect(k.predictSync(inp.Xnew)).toEqual(exp.predict);
         close(rowsOf(k.predictProbaSync(inp.Xnew)), exp.proba, tol, 'proba');
       } else close((m as DecisionTreeRegressor).predictSync(inp.Xnew), exp.predict, tol, 'predict');
+      return;
+    }
+    case 'forest-exact': {
+      const params = camel(inp.params);
+      const opts = inp.sampleWeight ? { sampleWeight: inp.sampleWeight } : {};
+      if (inp.classifier) {
+        const m = new RandomForestClassifier({ ...params, seed: 0 }).fitSync(inp.X, inp.y, opts);
+        expect(m.classes).toEqual(exp.classes);
+        expect(m.predictSync(inp.Xnew)).toEqual(exp.predict);
+        close(rowsOf(m.predictProbaSync(inp.Xnew)), exp.proba, tol, 'proba');
+        close(m.featureImportances, exp.importances, tol, 'importances');
+      } else {
+        const m = new RandomForestRegressor({ ...params, seed: 0 }).fitSync(inp.X, inp.y, opts);
+        close(m.predictSync(inp.Xnew), exp.predict, tol, 'predict');
+        close(m.featureImportances, exp.importances, tol, 'importances');
+      }
+      return;
+    }
+    case 'forest-score': {
+      // smaltml's own seeded draws: the mean score over the seeds, against scikit-learn's mean, within the margin.
+      const params = camel(inp.params);
+      let test = 0;
+      let oob = 0;
+      for (const seed of inp.seeds as number[]) {
+        if (inp.classifier) {
+          const m = new RandomForestClassifier({ ...params, seed }).fitSync(inp.X, inp.y, inp.sampleWeight ? { sampleWeight: inp.sampleWeight } : {});
+          const p = m.predictSync(inp.Xnew);
+          test += p.filter((l, i) => l === inp.ynew[i]).length / p.length;
+          oob += m.oobScore;
+        } else {
+          const m = new RandomForestRegressor({ ...params, seed }).fitSync(inp.X, inp.y, inp.sampleWeight ? { sampleWeight: inp.sampleWeight } : {});
+          test += r2Score(inp.ynew, m.predictSync(inp.Xnew));
+          oob += m.oobScore;
+        }
+      }
+      close(test / inp.seeds.length, exp.test, tol, 'mean test score');
+      close(oob / inp.seeds.length, exp.oob, tol, 'mean out-of-bag score');
       return;
     }
     case 'MultiOutputRegressor': {

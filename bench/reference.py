@@ -13,6 +13,7 @@ from sklearn.exceptions import ConvergenceWarning
 from sklearn.linear_model import Lasso, LinearRegression, LogisticRegression, Ridge
 from sklearn.preprocessing import StandardScaler
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from threadpoolctl import threadpool_info
 
 warnings.simplefilter("ignore", ConvergenceWarning)  # both libraries stop at the same max_iter on these data
@@ -47,6 +48,9 @@ for s in json.loads((data / "meta.json").read_text()):
         # Trees are single-threaded in scikit-learn; their fits don't use BLAS.
         "DecisionTreeRegressor fit, depth 10": median(lambda: DecisionTreeRegressor(max_depth=10, random_state=0).fit(X, y), reps),
         "DecisionTreeClassifier fit, 3 classes, depth 10": median(lambda: DecisionTreeClassifier(max_depth=10, random_state=0).fit(X, y3), reps),
+        # Forests on one thread: n_jobs's default.
+        "RandomForestRegressor fit, 10 trees, depth 10": median(lambda: RandomForestRegressor(n_estimators=10, max_depth=10, random_state=0).fit(X, y), reps),
+        "RandomForestClassifier fit, 3 classes, 10 trees, depth 10": median(lambda: RandomForestClassifier(n_estimators=10, max_depth=10, random_state=0).fit(X, y3), reps),
     }
     r["iterations"] = {"lasso": int(Lasso(alpha=0.1).fit(X, y).n_iter_), "logistic2": int(LogisticRegression().fit(X, y2).n_iter_[0]), "logistic3": int(l3.n_iter_[0])}
     results[s["name"]] = r

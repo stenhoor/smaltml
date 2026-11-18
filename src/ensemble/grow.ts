@@ -6,11 +6,13 @@
 import { Matrix } from '../core/matrix.js';
 import type { Label, Labels } from '../core/model.js';
 import { Random } from '../core/random.js';
+import { asPrepared } from '../tree/cart.js';
 import { DecisionTreeClassifier, DecisionTreeRegressor, type DecisionTreeClassifierParams, type DecisionTreeRegressorParams } from '../tree/index.js';
 
 /** What every tree of a forest is grown from. */
 export interface GrowJob {
   classifier: boolean;
+  /** X prepared for trees (32-bit floats, checked, presorted: tree/cart.ts's asPrepared). */
   X: Matrix;
   /** The regressor's targets, or the classifier's labels. */
   y: Float64Array | readonly Label[];
@@ -92,7 +94,8 @@ export function growTree(job: GrowJob, cumulative: Float64Array | null, stream: 
     : new DecisionTreeRegressor({ ...(job.params as DecisionTreeRegressorParams), seed }).fitSync(job.X, job.y as Float64Array, fit);
   let oob: Float64Array | null = null;
   if (outOfBag && outOfBag.length > 0) {
-    const rows = pickRows(job.X, outOfBag);
+    // Rows of X, prepared already: the tree takes them as they are.
+    const rows = asPrepared(pickRows(job.X, outOfBag), false);
     oob = tree instanceof DecisionTreeClassifier ? tree.predictProbaSync(rows).data : tree.predictSync(rows);
   }
   return { tree, outOfBag, oob };

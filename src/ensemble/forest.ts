@@ -5,7 +5,7 @@
  * scikit-learn's forest for the same random_state.
  */
 import { fail, warn } from '../core/errors.js';
-import { assertFinite, Matrix, toVector, type MatrixInput, type VectorInput } from '../core/matrix.js';
+import { Matrix, toVector, type MatrixInput, type VectorInput } from '../core/matrix.js';
 import { checkColumns, checkDocument, document, notFitted, toLabels, uniqueLabels, type Label, type Labels, type ModelDocument } from '../core/model.js';
 import { Random } from '../core/random.js';
 import {
@@ -16,6 +16,7 @@ import {
   type DecisionTreeRegressorParams,
 } from '../tree/index.js';
 import type { ThreadOptions } from '../parallel/index.js';
+import { asPrepared, prepareX } from '../tree/cart.js';
 import { cumulativeWeights, growTree, type Grown, type GrowJob } from './grow.js';
 import { growOnThreads } from './threads.js';
 
@@ -121,13 +122,12 @@ function plan(c: ReturnType<typeof checkForest>, n: number, weights: Float64Arra
   return { seed, draws, streams: Array.from({ length: c.nEstimators }, () => r.uint32() >>> 1) };
 }
 
-/** What a tree checks of X at fit, checked before trees are grown on other threads, whose errors carry no code. */
-function checkX(m: Matrix): void {
-  if (m.rows === 0) fail('ML_SHAPE', 'X has no rows');
-  for (let k = 0; k < m.data.length; k++) {
-    if (Number.isNaN(m.data[k]!)) fail('ML_VALUE', `X column ${m.columnName(Math.floor(k / m.rows))} has a missing value (NaN): trees don't take missing values yet; fill them first (SimpleImputer)`);
-  }
-  assertFinite(m);
+/**
+ * X as the trees read it, checked (before trees are grown on other threads, whose errors carry no code), prepared and
+ * presorted once for all the trees on this thread.
+ */
+function forestX(X: MatrixInput): Matrix {
+  return asPrepared(prepareX(X), true);
 }
 
 const OOB_FEW = 'some rows were drawn by every tree, so no tree could score them out of bag: their out-of-bag values are 0, and they count in oobScore as such. Use more trees (nEstimators)';
@@ -197,7 +197,6 @@ abstract class Forest<T extends DecisionTreeRegressor | DecisionTreeClassifier> 
    * from their streams: the same trees, to the last bit.
    */
   protected async growAsync(job: GrowJob, p: Plan, threads: ThreadOptions['threads']): Promise<Grown<T>[]> {
-    checkX(job.X);
     return ((await growOnThreads(threads, job, p.streams)) ?? this.growSync(job, p)) as Grown<T>[];
   }
 
@@ -223,8 +222,9 @@ abstract class Forest<T extends DecisionTreeRegressor | DecisionTreeClassifier> 
     return this.state;
   }
 
+  /** X as the trees read it, prepared once for all of them. */
   protected rows(X: MatrixInput): Matrix {
-    const m = Matrix.from(X);
+    const m = asPrepared(prepareX(X), false);
     checkColumns(m, this.fittedState().nFeaturesIn, this.kind);
     return m;
   }
@@ -294,7 +294,7 @@ export class RandomForestRegressor extends Forest<DecisionTreeRegressor> {
   }
 
   #job(X: MatrixInput, y: VectorInput, options: ForestFitOptions): { job: GrowJob; p: Plan } {
-    const m = Matrix.from(X);
+    const m = forestX(X);
     const target = Float64Array.from(toVector(y, m.rows));
     const weights = rowWeights(options.sampleWeight, m.rows);
     const c = this.checked;
@@ -411,7 +411,7 @@ export class RandomForestClassifier extends Forest<DecisionTreeClassifier> {
   }
 
   #job(X: MatrixInput, y: Labels, options: ForestFitOptions): { job: GrowJob; p: Plan; classes: Label[] } {
-    const m = Matrix.from(X);
+    const m = forestX(X);
     const labels = toLabels(y, m.rows);
     const classes = uniqueLabels(labels);
     const weights = withClassWeights(rowWeights(options.sampleWeight, m.rows), labels, classes, this.classWeight ?? null);

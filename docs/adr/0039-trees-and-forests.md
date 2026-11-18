@@ -114,6 +114,27 @@ Item 5, as decided: `fit` grows the trees on the thread pool (`threads`, default
   threshold counts X's values. X is checked on the main thread first, so a missing value fails with `ML_VALUE`, not
   a worker's message.
 
+## Faster trees and forests (2026-11-18)
+
+A benchmark against scikit-learn 1.9 (10 trees of depth 10, on 200,000 × 50) found the forests slower than their trees
+should make them: every tree prepared X again (32-bit floats, checked), sorted every column with a comparison
+function, and at every node partitioned every column into new arrays. The changes, each with every tree's result the
+same to the last bit (the saved documents compared before and after; the exact compare cases and the threaded tests):
+
+- **X prepared once per forest.** The forest prepares and presorts X once (`asPrepared` in `src/tree/cart.ts`); the
+  trees take it as it is. Each worker presorts once for its trees.
+- **A radix sort.** A column sorts by its values' 32 bits, turned so they order as the values do, in three stable
+  passes of 11 bits, so equal values keep row order as before.
+- **Values beside rows.** Each column's sorted values are kept beside its sorted rows and partitioned with them, so a
+  split reads them in order instead of gathering from X.
+- **A stable partition in place, without branches.** A node's rows are a range of each column; a split partitions the
+  range in place, writing each row to both sides and moving one cursor.
+- **The classifier's scan written out.** The class sums and Gini's score in the split scan, without the generic
+  helpers' tests: the same operations in the same order.
+
+Rows of weight 0 are still left out, as before, now by the filter that copies each tree's columns rather than by a
+copy of X.
+
 ## Consequences
 
 - Forests don't match scikit-learn tree for tree; users comparing with Python see the same quality, not the same

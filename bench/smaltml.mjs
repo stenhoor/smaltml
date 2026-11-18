@@ -63,6 +63,8 @@ for (const { name, key, n, p } of SIZES) {
     'LogisticRegression predictProba, 3 classes': await median(() => l3.predictProbaSync(X), reps),
     'DecisionTreeRegressor fit, depth 10': await median(() => new ml.DecisionTreeRegressor({ maxDepth: 10, seed: 0 }).fitSync(X, y), reps),
     'DecisionTreeClassifier fit, 3 classes, depth 10': await median(() => new ml.DecisionTreeClassifier({ maxDepth: 10, seed: 0 }).fitSync(X, y3), reps),
+    'RandomForestRegressor fit, 10 trees, depth 10': await median(() => fit(new ml.RandomForestRegressor({ nEstimators: 10, maxDepth: 10, seed: 0 }), X, y), reps),
+    'RandomForestClassifier fit, 3 classes, 10 trees, depth 10': await median(() => fit(new ml.RandomForestClassifier({ nEstimators: 10, maxDepth: 10, seed: 0 }), X, y3), reps),
   };
   results[name].iterations = {
     lasso: new ml.Lasso({ alpha: 0.1 }).fitSync(X, y).nIter,

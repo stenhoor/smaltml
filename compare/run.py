@@ -803,6 +803,7 @@ from sklearn.ensemble import ExtraTreesClassifier, ExtraTreesRegressor
 for name, model, data, params, classifier, weights, margin, seeds in [
     ("extra trees regressor, small: defaults", "extra", small, {"n_estimators": 50}, False, None, 0.02, list(range(20))),
     ("extra trees regressor, small: sample weights", "extra", small, {"n_estimators": 50}, False, sw_forest, 0.02, list(range(20))),
+    ("extra trees regressor, small: a third of the columns", "extra", small, {"n_estimators": 50, "max_features": 0.34}, False, None, 0.02, list(range(20))),
     ("extra trees regressor, small: bootstrap, scored", "extra", small, {"n_estimators": 50, "bootstrap": True, "oob_score": True}, False, None, 0.02, list(range(40))),
     ("extra trees classifier, small: defaults", "extra", small, {"n_estimators": 50}, True, None, 0.02, list(range(20))),
     ("extra trees classifier, small: entropy, balanced, depth 6", "extra", small, {"n_estimators": 50, "criterion": "entropy", "class_weight": "balanced", "max_depth": 6}, True, None, 0.02, list(range(20))),

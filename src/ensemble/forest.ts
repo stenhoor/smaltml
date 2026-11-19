@@ -134,11 +134,11 @@ function plan(c: ReturnType<typeof checkForest>, n: number, weights: Float64Arra
 }
 
 /**
- * X as the trees read it, checked (before trees are grown on other threads, whose errors carry no code), prepared and
- * presorted once for all the trees on this thread.
+ * X as the trees read it, checked (before trees are grown on other threads, whose errors carry no code), and prepared
+ * once for all the trees on this thread: the first tree that needs X presorted presorts it for the others (grow).
  */
 function forestX(X: MatrixInput): Matrix {
-  return asPrepared(prepareX(X), true);
+  return asPrepared(prepareX(X), false);
 }
 
 const OOB_FEW = 'some rows were drawn by every tree, so no tree could score them out of bag: their out-of-bag values are 0, and they count in oobScore as such. Use more trees (nEstimators)';

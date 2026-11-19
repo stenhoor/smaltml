@@ -142,13 +142,19 @@ Item 2.3, as decided. The trees take scikit-learn's `splitter`: `'best'`, as bef
 each column a node looks at gets one threshold, drawn uniformly between the node's smallest and largest value (one
 drawn at the largest becomes the smallest, so both sides keep a row), and the split that scores best of those is kept;
 then `minImpurityDecrease` as for `'best'`. That is scikit-learn 1.9's random splitter, from its documentation and its
-behaviour; our own code. It works on the same presort as `'best'`: a column's values in the node are sorted, so its
-smallest and largest are its ends, a binary search finds how many rows go left, and only those are summed.
+behaviour; our own code. It has two ways, chosen by how many columns a split looks at. Below half the columns, it
+never sorts: each column looked at is read over the node's rows for its smallest and largest value, then again to sum
+the rows at or below the threshold, and only the chosen split partitions the node's rows. From half the columns, it
+uses the presort, as `'best'` does: a column's values in the node are sorted, so its smallest and largest are its
+ends and a binary search finds how many rows go left, while every column is partitioned at each split. Measured on
+200,000 × 50, ten trees of depth 10 (2026-11-19): the first way was faster up to 17 columns of 50 and the second at
+50; at 25 the regressor was faster the first way and the classifier the second. The presort is made by the first
+tree that needs it and kept with the forest's X for the others.
 `ExtraTreesRegressor` and `ExtraTreesClassifier` are the random forests' code with `splitter: 'random'` trees and
 `bootstrap` false by default, scikit-learn's only other difference; random forests take no `splitter`, as
 scikit-learn's don't. The thresholds come from each tree's seed, so threaded fits still equal `fitSync`.
 
-The compare tests are statistical only (item 3): ten cases, extra trees and single random trees, each the mean score
+The compare tests are statistical only (item 3): eleven cases, extra trees and single random trees, each the mean score
 over 5 to 50 seeds within a margin of at least three standard errors of the difference, from scikit-learn's spread
 over 30 seeds. scikit-learn's single `ExtraTreeRegressor` and `ExtraTreeClassifier` aren't separate classes here: a
 tree with `splitter: 'random'` is one.

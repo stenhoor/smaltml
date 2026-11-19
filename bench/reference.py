@@ -21,11 +21,12 @@ here = Path(__file__).resolve().parent
 data = here / "data"
 
 def median(f, reps):
+    # At least `reps` runs, then more until they add up to a second (at most 101): bench/smaltml.mjs's rule.
     f()
     ts = []
-    for _ in range(reps):
+    while len(ts) < reps or (sum(ts) < 1000 and len(ts) < 101):
         t = time.perf_counter(); f(); ts.append((time.perf_counter() - t) * 1000)
-    return float(np.median(ts))
+    return float(sorted(ts)[len(ts) // 2])
 
 results = {}
 for s in json.loads((data / "meta.json").read_text()):

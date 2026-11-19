@@ -17,7 +17,9 @@ stands.
 - **Cases:** each library's defaults, except Lasso's `alpha` (0.1) and Ridge's (1), and the decision trees'
   `maxDepth` (10). Fits on unscaled columns, so logistic regression stops at its 100-iteration default on the larger
   data; the iteration counts below show both libraries doing the same work.
-- **Timing:** the median of 7 runs (3 for the larger data), after a warm-up run, in one process.
+- **Timing:** the median of at least 7 runs (3 for the larger data), repeated until the runs add up to a second (at
+  most 101), after a warm-up run, in one process: a short operation, such as a prediction, is timed often enough that
+  one slow run doesn't move its median. Both libraries by the same rule.
 - **smaltml:** the built package (`dist/`), in Node: on one thread, calling the synchronous methods, and with fits on
   up to 4 threads (`fit(X, y, { threads: 'auto' })`, `configureThreads({ max: 4 })`), which leaves fits below about a
   million values on one thread. Predictions and `StandardScaler` run on one thread in both.
@@ -42,19 +44,19 @@ faster.
 
 | Operation | smaltml, 1 thread | smaltml, 4 threads | smaltml, SIMD, 1 thread | smaltml, SIMD, 4 threads | scikit-learn, 1 thread | scikit-learn, 4 threads | smaltml ÷ scikit-learn, 1 thread | smaltml ÷ scikit-learn, 4 threads | smaltml ÷ scikit-learn, SIMD, 1 thread | smaltml ÷ scikit-learn, SIMD, 4 threads |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| StandardScaler fit + transform | 1.65 | 1.32 | 1.64 | 1.62 | 2.03 | 1.57 | 0.8× | 0.8× | 0.8× | 1.0× |
-| LinearRegression fit | 3.77 | 4.92 | 1.98 | 2.63 | 4.27 | 4.63 | 0.9× | 1.1× | 0.5× | 0.6× |
-| LinearRegression predict | 0.19 | 0.35 | 0.16 | 0.31 | 0.27 | 0.19 | 0.7× | 1.9× | 0.6× | 1.6× |
-| Ridge fit | 2.41 | 3.77 | 0.98 | 2.19 | 1.97 | 1.43 | 1.2× | 2.6× | 0.5× | 1.5× |
-| Lasso fit (alpha 0.1) | 2.29 | 4.07 | 1.28 | 1.95 | 1.91 | 1.52 | 1.2× | 2.7× | 0.7× | 1.3× |
-| LogisticRegression fit, 2 classes | 62.3 | 115 | 37.3 | 43.1 | 61.6 | 51.6 | 1.0× | 2.2× | 0.6× | 0.8× |
-| LogisticRegression fit, 2 classes, newton-cholesky | 17.8 | 23.3 | 13.8 | 16.4 | 14.7 | 18.9 | 1.2× | 1.2× | 0.9× | 0.9× |
-| LogisticRegression fit, 3 classes | 155 | 235 | 92.1 | 90.2 | 108 | 124 | 1.4× | 1.9× | 0.9× | 0.7× |
-| LogisticRegression predictProba, 3 classes | 1.08 | 1.27 | 1.70 | 1.15 | 0.95 | 1.02 | 1.1× | 1.3× | 1.8× | 1.1× |
-| DecisionTreeRegressor fit, depth 10 | 38.8 | 138 | 52.8 | 147 | 118 | 131 | 0.3× | 1.0× | 0.4× | 1.1× |
-| DecisionTreeClassifier fit, 3 classes, depth 10 | 53.6 | 145 | 67.8 | 160 | 135 | 142 | 0.4× | 1.0× | 0.5× | 1.1× |
-| RandomForestRegressor fit, 10 trees, depth 10 | 300 |  | 258 |  | 668 |  | 0.4× |  | 0.4× |  |
-| RandomForestClassifier fit, 3 classes, 10 trees, depth 10 | 141 |  | 129 |  | 148 |  | 1.0× |  | 0.9× |  |
+| StandardScaler fit + transform | 0.76 | 1.32 | 0.77 | 1.62 | 1.59 | 1.57 | 0.5× | 0.8× | 0.5× | 1.0× |
+| LinearRegression fit | 2.82 | 4.92 | 1.24 | 2.63 | 4.29 | 4.63 | 0.7× | 1.1× | 0.3× | 0.6× |
+| LinearRegression predict | 0.18 | 0.35 | 0.18 | 0.31 | 0.20 | 0.19 | 0.9× | 1.9× | 0.9× | 1.6× |
+| Ridge fit | 2.48 | 3.77 | 0.86 | 2.19 | 1.49 | 1.43 | 1.7× | 2.6× | 0.6× | 1.5× |
+| Lasso fit (alpha 0.1) | 2.49 | 4.07 | 0.91 | 1.95 | 1.60 | 1.52 | 1.6× | 2.7× | 0.6× | 1.3× |
+| LogisticRegression fit, 2 classes | 79.1 | 115 | 36.3 | 43.1 | 57.8 | 51.6 | 1.4× | 2.2× | 0.6× | 0.8× |
+| LogisticRegression fit, 2 classes, newton-cholesky | 24.3 | 23.3 | 11.8 | 16.4 | 12.7 | 18.9 | 1.9× | 1.2× | 0.9× | 0.9× |
+| LogisticRegression fit, 3 classes | 208 | 235 | 83.3 | 90.2 | 130 | 124 | 1.6× | 1.9× | 0.6× | 0.7× |
+| LogisticRegression predictProba, 3 classes | 0.97 | 1.27 | 0.99 | 1.15 | 1.07 | 1.02 | 0.9× | 1.3× | 0.9× | 1.1× |
+| DecisionTreeRegressor fit, depth 10 | 49.5 | 138 | 49.1 | 147 | 145 | 131 | 0.3× | 1.0× | 0.3× | 1.1× |
+| DecisionTreeClassifier fit, 3 classes, depth 10 | 62.7 | 145 | 64.0 | 160 | 159 | 142 | 0.4× | 1.0× | 0.4× | 1.1× |
+| RandomForestRegressor fit, 10 trees, depth 10 | 334 |  | 340 |  | 864 |  | 0.4× |  | 0.4× |  |
+| RandomForestClassifier fit, 3 classes, 10 trees, depth 10 | 176 |  | 170 |  | 232 |  | 0.8× |  | 0.7× |  |
 
 Iterations: Lasso 5 (scikit-learn 5), logistic regression 100 and 100 (scikit-learn 100 and 100).
 
@@ -62,19 +64,19 @@ Iterations: Lasso 5 (scikit-learn 5), logistic regression 100 and 100 (scikit-le
 
 | Operation | smaltml, 1 thread | smaltml, 4 threads | smaltml, SIMD, 1 thread | smaltml, SIMD, 4 threads | scikit-learn, 1 thread | scikit-learn, 4 threads | smaltml ÷ scikit-learn, 1 thread | smaltml ÷ scikit-learn, 4 threads | smaltml ÷ scikit-learn, SIMD, 1 thread | smaltml ÷ scikit-learn, SIMD, 4 threads |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| StandardScaler fit + transform | 108 | 74.6 | 96.9 | 90.3 | 104 | 130 | 1.0× | 0.6× | 0.9× | 0.7× |
-| LinearRegression fit | 225 | 144 | 96.0 | 69.8 | 396 | 248 | 0.6× | 0.6× | 0.2× | 0.3× |
-| LinearRegression predict | 7.45 | 17.1 | 10.7 | 16.4 | 6.63 | 8.63 | 1.1× | 2.0× | 1.6× | 1.9× |
-| Ridge fit | 171 | 87.6 | 69.7 | 54.4 | 65.3 | 72.4 | 2.6× | 1.2× | 1.1× | 0.8× |
-| Lasso fit (alpha 0.1) | 208 | 116 | 68.8 | 65.6 | 90.6 | 46.8 | 2.3× | 2.5× | 0.8× | 1.4× |
-| LogisticRegression fit, 2 classes | 2,559 | 1,130 | 1,523 | 9,056 | 1,354 | 2,912 | 1.9× | 0.4× | 1.1× | 3.1× |
-| LogisticRegression fit, 2 classes, newton-cholesky | 1,788 | 877 | 765 | 1,100 | 874 | 582 | 2.0× | 1.5× | 0.9× | 1.9× |
-| LogisticRegression fit, 3 classes | 7,166 | 3,406 | 2,865 | 12,849 | 3,379 | 7,292 | 2.1× | 0.5× | 0.8× | 1.8× |
-| LogisticRegression predictProba, 3 classes | 26.1 | 43.5 | 36.8 | 59.9 | 33.6 | 31.0 | 0.8× | 1.4× | 1.1× | 1.9× |
-| DecisionTreeRegressor fit, depth 10 | 3,352 | 10,046 | 3,258 | 10,973 | 8,430 | 9,516 | 0.4× | 1.1× | 0.4× | 1.2× |
-| DecisionTreeClassifier fit, 3 classes, depth 10 | 4,096 | 11,452 | 3,826 | 11,682 | 8,868 | 10,273 | 0.5× | 1.1× | 0.4× | 1.1× |
-| RandomForestRegressor fit, 10 trees, depth 10 | 19,085 |  | 17,407 |  | 52,811 |  | 0.4× |  | 0.3× |  |
-| RandomForestClassifier fit, 3 classes, 10 trees, depth 10 | 5,840 |  | 5,469 |  | 8,212 |  | 0.7× |  | 0.7× |  |
+| StandardScaler fit + transform | 79.9 | 74.6 | 80.4 | 90.3 | 154 | 130 | 0.5× | 0.6× | 0.5× | 0.7× |
+| LinearRegression fit | 253 | 144 | 111 | 69.8 | 538 | 248 | 0.5× | 0.6× | 0.2× | 0.3× |
+| LinearRegression predict | 10.7 | 17.1 | 11.4 | 16.4 | 8.72 | 8.63 | 1.2× | 2.0× | 1.3× | 1.9× |
+| Ridge fit | 210 | 87.6 | 85.0 | 54.4 | 84.7 | 72.4 | 2.5× | 1.2× | 1.0× | 0.8× |
+| Lasso fit (alpha 0.1) | 224 | 116 | 82.3 | 65.6 | 125 | 46.8 | 1.8× | 2.5× | 0.7× | 1.4× |
+| LogisticRegression fit, 2 classes | 3,085 | 1,130 | 1,677 | 9,056 | 1,891 | 2,912 | 1.6× | 0.4× | 0.9× | 3.1× |
+| LogisticRegression fit, 2 classes, newton-cholesky | 2,006 | 877 | 863 | 1,100 | 891 | 582 | 2.3× | 1.5× | 1.0× | 1.9× |
+| LogisticRegression fit, 3 classes | 8,422 | 3,406 | 3,229 | 12,849 | 4,622 | 7,292 | 1.8× | 0.5× | 0.7× | 1.8× |
+| LogisticRegression predictProba, 3 classes | 26.1 | 43.5 | 26.8 | 59.9 | 41.6 | 31.0 | 0.6× | 1.4× | 0.6× | 1.9× |
+| DecisionTreeRegressor fit, depth 10 | 3,318 | 10,046 | 3,846 | 10,973 | 10,537 | 9,516 | 0.3× | 1.1× | 0.4× | 1.2× |
+| DecisionTreeClassifier fit, 3 classes, depth 10 | 4,136 | 11,452 | 4,174 | 11,682 | 11,624 | 10,273 | 0.4× | 1.1× | 0.4× | 1.1× |
+| RandomForestRegressor fit, 10 trees, depth 10 | 18,117 |  | 18,398 |  | 65,798 |  | 0.3× |  | 0.3× |  |
+| RandomForestClassifier fit, 3 classes, 10 trees, depth 10 | 6,204 |  | 6,494 |  | 10,879 |  | 0.6× |  | 0.6× |  |
 
 Iterations: Lasso 4 (scikit-learn 4), logistic regression 100 and 100 (scikit-learn 100 and 100).
 

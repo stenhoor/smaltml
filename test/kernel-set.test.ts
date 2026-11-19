@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
 import { KERNELS_VERSION, kernelsInUse, useKernels, type KernelSet } from '../src/core/kernel-set.js';
-import { gram, ownGramPart, xw } from '../src/core/kernels.js';
+import { gram, ownColumnSums, ownGramPart, ownXtvPart, xw } from '../src/core/kernels.js';
 import { Matrix } from '../src/core/matrix.js';
 import { Random } from '../src/core/random.js';
 import {
@@ -159,6 +159,30 @@ describe('useKernels', () => {
       kernels: { gramPart: (X, m, a, b, w, o) => { const out = ownGramPart(X, m, a, b, w, o); X.data[0] = 0; return out; } },
     };
     expect(useKernels(writes).rejected).toEqual(['gramPart']);
+  });
+
+  test('xtvPart and columnSums are checked at start, and the least-squares fits use them', () => {
+    const nudge = (a: Float64Array, by: number) => a.map((v) => v * (1 + by));
+    const close: KernelSet = {
+      name: 'close',
+      version: KERNELS_VERSION,
+      kernels: { xtvPart: (X, v, m, a, b) => nudge(ownXtvPart(X, v, m, a, b), 1e-15), columnSums: (X) => nudge(ownColumnSums(X), 1e-15) },
+    };
+    expect(useKernels(close)).toEqual({ name: 'close', kernels: ['xtvPart', 'columnSums'], rejected: [] });
+    const r = new Random(41);
+    const X = new Matrix(300, 4, Float64Array.from({ length: 1200 }, () => r.next() * 6 - 2));
+    const y = Float64Array.from({ length: 300 }, (_, i) => X.get(i, 0) - 2 * X.get(i, 3) + r.next());
+    const withThem = new Ridge().fitSync(X, y).coef;
+    useKernels(null);
+    const own = new Ridge().fitSync(X, y).coef;
+    expect(withThem).not.toEqual(own);
+    for (let j = 0; j < 4; j++) expect(withThem[j]).toBeCloseTo(own[j]!, 10);
+    const wrong: KernelSet = {
+      name: 'wrong',
+      version: KERNELS_VERSION,
+      kernels: { xtvPart: (X, v, m, a, b) => nudge(ownXtvPart(X, v, m, a, b), 1e-6), columnSums: (X) => ownColumnSums(X).subarray(1) },
+    };
+    expect(useKernels(wrong)).toEqual({ name: 'wrong', kernels: [], rejected: ['xtvPart', 'columnSums'] });
   });
 
   test('a set for another contract version, or with kernels smaltml doesn\'t have, fails with ML_PARAM', () => {

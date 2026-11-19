@@ -65,6 +65,9 @@ models and solvers don't change; only the kernels they call do.
       `null` (smaltml's own products then) or an object whose `binaryPart` and `multinomialPart` give the results of
       smaltml's own parts on that X, with the row step passed in, and whose `release()` frees what it kept. It is
       behind LogisticRegression's `lbfgs` and `newton-cholesky` fits.
+    - `xtvPart`: (X − mean)ᵀ v over rows `from` to `to`, one value per column. It is behind LinearRegression, Ridge,
+      Lasso and ElasticNet.
+    - `columnSums`: each column's sum over every row, one value per column: the means those fits centre X with.
   - `threads`: how the thread pool's workers load the same kernels: each imports `module`, and calls its default
     export with `options` for the set. Without it, fits run on one thread while the set is in use.
 

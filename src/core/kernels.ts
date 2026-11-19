@@ -23,6 +23,10 @@ export interface Kernels {
    * read on every evaluation; `null` where it won't take this X. See {@link LogisticProducts}.
    */
   logisticProducts?: (X: Matrix) => LogisticProducts | null;
+  /** (X − mean)ᵀ v over a range of rows: {@link ownXtvPart}'s signature and result. */
+  xtvPart?: (X: Matrix, v: ArrayLike<number>, mean: ArrayLike<number> | undefined, from: number, to: number) => Float64Array;
+  /** Each column's sum, over every row: {@link ownColumnSums}'s signature and result. */
+  columnSums?: (X: Matrix) => Float64Array;
 }
 
 /** The binary row step's signature: {@link binaryLogisticRows}. */
@@ -190,7 +194,13 @@ export function xtv(X: Matrix, v: ArrayLike<number>, mean?: ArrayLike<number>): 
 }
 
 /** (X − mean)ᵀ v over rows `from` to `to`: one value per column. */
-export function xtvPart(X: Matrix, v: ArrayLike<number>, mean: ArrayLike<number> | undefined, from: number, to: number, out = new Float64Array(X.cols)): Float64Array {
+export function xtvPart(X: Matrix, v: ArrayLike<number>, mean: ArrayLike<number> | undefined, from: number, to: number): Float64Array {
+  const k = replaced.xtvPart;
+  return k ? k(X, v, mean, from, to) : ownXtvPart(X, v, mean, from, to);
+}
+
+/** smaltml's own xtvPart(), in TypeScript: the one that runs unless useKernels() replaced it. */
+export function ownXtvPart(X: Matrix, v: ArrayLike<number>, mean: ArrayLike<number> | undefined, from: number, to: number, out = new Float64Array(X.cols)): Float64Array {
   const n = X.rows;
   const p = X.cols;
   const d = X.data;
@@ -260,6 +270,72 @@ export function xw(X: Matrix, w: ArrayLike<number>, b = 0, mean?: ArrayLike<numb
     }
   }
   return out;
+}
+
+/**
+ * xw() for several weight vectors at once: outs[c][i] = ws[c]·X[i] + bs[c] over rows `from` to `to`. Three at a time
+ * share one pass over each block of X, so each value of X is read once for the three; each sum adds the same products
+ * in the same groups (eight columns, then four, then one) as xw(), so the result equals xw()'s bit for bit. The rest
+ * go through xw().
+ */
+export function xwEach(X: Matrix, ws: readonly ArrayLike<number>[], bs: readonly number[], outs: readonly Float64Array<ArrayBuffer>[], from = 0, to = X.rows): void {
+  let c = 0;
+  for (; c + 2 < ws.length; c += 3) xw3(X, ws[c]!, ws[c + 1]!, ws[c + 2]!, bs[c]!, bs[c + 1]!, bs[c + 2]!, outs[c]!, outs[c + 1]!, outs[c + 2]!, from, to);
+  for (; c < ws.length; c++) xw(X, ws[c]!, bs[c]!, undefined, outs[c]!, from, to);
+}
+
+function xw3(
+  X: Matrix,
+  u: ArrayLike<number>, v: ArrayLike<number>, z: ArrayLike<number>,
+  bu: number, bv: number, bz: number,
+  ou: Float64Array, ov: Float64Array, oz: Float64Array,
+  from: number, to: number,
+): void {
+  const n = X.rows;
+  const p = X.cols;
+  const d = X.data;
+  ou.fill(bu, from, to);
+  ov.fill(bv, from, to);
+  oz.fill(bz, from, to);
+  for (let r0 = from; r0 < to; r0 += BLOCK) {
+    const m = Math.min(BLOCK, to - r0);
+    let j = 0;
+    for (; j + 7 < p; j += 8) {
+      const o = j * n + r0;
+      const u0 = u[j]!, u1 = u[j + 1]!, u2 = u[j + 2]!, u3 = u[j + 3]!, u4 = u[j + 4]!, u5 = u[j + 5]!, u6 = u[j + 6]!, u7 = u[j + 7]!;
+      const v0 = v[j]!, v1 = v[j + 1]!, v2 = v[j + 2]!, v3 = v[j + 3]!, v4 = v[j + 4]!, v5 = v[j + 5]!, v6 = v[j + 6]!, v7 = v[j + 7]!;
+      const z0 = z[j]!, z1 = z[j + 1]!, z2 = z[j + 2]!, z3 = z[j + 3]!, z4 = z[j + 4]!, z5 = z[j + 5]!, z6 = z[j + 6]!, z7 = z[j + 7]!;
+      for (let i = 0; i < m; i++) {
+        const x0 = d[o + i]!, x1 = d[o + n + i]!, x2 = d[o + 2 * n + i]!, x3 = d[o + 3 * n + i]!;
+        const x4 = d[o + 4 * n + i]!, x5 = d[o + 5 * n + i]!, x6 = d[o + 6 * n + i]!, x7 = d[o + 7 * n + i]!;
+        ou[r0 + i]! += x0 * u0 + x1 * u1 + x2 * u2 + x3 * u3 + x4 * u4 + x5 * u5 + x6 * u6 + x7 * u7;
+        ov[r0 + i]! += x0 * v0 + x1 * v1 + x2 * v2 + x3 * v3 + x4 * v4 + x5 * v5 + x6 * v6 + x7 * v7;
+        oz[r0 + i]! += x0 * z0 + x1 * z1 + x2 * z2 + x3 * z3 + x4 * z4 + x5 * z5 + x6 * z6 + x7 * z7;
+      }
+    }
+    for (; j + 3 < p; j += 4) {
+      const o = j * n + r0;
+      const u0 = u[j]!, u1 = u[j + 1]!, u2 = u[j + 2]!, u3 = u[j + 3]!;
+      const v0 = v[j]!, v1 = v[j + 1]!, v2 = v[j + 2]!, v3 = v[j + 3]!;
+      const z0 = z[j]!, z1 = z[j + 1]!, z2 = z[j + 2]!, z3 = z[j + 3]!;
+      for (let i = 0; i < m; i++) {
+        const x0 = d[o + i]!, x1 = d[o + n + i]!, x2 = d[o + 2 * n + i]!, x3 = d[o + 3 * n + i]!;
+        ou[r0 + i]! += x0 * u0 + x1 * u1 + x2 * u2 + x3 * u3;
+        ov[r0 + i]! += x0 * v0 + x1 * v1 + x2 * v2 + x3 * v3;
+        oz[r0 + i]! += x0 * z0 + x1 * z1 + x2 * z2 + x3 * z3;
+      }
+    }
+    for (; j < p; j++) {
+      const o = j * n + r0;
+      const uj = u[j]!, vj = v[j]!, zj = z[j]!;
+      for (let i = 0; i < m; i++) {
+        const x = d[o + i]!;
+        ou[r0 + i]! += x * uj;
+        ov[r0 + i]! += x * vj;
+        oz[r0 + i]! += x * zj;
+      }
+    }
+  }
 }
 
 function sigmoid(z: number): number {
@@ -554,9 +630,24 @@ export function choleskySolve(L: Float64Array, p: number, b: ArrayLike<number>):
  */
 export function checkedMeans(X: Matrix, check: (X: Matrix) => void): Float64Array {
   const n = X.rows;
-  const d = X.data;
+  const k = replaced.columnSums;
+  const sums = k ? k(X) : ownColumnSums(X);
   const out = new Float64Array(X.cols);
   let bad = false;
+  for (let j = 0; j < X.cols; j++) {
+    const s = sums[j]!;
+    if (!Number.isFinite(s)) bad = true;
+    out[j] = s / n;
+  }
+  if (bad) check(X);
+  return out;
+}
+
+/** smaltml's own column sums, in TypeScript, four running sums a column: the one that runs unless useKernels() replaced it. */
+export function ownColumnSums(X: Matrix): Float64Array {
+  const n = X.rows;
+  const d = X.data;
+  const out = new Float64Array(X.cols);
   for (let j = 0; j < X.cols; j++) {
     const o = j * n;
     let s0 = 0, s1 = 0, s2 = 0, s3 = 0;
@@ -565,11 +656,8 @@ export function checkedMeans(X: Matrix, check: (X: Matrix) => void): Float64Arra
       s0 += d[o + i]!; s1 += d[o + i + 1]!; s2 += d[o + i + 2]!; s3 += d[o + i + 3]!;
     }
     for (; i < n; i++) s0 += d[o + i]!;
-    const s = s0 + s1 + s2 + s3;
-    if (!Number.isFinite(s)) bad = true;
-    out[j] = s / n;
+    out[j] = s0 + s1 + s2 + s3;
   }
-  if (bad) check(X);
   return out;
 }
 

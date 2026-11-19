@@ -11,7 +11,7 @@ afterEach(() => {
 });
 
 /** The kernels the SIMD entry gives by default. */
-const SIMD_KERNELS = ['gramPart', 'matMul', 'binaryLogisticRows', 'multinomialLogisticRows', 'logisticProducts'];
+const SIMD_KERNELS = ['gramPart', 'matMul', 'binaryLogisticRows', 'multinomialLogisticRows', 'logisticProducts', 'xtvPart', 'columnSums'];
 
 /** A column-major product: the stand-in entry's matMul. */
 function product(n: number, p: number, q: number, a: ArrayLike<number>, b: ArrayLike<number>): Float64Array {

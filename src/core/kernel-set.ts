@@ -4,7 +4,7 @@
  * one such set, which kernelsReady() turns on where the engine has WebAssembly SIMD; a plugin could give another.
  */
 import { fail } from './errors.js';
-import { binaryLogisticPart, multinomialLogisticPart, ownBinaryLogisticRows, ownGramPart, ownMatMul, ownMultinomialLogisticRows, replaced, type Kernels } from './kernels.js';
+import { binaryLogisticPart, multinomialLogisticPart, ownBinaryLogisticRows, ownColumnSums, ownGramPart, ownMatMul, ownMultinomialLogisticRows, ownXtvPart, replaced, type Kernels } from './kernels.js';
 import { Matrix } from './matrix.js';
 import { Random } from './random.js';
 
@@ -18,7 +18,7 @@ export const KERNELS_VERSION = 1;
 
 /** The names of the kernels a set can replace. */
 export type KernelName = keyof Kernels;
-const NAMES: readonly KernelName[] = ['gramPart', 'matMul', 'binaryLogisticRows', 'multinomialLogisticRows', 'logisticProducts'];
+const NAMES: readonly KernelName[] = ['gramPart', 'matMul', 'binaryLogisticRows', 'multinomialLogisticRows', 'logisticProducts', 'xtvPart', 'columnSums'];
 
 /** A set of kernels to use in place of smaltml's own: what smaltml's SIMD entry, or a plugin, gives useKernels(). */
 export interface KernelSet {
@@ -157,6 +157,10 @@ function passes(name: KernelName, k: NonNullable<Kernels[KernelName]>): boolean 
         return multinomialRowsPass(k as NonNullable<Kernels['multinomialLogisticRows']>);
       case 'logisticProducts':
         return productsPass(k as NonNullable<Kernels['logisticProducts']>);
+      case 'xtvPart':
+        return xtvPasses(k as NonNullable<Kernels['xtvPart']>);
+      case 'columnSums':
+        return sumsPass(k as NonNullable<Kernels['columnSums']>);
     }
   } catch {
     return false;
@@ -197,6 +201,48 @@ function gramPasses(k: NonNullable<Kernels['gramPart']>): boolean {
         const scale = Math.sqrt(want[j * p + j]! * want[c * p + c]!) || 1;
         if (!(Math.abs(got[j * p + c]! - want[j * p + c]!) <= TOLERANCE * scale)) return false;
       }
+    }
+  }
+  return true;
+}
+
+/** xtvPart on 37 rows of 9 columns (odd sizes), over all rows and over rows 5 to 30, plain and centred. */
+function xtvPasses(k: NonNullable<Kernels['xtvPart']>): boolean {
+  const r = new Random(39);
+  const n = 37;
+  const cols = 9;
+  const X = new Matrix(n, cols, values(r, n * cols, 8));
+  const v = values(r, n, 4);
+  const mean = values(r, cols, 2);
+  const before = X.data.slice();
+  for (const [m, from, to] of [[undefined, 0, n], [mean, 0, n], [mean, 5, 30], [undefined, 3, 4]] as const) {
+    const want = ownXtvPart(X, v, m, from, to);
+    const got = k(X, v.slice(), m, from, to);
+    if (X.data.some((x, i) => x !== before[i])) return false;
+    if (!(got instanceof Float64Array) || got.length !== cols) return false;
+    for (let j = 0; j < cols; j++) {
+      let scale = 0;
+      for (let i = from; i < to; i++) scale += Math.abs((X.data[j * n + i]! - (m ? m[j]! : 0)) * v[i]!);
+      if (!(Math.abs(got[j]! - want[j]!) <= TOLERANCE * (scale || 1))) return false;
+    }
+  }
+  return true;
+}
+
+/** columnSums on 37 rows of 9 columns, and on one row. */
+function sumsPass(k: NonNullable<Kernels['columnSums']>): boolean {
+  const r = new Random(40);
+  for (const [n, cols] of [[37, 9], [1, 3]] as const) {
+    const X = new Matrix(n, cols, values(r, n * cols, 8));
+    const before = X.data.slice();
+    const want = ownColumnSums(X);
+    const got = k(X);
+    if (X.data.some((x, i) => x !== before[i])) return false;
+    if (!(got instanceof Float64Array) || got.length !== cols) return false;
+    for (let j = 0; j < cols; j++) {
+      let scale = 0;
+      for (let i = 0; i < n; i++) scale += Math.abs(X.data[j * n + i]!);
+      if (!(Math.abs(got[j]! - want[j]!) <= TOLERANCE * (scale || 1))) return false;
     }
   }
   return true;

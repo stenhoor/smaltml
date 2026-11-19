@@ -15,8 +15,8 @@ interface SimdOptions {
 }
 ```
 
-Turns smaltml's SIMD kernels on: XᵀX (`gramPart`), the matrix product (`matMul`), the logistic objectives' products
-over X (`logisticProducts`) and their row steps, written as WebAssembly SIMD ([ADR 0040](../../adr/0040-simd-kernels-in-smaltml)). From
+Turns smaltml's SIMD kernels on: XᵀX (`gramPart`), the matrix product (`matMul`), Xᵀv (`xtvPart`), the columns'
+sums (`columnSums`), the logistic objectives' products over X (`logisticProducts`) and their row steps, written as WebAssembly SIMD ([ADR 0040](../../adr/0040-simd-kernels-in-smaltml)). From
 `@smaltworks/smaltml/simd`. smaltml calls it by itself at the first asynchronous fit or `matMul`, where the engine has
 WebAssembly SIMD ([The CPU, WebGPU and workers](../../guide/hardware#simd-kernels)); call it yourself in a bundled
 app, or to choose its options.
@@ -77,7 +77,7 @@ useKernels(null);
 
 | on | name | kernels |
 | --- | --- | --- |
-| true | smaltml-simd | gramPart, matMul, binaryLogisticRows, multinomialLogisticRows, logisticProducts |
+| true | smaltml-simd | gramPart, matMul, binaryLogisticRows, multinomialLogisticRows, logisticProducts, xtvPart, columnSums |
 
 ## See also
 

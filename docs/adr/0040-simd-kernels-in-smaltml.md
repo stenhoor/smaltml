@@ -67,6 +67,16 @@ row steps on too (2 classes), and 0.94× and 0.72× (3 classes); at 10k × 20, 0
 and 0.63× (3 classes). The owner turned them on by default. `useSimd({ logistic: false })` keeps `Math`'s exp and
 log. Every compare case passes with them on (`npm run test:simd` runs with them).
 
+## Xᵀv and the column sums (the owner, 2026-11-19)
+
+The least-squares fits (LinearRegression, Ridge, Lasso, ElasticNet) read X three times: the column sums for the
+means, the Gram matrix, and Xᵀy. With the Gram on SIMD, the other two were TypeScript loops, each about as long as
+the whole of an ideal pass. The owner asked for both on SIMD: two kernels added to the contract, `xtvPart` and
+`columnSums` (`src/core/kernels.ts`), checked at start against smaltml's own like the others, and written as the
+Gram is (`src/simd/columns.ts`: each block's columns copied into the WebAssembly memory, then four columns at a time,
+f64x2). Adding kernels leaves `KERNELS_VERSION` at 1. The same day, the Gram's centring and √weight moved from a
+TypeScript loop into WebAssembly (`center`, `scale`), with the same values bit for bit.
+
 ## Consequences
 
 - One repository and one release for smaltml and its kernels: no pins between them, no plugin site, no second CI.

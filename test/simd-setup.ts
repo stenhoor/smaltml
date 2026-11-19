@@ -20,6 +20,6 @@ if (!(await useSimd({ fusedMultiplyAdd, logistic: true, kernelsModule: pathToFil
   throw new Error('the SIMD kernels did not turn on: WebAssembly SIMD is missing, or a kernel failed the check at start');
 }
 const used = kernelsInUse();
-if (used.kernels.join() !== 'gramPart,matMul,binaryLogisticRows,multinomialLogisticRows,logisticProducts') {
+if (used.kernels.join() !== 'gramPart,matMul,binaryLogisticRows,multinomialLogisticRows,logisticProducts,xtvPart,columnSums') {
   throw new Error(`unexpected kernels in use: ${JSON.stringify(used)}`);
 }

@@ -29,13 +29,18 @@ if (simdOn) {
   if (!(await useSimd({ logistic: !noLogistic }))) throw new Error(`the SIMD kernels weren't used: ${JSON.stringify(ml.kernelsInUse())}`);
   kernels = ml.kernelsInUse();
 }
+// At least `reps` runs, then more until they add up to a second (at most 101): a short operation is timed often
+// enough that one slow run doesn't move its median. bench/reference.py times scikit-learn by the same rule.
 const median = async (f, reps) => {
   await f();
   const ts = [];
-  for (let i = 0; i < reps; i++) {
+  let total = 0;
+  while (ts.length < reps || (total < 1000 && ts.length < 101)) {
     const t = performance.now();
     await f();
-    ts.push(performance.now() - t);
+    const dt = performance.now() - t;
+    ts.push(dt);
+    total += dt;
   }
   return ts.sort((a, b) => a - b)[Math.floor(ts.length / 2)];
 };

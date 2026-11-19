@@ -17,7 +17,9 @@ stands.
 - **Cases:** each library's defaults, except Lasso's `alpha` (0.1) and Ridge's (1), and the decision trees'
   `maxDepth` (10). Fits on unscaled columns, so logistic regression stops at its 100-iteration default on the larger
   data; the iteration counts below show both libraries doing the same work.
-- **Timing:** the median of 7 runs (3 for the larger data), after a warm-up run, in one process.
+- **Timing:** the median of at least 7 runs (3 for the larger data), repeated until the runs add up to a second (at
+  most 101), after a warm-up run, in one process: a short operation, such as a prediction, is timed often enough that
+  one slow run doesn't move its median. Both libraries by the same rule.
 - **smaltml:** the built package (`dist/`), in Node: on one thread, calling the synchronous methods, and with fits on
   up to 4 threads (`fit(X, y, { threads: 'auto' })`, `configureThreads({ max: 4 })`), which leaves fits below about a
   million values on one thread. Predictions and `StandardScaler` run on one thread in both.

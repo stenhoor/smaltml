@@ -38,6 +38,11 @@ export interface GrowParams {
   minWeightLeaf: number;
   /** How many columns to look at for each split (all: X.cols). */
   maxFeatures: number;
+  /**
+   * How a column's split is chosen: `'best'`, the best of every threshold between two neighbouring values; `'random'`,
+   * one threshold drawn uniformly between the node's smallest and largest value (extra trees).
+   */
+  splitter: 'best' | 'random';
   maxLeafNodes: number | null;
   minImpurityDecrease: number;
   seed: number;
@@ -329,6 +334,37 @@ export function grow(X: Matrix, t: Targets, weights: Float64Array, params: GrowP
       const values = vals[f]!.subarray(start, end);
       if (values[0] === values[m - 1]) continue;
       visited++;
+      if (params.splitter === 'random') {
+        // One threshold, drawn uniformly between the node's smallest and largest value (one at the largest is the
+        // smallest, so both sides keep a row); the rows at or below it go left, a binary search in the sorted values.
+        const lo = values[0]!;
+        const hi = values[m - 1]!;
+        let th = lo + (hi - lo) * rng.next();
+        if (th === hi) th = lo;
+        let a = 0;
+        let b = m;
+        while (a < b) {
+          const mid = (a + b) >>> 1;
+          if (values[mid]! <= th) a = mid + 1;
+          else b = mid;
+        }
+        const nl = a;
+        if (nl < params.minSamplesLeaf || m - nl < params.minSamplesLeaf) continue;
+        // The left rows' sums; the right's are the node's less them.
+        l.fill(0);
+        for (let k = 0; k < nl; k++) {
+          const i = sortedRows[start + k]!;
+          addRow(l, t, i, weights[i]!);
+        }
+        for (let q = 0; q < S; q++) r[q] = s[q]! - l[q]!;
+        if (l[0]! < params.minWeightLeaf || r[0]! < params.minWeightLeaf) continue;
+        const score = gini ? -(l[0]! * giniOf(l) + r[0]! * giniOf(r)) : proxy(l, r, params.criterion);
+        if (score > bestScore) {
+          bestScore = score;
+          best = { feature: f, threshold: th, start, pos: nl, improvement: 0, ls: l, rs: r };
+        }
+        continue;
+      }
       l.fill(0);
       r.set(s);
       for (let k = 0; k < m - 1; k++) {

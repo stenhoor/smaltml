@@ -795,6 +795,42 @@ for name, data, params, classifier, weights, margin, seeds in [
         inputs["sampleWeight"] = tolist(weights)
     case(name, "forest-score", inputs, {"test": float(np.mean(test_scores)), "oob": float(np.mean(oob_scores))}, {"rtol": 0, "atol": margin})
 
+# Extra trees, and single trees with splitter="random" (appended, ADR 0039): random thresholds, so only the scores
+# compare, as the random forests' do above: the mean over the seeds, on held-out rows, within a margin. Each margin is
+# at least three standard errors of the difference of the two means, from scikit-learn's seed-to-seed spread on this
+# data (measured over 30 seeds, 2026-11-19): 40 seeds where an out-of-bag score varies most, 50 for a single tree.
+from sklearn.ensemble import ExtraTreesClassifier, ExtraTreesRegressor
+for name, model, data, params, classifier, weights, margin, seeds in [
+    ("extra trees regressor, small: defaults", "extra", small, {"n_estimators": 50}, False, None, 0.02, list(range(20))),
+    ("extra trees regressor, small: sample weights", "extra", small, {"n_estimators": 50}, False, sw_forest, 0.02, list(range(20))),
+    ("extra trees regressor, small: bootstrap, scored", "extra", small, {"n_estimators": 50, "bootstrap": True, "oob_score": True}, False, None, 0.02, list(range(40))),
+    ("extra trees classifier, small: defaults", "extra", small, {"n_estimators": 50}, True, None, 0.02, list(range(20))),
+    ("extra trees classifier, small: entropy, balanced, depth 6", "extra", small, {"n_estimators": 50, "criterion": "entropy", "class_weight": "balanced", "max_depth": 6}, True, None, 0.02, list(range(20))),
+    ("extra trees classifier, small: bootstrap, scored, sample weights", "extra", small, {"n_estimators": 50, "bootstrap": True, "oob_score": True}, True, sw_forest, 0.02, list(range(40))),
+    ("extra trees regressor, 2000 rows: defaults", "extra", large, {}, False, None, 0.005, [0, 1, 2, 3, 4]),
+    ("extra trees classifier, 2000 rows: defaults", "extra", large, {"n_estimators": 50}, True, None, 0.02, [0, 1, 2, 3, 4]),
+    ("tree regressor, 2000 rows: random splitter, depth 8", "tree", large, {"splitter": "random", "max_depth": 8}, False, None, 0.02, list(range(50))),
+    ("tree classifier, small: random splitter, depth 5", "tree", small, {"splitter": "random", "max_depth": 5}, True, None, 0.02, list(range(50))),
+]:
+    Xa, Xb, ya, yb, la, lb = data
+    test_scores, oob_scores = [], []
+    for s in seeds:
+        if classifier:
+            M = ExtraTreesClassifier if model == "extra" else DecisionTreeClassifier
+            m = M(random_state=s, **params).fit(Xa, la, sample_weight=weights)
+            test_scores.append(accuracy_score(lb, m.predict(Xb)))
+        else:
+            M = ExtraTreesRegressor if model == "extra" else DecisionTreeRegressor
+            m = M(random_state=s, **params).fit(Xa, ya, sample_weight=weights)
+            test_scores.append(r2_score(yb, m.predict(Xb)))
+        if params.get("oob_score"):
+            oob_scores.append(m.oob_score_)
+    inputs = {"X": tolist(Xa), "y": tolist(la if classifier else ya), "Xnew": tolist(Xb), "ynew": tolist(lb if classifier else yb),
+              "params": params, "classifier": classifier, "seeds": seeds, "model": model}
+    if weights is not None:
+        inputs["sampleWeight"] = tolist(weights)
+    case(name, "forest-score", inputs, {"test": float(np.mean(test_scores)), "oob": float(np.mean(oob_scores)) if oob_scores else None}, {"rtol": 0, "atol": margin})
+
 out = {
     "comment": "Written by compare/run.py (npm run compare); don't edit by hand.",
     "reference": {"scikit-learn": sklearn.__version__, "numpy": np.__version__},

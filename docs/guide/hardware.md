@@ -21,7 +21,7 @@ Each worker sums its rows in the same chunks, and the parts are added up in the 
 on any number of threads therefore gives exactly what `fitSync` gives, to the last bit. A pipeline passes `threads`
 to its last step.
 
-The random forests' `fit` takes `threads` too, and splits the work differently: each worker grows whole trees. Each
+The random forests' and extra trees' `fit` takes `threads` too, and splits the work differently: each worker grows whole trees. Each
 tree draws its sample of rows and its columns from its own stream, which the forest's `seed` gives, so the forest is
 the same on any number of threads, to the last bit. `'auto'` counts X's numbers once per tree against
 `PARALLEL_MIN_VALUES`, so a forest of 100 trees uses the cores from about 10,000 numbers in X.

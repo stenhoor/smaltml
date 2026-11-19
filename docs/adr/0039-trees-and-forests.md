@@ -42,7 +42,8 @@ Two things make phase 2 unlike phase 1:
       `getNLeaves`. Missing values (`NaN`) as scikit-learn 1.3+ sends them down a learned side. Saved as JSON.
    2. `RandomForestRegressor` and `RandomForestClassifier`: `nEstimators`, `bootstrap`, `maxSamples`, `oobScore`, the
       trees' parameters, `seed`; fitted trees in the thread pool (item 5). Done, 2026-11-18 (below).
-   3. `ExtraTreesRegressor` and `ExtraTreesClassifier`: random thresholds, no bootstrap by default.
+   3. `ExtraTreesRegressor` and `ExtraTreesClassifier`: random thresholds, no bootstrap by default. Done, 2026-11-19
+      (below).
    Each lands as its own pull request, with its compare cases, reference pages and examples.
 
 3. **The compare tests, two kinds** (ADR 0024, section 7, extended):
@@ -134,6 +135,23 @@ same to the last bit (the saved documents compared before and after; the exact c
 
 Rows of weight 0 are still left out, as before, now by the filter that copies each tree's columns rather than by a
 copy of X.
+
+## Extra trees (2026-11-19)
+
+Item 2.3, as decided. The trees take scikit-learn's `splitter`: `'best'`, as before, or `'random'`. With `'random'`,
+each column a node looks at gets one threshold, drawn uniformly between the node's smallest and largest value (one
+drawn at the largest becomes the smallest, so both sides keep a row), and the split that scores best of those is kept;
+then `minImpurityDecrease` as for `'best'`. That is scikit-learn 1.9's random splitter, from its documentation and its
+behaviour; our own code. It works on the same presort as `'best'`: a column's values in the node are sorted, so its
+smallest and largest are its ends, a binary search finds how many rows go left, and only those are summed.
+`ExtraTreesRegressor` and `ExtraTreesClassifier` are the random forests' code with `splitter: 'random'` trees and
+`bootstrap` false by default, scikit-learn's only other difference; random forests take no `splitter`, as
+scikit-learn's don't. The thresholds come from each tree's seed, so threaded fits still equal `fitSync`.
+
+The compare tests are statistical only (item 3): ten cases, extra trees and single random trees, each the mean score
+over 5 to 50 seeds within a margin of at least three standard errors of the difference, from scikit-learn's spread
+over 30 seeds. scikit-learn's single `ExtraTreeRegressor` and `ExtraTreeClassifier` aren't separate classes here: a
+tree with `splitter: 'random'` is one.
 
 ## Consequences
 

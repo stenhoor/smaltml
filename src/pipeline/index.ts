@@ -19,7 +19,7 @@ import {
 } from '../core/model.js';
 
 /** The models whose fit takes `sampleWeight`; a pipeline given weights fails for any other last step. */
-const WEIGHTED = new Set(['LinearRegression', 'Ridge', 'Lasso', 'ElasticNet', 'LogisticRegression', 'DecisionTreeRegressor', 'DecisionTreeClassifier', 'RandomForestRegressor', 'RandomForestClassifier']);
+const WEIGHTED = new Set(['LinearRegression', 'Ridge', 'Lasso', 'ElasticNet', 'LogisticRegression', 'DecisionTreeRegressor', 'DecisionTreeClassifier', 'RandomForestRegressor', 'RandomForestClassifier', 'ExtraTreesRegressor', 'ExtraTreesClassifier']);
 
 function checkWeighted(last: Model, options: { sampleWeight?: unknown }): void {
   if (options.sampleWeight !== undefined && !WEIGHTED.has(last.kind)) {

@@ -28,6 +28,7 @@ have something yet, it fails with an error rather than give a different answer. 
 | `GridSearchCV` with several scorers | `mean_test_<name>` and the rest in `cv_results_` | `cvResultsByScorer.scores[name]`; `cvResults` is for one scorer and fails with several |
 | Decision trees where two splits tie | `random_state`'s column order picks one | `seed`'s order picks one: the same seed repeats smaltml's tree, not scikit-learn's ([ADR 0039](../adr/0039-trees-and-forests)) |
 | Random forests with bootstrap, `maxFeatures` below every column, or both | `random_state`'s samples and columns | smaltml's own, from `seed`: the same seed repeats smaltml's forest, not scikit-learn's. The compare tests hold the mean score over several seeds to scikit-learn's ([ADR 0039](../adr/0039-trees-and-forests)) |
+| Extra trees, and trees with `splitter: 'random'` | `random_state`'s thresholds, columns and samples | smaltml's own, from `seed`, as for random forests: the compare tests hold the mean score over several seeds to scikit-learn's ([ADR 0039](../adr/0039-trees-and-forests)) |
 | `maxSamples` of 1 | A `float` 1.0 is every row's worth; an `int` 1 is one row | One kind of number: 1 is one row; `null` is every row's worth |
 | A fit that stops before it converges | A `ConvergenceWarning` | A console warning, `ML_CONVERGENCE`, and `converged` `false`: an attribute scikit-learn doesn't have |
 
@@ -55,9 +56,12 @@ Each of these fails with `ML_PARAM` or isn't a parameter yet:
 - `DecisionTreeRegressor` and `DecisionTreeClassifier`: missing values in X (`NaN`, which scikit-learn's trees send
   down a learned side), `ccp_alpha` (cost-complexity pruning) and `cost_complexity_pruning_path`, the criteria
   `absolute_error` and `poisson`, `monotonic_cst`, several outputs, `decision_path`, `export_text` and `plot_tree`.
-- `RandomForestRegressor` and `RandomForestClassifier`: what the trees don't support (above); `classWeight:
-  'balanced_subsample'`, `warm_start`, `n_jobs` (`fit`'s `threads` instead), `monotonic_cst`, `apply` and
-  `decision_path`, several outputs.
+- `RandomForestRegressor`, `RandomForestClassifier`, `ExtraTreesRegressor` and `ExtraTreesClassifier`: what the trees
+  don't support (above); `classWeight: 'balanced_subsample'`, `warm_start`, `n_jobs` (`fit`'s `threads` instead),
+  `monotonic_cst`, `apply` and `decision_path`, several outputs.
+- `ExtraTreeRegressor` and `ExtraTreeClassifier`, the single extra trees: a `DecisionTreeRegressor` or
+  `DecisionTreeClassifier` with `splitter: 'random'` is one (with `maxFeatures: 'sqrt'` for the classifier, as
+  scikit-learn's default).
 - `MultiOutputRegressor`: `n_jobs`; `crossValScore` and `GridSearchCV` on it (scikit-learn averages R² over the
   targets), and a `pipeline` that ends in it.
 - `LogisticRegression`: the solvers `liblinear`, `newton-cg` and `sag` (`lbfgs`, `newton-cholesky` and `saga` are

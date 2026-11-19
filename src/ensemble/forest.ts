@@ -1,8 +1,10 @@
 /**
- * Random forests (ADR 0039): many decision trees, each grown on a bootstrap sample of the rows and, at each split, a
- * random subset of the columns, their predictions averaged. scikit-learn's `RandomForestRegressor` and
- * `RandomForestClassifier`, with smaltml's own seeded draws: a seeded forest repeats itself to the last bit, but isn't
- * scikit-learn's forest for the same random_state.
+ * Random forests and extra trees (ADR 0039): many decision trees, each grown on a bootstrap sample of the rows (random
+ * forests) or on every row (extra trees, by default) and, at each split, a random subset of the columns, their
+ * predictions averaged; extra trees also draw each column's threshold at random. scikit-learn's
+ * `RandomForestRegressor`, `RandomForestClassifier`, `ExtraTreesRegressor` and `ExtraTreesClassifier`, with smaltml's
+ * own seeded draws: a seeded forest repeats itself to the last bit, but isn't scikit-learn's forest for the same
+ * random_state.
  */
 import { fail, warn } from '../core/errors.js';
 import { Matrix, toVector, type MatrixInput, type VectorInput } from '../core/matrix.js';
@@ -20,11 +22,14 @@ import { asPrepared, prepareX } from '../tree/cart.js';
 import { cumulativeWeights, growTree, type Grown, type GrowJob } from './grow.js';
 import { growOnThreads } from './threads.js';
 
-/** What both forests take, beside their trees' parameters. */
-export interface ForestParams extends Omit<DecisionTreeParams, 'seed'> {
+/** What every forest takes, beside their trees' parameters. */
+export interface ForestParams extends Omit<DecisionTreeParams, 'seed' | 'splitter'> {
   /** How many trees. Default 100. */
   nEstimators?: number;
-  /** Whether each tree sees a bootstrap sample of the rows (drawn with replacement), or every row. Default true. */
+  /**
+   * Whether each tree sees a bootstrap sample of the rows (drawn with replacement), or every row. Default true for
+   * random forests, false for extra trees.
+   */
   bootstrap?: boolean;
   /**
    * How many rows each bootstrap sample draws: a whole number (more than the rows is allowed), a share (above 0, below
@@ -43,6 +48,9 @@ export interface RandomForestRegressorParams extends ForestParams {
   criterion?: DecisionTreeRegressorParams['criterion'];
 }
 
+/** ExtraTreesRegressor's parameters: a random forest's, with `bootstrap` false by default. */
+export type ExtraTreesRegressorParams = RandomForestRegressorParams;
+
 export interface RandomForestClassifierParams extends ForestParams {
   /** How each split is chosen, as the trees'. Default `'gini'`. */
   criterion?: DecisionTreeClassifierParams['criterion'];
@@ -52,6 +60,9 @@ export interface RandomForestClassifierParams extends ForestParams {
    */
   classWeight?: DecisionTreeClassifierParams['classWeight'];
 }
+
+/** ExtraTreesClassifier's parameters: a random forest's, with `bootstrap` false by default. */
+export type ExtraTreesClassifierParams = RandomForestClassifierParams;
 
 export interface ForestFitOptions extends ThreadOptions {
   /**
@@ -140,16 +151,19 @@ interface ForestState<T> {
   oobScore?: number;
 }
 
-/** What both forests share: parameters, the trees, importances, saving. */
+/** What every forest shares: parameters, the trees, importances, saving. */
 abstract class Forest<T extends DecisionTreeRegressor | DecisionTreeClassifier> {
   abstract readonly kind: string;
   protected readonly checked: ReturnType<typeof checkForest>;
   protected readonly trees: DecisionTreeParams;
+  /** How the trees split: `'best'` (random forests) or `'random'` (extra trees). */
+  protected readonly splitter: 'best' | 'random';
   protected state: ForestState<T> | null = null;
 
-  constructor(params: ForestParams) {
+  constructor(params: ForestParams, splitter: 'best' | 'random') {
     this.checked = checkForest(params);
     this.trees = treeParams(params);
+    this.splitter = splitter;
     // The trees check their own parameters: a forest with ones they refuse fails here, not at fit.
     void new DecisionTreeRegressor(this.trees);
   }
@@ -198,6 +212,11 @@ abstract class Forest<T extends DecisionTreeRegressor | DecisionTreeClassifier> 
    */
   protected async growAsync(job: GrowJob, p: Plan, threads: ThreadOptions['threads']): Promise<Grown<T>[]> {
     return ((await growOnThreads(threads, job, p.streams)) ?? this.growSync(job, p)) as Grown<T>[];
+  }
+
+  /** The trees' parameters as they are grown: the forest's, its splitter and the criterion. */
+  protected treeJobParams<C>(criterion: C): DecisionTreeParams & { criterion: C } {
+    return { ...this.trees, ...(this.splitter === 'random' ? { splitter: 'random' as const } : {}), criterion };
   }
 
   protected growSync(job: GrowJob, p: Plan): Grown<T>[] {
@@ -254,18 +273,13 @@ abstract class Forest<T extends DecisionTreeRegressor | DecisionTreeClassifier> 
   }
 }
 
-/**
- * A random forest of regression trees: each tree grown on a bootstrap sample of the rows and, at each split, a random
- * subset of the columns (`maxFeatures`, every column by default); predictions are the trees' mean. scikit-learn's
- * `RandomForestRegressor` (ADR 0039).
- */
-export class RandomForestRegressor extends Forest<DecisionTreeRegressor> {
-  readonly kind = 'RandomForestRegressor';
+/** What both regression forests share: fitting, out-of-bag predictions, predicting and saving. */
+abstract class RegressionForest extends Forest<DecisionTreeRegressor> {
   readonly criterion: NonNullable<RandomForestRegressorParams['criterion']>;
   #oobPrediction: Float64Array | null = null;
 
-  constructor(params: RandomForestRegressorParams = {}) {
-    super(params);
+  constructor(params: RandomForestRegressorParams, splitter: 'best' | 'random') {
+    super(params, splitter);
     this.criterion = new DecisionTreeRegressor({ criterion: params.criterion }).criterion;
   }
 
@@ -275,7 +289,7 @@ export class RandomForestRegressor extends Forest<DecisionTreeRegressor> {
 
   /** Each row's mean prediction by the trees that didn't draw it, with `oobScore: true`. scikit-learn's `oob_prediction_`. */
   get oobPrediction(): Float64Array {
-    if (!this.#oobPrediction) return fail('ML_PARAM', 'RandomForestRegressor has no out-of-bag predictions: fit with oobScore: true (they are not saved)');
+    if (!this.#oobPrediction) return fail('ML_PARAM', `${this.kind} has no out-of-bag predictions: fit with oobScore: true (they are not saved)`);
     return this.#oobPrediction;
   }
 
@@ -299,7 +313,7 @@ export class RandomForestRegressor extends Forest<DecisionTreeRegressor> {
     const weights = rowWeights(options.sampleWeight, m.rows);
     const c = this.checked;
     const p = plan(c, m.rows, weights);
-    const job: GrowJob = { classifier: false, X: m, y: target, weights, params: { ...this.trees, criterion: this.criterion }, bootstrap: c.bootstrap, draws: p.draws, oob: c.oobScore };
+    const job: GrowJob = { classifier: false, X: m, y: target, weights, params: this.treeJobParams(this.criterion), bootstrap: c.bootstrap, draws: p.draws, oob: c.oobScore };
     return { job, p };
   }
 
@@ -350,28 +364,59 @@ export class RandomForestRegressor extends Forest<DecisionTreeRegressor> {
     return document(this.kind, { ...this.getParams() }, this.saved());
   }
 
-  static fromJSON(doc: ModelDocument): RandomForestRegressor {
-    const d = checkDocument(doc, 'RandomForestRegressor');
-    const f = new RandomForestRegressor(d.params as RandomForestRegressorParams);
-    f.state = f.restoreBase(d.state, (t) => DecisionTreeRegressor.fromJSON(t));
-    return f;
+  /** The fitted state from a saved document's. */
+  protected load(state: Record<string, unknown> | null | undefined): this {
+    this.state = this.restoreBase(state, (t) => DecisionTreeRegressor.fromJSON(t));
+    return this;
   }
 }
 
 /**
- * A random forest of classification trees: each tree grown on a bootstrap sample of the rows and, at each split, a
- * random subset of the columns (`maxFeatures`, √columns by default); class probabilities are the trees' mean, and
- * the prediction the most probable class. scikit-learn's `RandomForestClassifier` (ADR 0039).
+ * A random forest of regression trees: each tree grown on a bootstrap sample of the rows and, at each split, a random
+ * subset of the columns (`maxFeatures`, every column by default); predictions are the trees' mean. scikit-learn's
+ * `RandomForestRegressor` (ADR 0039).
  */
-export class RandomForestClassifier extends Forest<DecisionTreeClassifier> {
-  readonly kind = 'RandomForestClassifier';
+export class RandomForestRegressor extends RegressionForest {
+  readonly kind = 'RandomForestRegressor';
+
+  constructor(params: RandomForestRegressorParams = {}) {
+    super(params, 'best');
+  }
+
+  static fromJSON(doc: ModelDocument): RandomForestRegressor {
+    const d = checkDocument(doc, 'RandomForestRegressor');
+    return new RandomForestRegressor(d.params as RandomForestRegressorParams).load(d.state);
+  }
+}
+
+/**
+ * Extra trees for regression: each tree grown on every row (or a bootstrap sample, with `bootstrap: true`) and, at
+ * each split, a random subset of the columns (`maxFeatures`, every column by default), each with one threshold drawn
+ * at random between the node's smallest and largest value, the best of those kept; predictions are the trees' mean.
+ * scikit-learn's `ExtraTreesRegressor` (ADR 0039).
+ */
+export class ExtraTreesRegressor extends RegressionForest {
+  readonly kind = 'ExtraTreesRegressor';
+
+  constructor(params: ExtraTreesRegressorParams = {}) {
+    super({ ...params, bootstrap: params.bootstrap ?? false }, 'random');
+  }
+
+  static fromJSON(doc: ModelDocument): ExtraTreesRegressor {
+    const d = checkDocument(doc, 'ExtraTreesRegressor');
+    return new ExtraTreesRegressor(d.params as ExtraTreesRegressorParams).load(d.state);
+  }
+}
+
+/** What both classification forests share: fitting, out-of-bag probabilities, predicting and saving. */
+abstract class ClassificationForest extends Forest<DecisionTreeClassifier> {
   readonly criterion: NonNullable<RandomForestClassifierParams['criterion']>;
   readonly classWeight: RandomForestClassifierParams['classWeight'];
   #classes: Label[] = [];
   #oobDecision: Matrix | null = null;
 
-  constructor(params: RandomForestClassifierParams = {}) {
-    super({ maxFeatures: 'sqrt', ...params });
+  constructor(params: RandomForestClassifierParams, splitter: 'best' | 'random') {
+    super({ maxFeatures: 'sqrt', ...params }, splitter);
     if ((params.classWeight as unknown) === 'balanced_subsample') {
       fail('ML_PARAM', "classWeight 'balanced_subsample' isn't supported yet: use 'balanced', weights by label, or null");
     }
@@ -395,7 +440,7 @@ export class RandomForestClassifier extends Forest<DecisionTreeClassifier> {
    * `oob_decision_function_`.
    */
   get oobDecisionFunction(): Matrix {
-    if (!this.#oobDecision) return fail('ML_PARAM', 'RandomForestClassifier has no out-of-bag probabilities: fit with oobScore: true (they are not saved)');
+    if (!this.#oobDecision) return fail('ML_PARAM', `${this.kind} has no out-of-bag probabilities: fit with oobScore: true (they are not saved)`);
     return this.#oobDecision;
   }
 
@@ -418,7 +463,7 @@ export class RandomForestClassifier extends Forest<DecisionTreeClassifier> {
     const c = this.checked;
     const p = plan(c, m.rows, weights);
     // The class weights are in the rows' weights (and so in the bootstrap's chances): the trees take none of their own.
-    const job: GrowJob = { classifier: true, X: m, y: labels, weights, params: { ...this.trees, criterion: this.criterion }, bootstrap: c.bootstrap, draws: p.draws, oob: c.oobScore };
+    const job: GrowJob = { classifier: true, X: m, y: labels, weights, params: this.treeJobParams(this.criterion), bootstrap: c.bootstrap, draws: p.draws, oob: c.oobScore };
     return { job, p, classes };
   }
 
@@ -498,16 +543,52 @@ export class RandomForestClassifier extends Forest<DecisionTreeClassifier> {
     return document(this.kind, { ...this.getParams() }, saved && { ...saved, classes: [...this.#classes] });
   }
 
+  /** The fitted state from a saved document's, with its classes. */
+  protected load(state: Record<string, unknown> | null | undefined): this {
+    this.state = this.restoreBase(state, (t) => DecisionTreeClassifier.fromJSON(t));
+    if (this.state) {
+      const classes = (state as Record<string, unknown>).classes;
+      if (!Array.isArray(classes)) fail('ML_FORMAT', `${this.kind} needs its classes`);
+      this.#classes = classes as Label[];
+    }
+    return this;
+  }
+}
+
+/**
+ * A random forest of classification trees: each tree grown on a bootstrap sample of the rows and, at each split, a
+ * random subset of the columns (`maxFeatures`, √columns by default); class probabilities are the trees' mean, and
+ * the prediction the most probable class. scikit-learn's `RandomForestClassifier` (ADR 0039).
+ */
+export class RandomForestClassifier extends ClassificationForest {
+  readonly kind = 'RandomForestClassifier';
+
+  constructor(params: RandomForestClassifierParams = {}) {
+    super(params, 'best');
+  }
+
   static fromJSON(doc: ModelDocument): RandomForestClassifier {
     const d = checkDocument(doc, 'RandomForestClassifier');
-    const f = new RandomForestClassifier(d.params as RandomForestClassifierParams);
-    f.state = f.restoreBase(d.state, (t) => DecisionTreeClassifier.fromJSON(t));
-    if (f.state) {
-      const classes = (d.state as Record<string, unknown>).classes;
-      if (!Array.isArray(classes)) fail('ML_FORMAT', 'RandomForestClassifier needs its classes');
-      f.#classes = classes as Label[];
-    }
-    return f;
+    return new RandomForestClassifier(d.params as RandomForestClassifierParams).load(d.state);
+  }
+}
+
+/**
+ * Extra trees for classification: each tree grown on every row (or a bootstrap sample, with `bootstrap: true`) and,
+ * at each split, a random subset of the columns (`maxFeatures`, √columns by default), each with one threshold drawn at
+ * random between the node's smallest and largest value, the best of those kept; class probabilities are the trees'
+ * mean, and the prediction the most probable class. scikit-learn's `ExtraTreesClassifier` (ADR 0039).
+ */
+export class ExtraTreesClassifier extends ClassificationForest {
+  readonly kind = 'ExtraTreesClassifier';
+
+  constructor(params: ExtraTreesClassifierParams = {}) {
+    super({ ...params, bootstrap: params.bootstrap ?? false }, 'random');
+  }
+
+  static fromJSON(doc: ModelDocument): ExtraTreesClassifier {
+    const d = checkDocument(doc, 'ExtraTreesClassifier');
+    return new ExtraTreesClassifier(d.params as ExtraTreesClassifierParams).load(d.state);
   }
 }
 

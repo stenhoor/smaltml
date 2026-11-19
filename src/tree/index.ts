@@ -41,7 +41,16 @@ export interface DecisionTreeParams {
   minImpurityDecrease?: number;
   /** Cost-complexity pruning. Only 0 (no pruning) is supported so far. */
   ccpAlpha?: number;
-  /** The seed for the order the columns are looked at, which breaks ties between equal splits. Default: a new one. */
+  /**
+   * How each split is chosen: `'best'` (the default), the best threshold of each column looked at; or `'random'`, one
+   * threshold per column drawn uniformly between the node's smallest and largest value, the best of those kept (an
+   * extra tree, as ExtraTreesRegressor and ExtraTreesClassifier grow them).
+   */
+  splitter?: 'best' | 'random';
+  /**
+   * The seed for the order the columns are looked at, which breaks ties between equal splits, and for the thresholds
+   * of `splitter: 'random'`. Default: a new one.
+   */
   seed?: number;
 }
 
@@ -98,8 +107,10 @@ function checkParams(p: DecisionTreeParams) {
   if (!(minImpurityDecrease >= 0)) fail('ML_PARAM', `minImpurityDecrease is 0 or more, not ${minImpurityDecrease}`);
   const ccpAlpha = p.ccpAlpha ?? 0;
   if (ccpAlpha !== 0) fail('ML_PARAM', 'ccpAlpha (cost-complexity pruning) other than 0 isn\'t supported yet');
+  const splitter = p.splitter ?? 'best';
+  if (splitter !== 'best' && splitter !== 'random') fail('ML_PARAM', `splitter is 'best' or 'random', not ${String(splitter)}`);
   if (p.seed !== undefined && !Number.isInteger(p.seed)) fail('ML_PARAM', `seed is a whole number, not ${p.seed}`);
-  return { maxDepth, minSamplesSplit, minSamplesLeaf, minWeightFractionLeaf, maxFeatures, maxLeafNodes, minImpurityDecrease, ccpAlpha, seed: p.seed };
+  return { maxDepth, minSamplesSplit, minSamplesLeaf, minWeightFractionLeaf, maxFeatures, splitter, maxLeafNodes, minImpurityDecrease, ccpAlpha, seed: p.seed };
 }
 
 /** What the tree's growth needs, from the parameters and the data's size. */
@@ -121,6 +132,7 @@ function growParams(c: ReturnType<typeof checkParams>, criterion: Criterion, n: 
     minSamplesLeaf,
     minWeightLeaf: c.minWeightFractionLeaf * total,
     maxFeatures,
+    splitter: c.splitter,
     maxLeafNodes: c.maxLeafNodes,
     minImpurityDecrease: c.minImpurityDecrease,
     seed,
@@ -227,6 +239,7 @@ abstract class DecisionTree {
       minSamplesLeaf: c.minSamplesLeaf,
       minWeightFractionLeaf: c.minWeightFractionLeaf,
       maxFeatures: c.maxFeatures,
+      ...(c.splitter !== 'best' ? { splitter: c.splitter } : {}),
       maxLeafNodes: c.maxLeafNodes,
       minImpurityDecrease: c.minImpurityDecrease,
       ccpAlpha: c.ccpAlpha,

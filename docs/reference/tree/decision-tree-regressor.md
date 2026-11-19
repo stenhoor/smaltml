@@ -14,6 +14,7 @@ class DecisionTreeRegressor implements Predictor {
     minSamplesLeaf?: number;
     minWeightFractionLeaf?: number;
     maxFeatures?: number | 'sqrt' | 'log2' | null;
+    splitter?: 'best' | 'random';
     maxLeafNodes?: number | null;
     minImpurityDecrease?: number;
     seed?: number;
@@ -49,8 +50,11 @@ grown by CART ([ADR 0039](../../adr/0039-trees-and-forests)). From `@smaltworks/
 - `maxLeafNodes` (default no limit): the most leaves. The tree then grows best first: the split that improves most,
   next.
 - `minImpurityDecrease` (default `0`): a split must decrease the weighted impurity by at least this much.
-- `seed`: the order the columns are looked at, which decides between splits that score exactly the same, and which
-  columns `maxFeatures` takes. The same seed grows the same tree.
+- `splitter` (default `'best'`): `'best'` takes each column's best threshold; `'random'` draws one threshold per
+  column, uniformly between the node's smallest and largest value, and keeps the best of those (an extra tree, as
+  [`ExtraTreesRegressor`](../ensemble/extra-trees-regressor) grows them). scikit-learn's `splitter`.
+- `seed`: the order the columns are looked at, which decides between splits that score exactly the same, which
+  columns `maxFeatures` takes, and the thresholds of `splitter: 'random'`. The same seed grows the same tree.
 
 `fit` and `fitSync` take `sampleWeight`, one weight per row.
 

@@ -4,6 +4,7 @@
  * of smaltml's but types.
  */
 import type { KernelSet } from '../core/kernel-set.js';
+import { columnsModule, SimdColumns } from './columns.js';
 import { gramModule, SimdGram } from './gram.js';
 import { logisticModule, SimdLogistic } from './logistic.js';
 import { matMulModule, SimdMatMul } from './matmul.js';
@@ -41,7 +42,7 @@ export function setName(fused: boolean): string {
 }
 
 /**
- * The kernel set: gramPart (XᵀX), matMul (A · B), the logistic products and, unless `logistic` is false, the
+ * The kernel set: gramPart (XᵀX), matMul (A · B), xtvPart (Xᵀv), columnSums, the logistic products and, unless `logistic` is false, the
  * logistic objectives' row steps, on WebAssembly SIMD, compiled here. Fused multiply-add only when asked for and the engine
  * has relaxed SIMD. Fails where the engine has no WebAssembly SIMD; useSimd() checks that first.
  */
@@ -49,8 +50,9 @@ export default async function kernelSet(options: SimdOptions = {}): Promise<Kern
   const support = simdSupport();
   if (!support.simd) throw new Error("this engine's WebAssembly has no SIMD");
   const fused = !!options.fusedMultiplyAdd && support.relaxed;
-  const [gramMod, matMulMod, productsMod] = await Promise.all([gramModule, matMulModule, productsModule].map((m) => WebAssembly.compile(m(fused))));
+  const [gramMod, matMulMod, productsMod, columnsMod] = await Promise.all([gramModule, matMulModule, productsModule, columnsModule].map((m) => WebAssembly.compile(m(fused))));
   const gram = new SimdGram(gramMod!);
+  const columns = new SimdColumns(columnsMod!);
   const product = new SimdMatMul(matMulMod!);
   const products = new SimdProducts(productsMod!);
   const logistic = (options.logistic ?? true) ? new SimdLogistic(await WebAssembly.compile(logisticModule(fused))) : undefined;
@@ -61,6 +63,8 @@ export default async function kernelSet(options: SimdOptions = {}): Promise<Kern
       gramPart: (X, mean, from, to, weights, ones) => gram.gramPart(X, mean, from, to, weights, ones),
       matMul: (n, p, k, a, b) => product.matMul(n, p, k, a, b),
       logisticProducts: (X) => products.prepare(X),
+      xtvPart: (X, v, mean, from, to) => columns.xtvPart(X, v, mean, from, to),
+      columnSums: (X) => columns.columnSums(X),
       ...(logistic && {
         binaryLogisticRows: (z, y, weights, at, m, loss) => loss + logistic.binaryRows(z, y, weights, at, m),
         multinomialLogisticRows: (z, stride, K, y, weights, at, m, loss) => loss + logistic.multinomialRows(z, stride, K, y, weights, at, m),

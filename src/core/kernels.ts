@@ -23,6 +23,10 @@ export interface Kernels {
    * read on every evaluation; `null` where it won't take this X. See {@link LogisticProducts}.
    */
   logisticProducts?: (X: Matrix) => LogisticProducts | null;
+  /** (X − mean)ᵀ v over a range of rows: {@link ownXtvPart}'s signature and result. */
+  xtvPart?: (X: Matrix, v: ArrayLike<number>, mean: ArrayLike<number> | undefined, from: number, to: number) => Float64Array;
+  /** Each column's sum, over every row: {@link ownColumnSums}'s signature and result. */
+  columnSums?: (X: Matrix) => Float64Array;
 }
 
 /** The binary row step's signature: {@link binaryLogisticRows}. */
@@ -190,7 +194,13 @@ export function xtv(X: Matrix, v: ArrayLike<number>, mean?: ArrayLike<number>): 
 }
 
 /** (X − mean)ᵀ v over rows `from` to `to`: one value per column. */
-export function xtvPart(X: Matrix, v: ArrayLike<number>, mean: ArrayLike<number> | undefined, from: number, to: number, out = new Float64Array(X.cols)): Float64Array {
+export function xtvPart(X: Matrix, v: ArrayLike<number>, mean: ArrayLike<number> | undefined, from: number, to: number): Float64Array {
+  const k = replaced.xtvPart;
+  return k ? k(X, v, mean, from, to) : ownXtvPart(X, v, mean, from, to);
+}
+
+/** smaltml's own xtvPart(), in TypeScript: the one that runs unless useKernels() replaced it. */
+export function ownXtvPart(X: Matrix, v: ArrayLike<number>, mean: ArrayLike<number> | undefined, from: number, to: number, out = new Float64Array(X.cols)): Float64Array {
   const n = X.rows;
   const p = X.cols;
   const d = X.data;
@@ -620,9 +630,24 @@ export function choleskySolve(L: Float64Array, p: number, b: ArrayLike<number>):
  */
 export function checkedMeans(X: Matrix, check: (X: Matrix) => void): Float64Array {
   const n = X.rows;
-  const d = X.data;
+  const k = replaced.columnSums;
+  const sums = k ? k(X) : ownColumnSums(X);
   const out = new Float64Array(X.cols);
   let bad = false;
+  for (let j = 0; j < X.cols; j++) {
+    const s = sums[j]!;
+    if (!Number.isFinite(s)) bad = true;
+    out[j] = s / n;
+  }
+  if (bad) check(X);
+  return out;
+}
+
+/** smaltml's own column sums, in TypeScript, four running sums a column: the one that runs unless useKernels() replaced it. */
+export function ownColumnSums(X: Matrix): Float64Array {
+  const n = X.rows;
+  const d = X.data;
+  const out = new Float64Array(X.cols);
   for (let j = 0; j < X.cols; j++) {
     const o = j * n;
     let s0 = 0, s1 = 0, s2 = 0, s3 = 0;
@@ -631,11 +656,8 @@ export function checkedMeans(X: Matrix, check: (X: Matrix) => void): Float64Arra
       s0 += d[o + i]!; s1 += d[o + i + 1]!; s2 += d[o + i + 2]!; s3 += d[o + i + 3]!;
     }
     for (; i < n; i++) s0 += d[o + i]!;
-    const s = s0 + s1 + s2 + s3;
-    if (!Number.isFinite(s)) bad = true;
-    out[j] = s / n;
+    out[j] = s0 + s1 + s2 + s3;
   }
-  if (bad) check(X);
   return out;
 }
 

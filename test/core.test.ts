@@ -22,6 +22,8 @@ import {
   MultiOutputRegressor,
   DecisionTreeClassifier,
   DecisionTreeRegressor,
+  ExtraTreesClassifier,
+  ExtraTreesRegressor,
   RandomForestClassifier,
   RandomForestRegressor,
   cloneModel,
@@ -940,5 +942,88 @@ describe('random forests', () => {
     expect(code(() => f.oobScore)).toBe('ML_PARAM');
     expect(code(() => f.oobPrediction)).toBe('ML_PARAM');
     expect(code(() => f.predictSync([[1, 2]]))).toBe('ML_SHAPE');
+  });
+});
+
+describe('extra trees, and trees with splitter: random', () => {
+  const r = new Random(9);
+  const X = Array.from({ length: 120 }, () => [r.next() * 4, r.next() * 2 - 1, r.next()]);
+  const y = X.map((x) => (x[0]! > 2 ? 5 : 1) + (x[1]! > 0 ? 2 : 0) + x[2]! * 0.1);
+  const labels = X.map((x) => (x[0]! > 2 ? 'big' : x[1]! > 0 ? 'up' : 'down'));
+
+  test('a random split: each threshold lies within its node\'s values, and its rows go left at or below it', () => {
+    const t = new DecisionTreeRegressor({ splitter: 'random', seed: 2, maxDepth: 6 }).fitSync(X, y);
+    const leaf = t.apply(X);
+    const { left, right, feature, threshold, nSamples } = t.tree;
+    // Walk each row down by the stored thresholds: it reaches the leaf apply() gives, and every node it passes has
+    // rows on both sides.
+    for (let i = 0; i < X.length; i++) {
+      let node = 0;
+      while (left[node] !== -1) {
+        expect(nSamples[left[node]!]).toBeGreaterThan(0);
+        expect(nSamples[right[node]!]).toBeGreaterThan(0);
+        node = Math.fround(X[i]![feature[node]!]!) <= threshold[node]! ? left[node]! : right[node]!;
+      }
+      expect(node).toBe(leaf[i]);
+    }
+    expect(t.getParams().splitter).toBe('random');
+    expect(new DecisionTreeRegressor().getParams()).not.toHaveProperty('splitter');
+    // A grown tree with every leaf pure: on the rows it was grown on, its predictions are the targets.
+    const full = new DecisionTreeRegressor({ splitter: 'random', seed: 5 }).fitSync(X, y);
+    expect(Array.from(full.predictSync(X))).toEqual(y);
+  });
+
+  test('a seed repeats a random tree, another seed grows another', () => {
+    const a = new DecisionTreeClassifier({ splitter: 'random', seed: 3 }).fitSync(X, labels);
+    const b = new DecisionTreeClassifier({ splitter: 'random', seed: 3 }).fitSync(X, labels);
+    const c = new DecisionTreeClassifier({ splitter: 'random', seed: 4 }).fitSync(X, labels);
+    expect(a.toJSON()).toEqual(b.toJSON());
+    expect(Array.from(c.tree.threshold)).not.toEqual(Array.from(a.tree.threshold));
+    const back = loadModel(saveModel(a)) as DecisionTreeClassifier;
+    expect(back.getParams().splitter).toBe('random');
+    expect(back.predictSync(X)).toEqual(a.predictSync(X));
+  });
+
+  test('no bootstrap by default; with it, out-of-bag scores; a seed repeats; fit equals fitSync; saved and loaded', async () => {
+    const f = new ExtraTreesRegressor({ nEstimators: 10, seed: 1 }).fitSync(X, y);
+    expect(f.getParams().bootstrap).toBe(false);
+    expect(new ExtraTreesClassifier().getParams()).toMatchObject({ bootstrap: false, maxFeatures: 'sqrt', criterion: 'gini' });
+    // Without bootstrap, every tree is grown on every row.
+    for (const t of f.estimators) expect(t.tree.nSamples[0]).toBe(120);
+    for (const t of f.estimators) expect(t.getParams().splitter).toBe('random');
+    expect(code(() => f.oobScore)).toBe('ML_PARAM');
+    const a = await new ExtraTreesClassifier({ nEstimators: 10, seed: 4, bootstrap: true, oobScore: true }).fit(X, labels);
+    const b = new ExtraTreesClassifier({ nEstimators: 10, seed: 4, bootstrap: true, oobScore: true }).fitSync(X, labels);
+    expect(a.toJSON()).toEqual(b.toJSON());
+    expect(a.oobScore).toBeGreaterThan(0.7);
+    expect(a.oobDecisionFunction.rows).toBe(120);
+    const back = loadModel(saveModel(a)) as ExtraTreesClassifier;
+    expect(back.kind).toBe('ExtraTreesClassifier');
+    expect(Array.from(back.predictProbaSync(X).data)).toEqual(Array.from(a.predictProbaSync(X).data));
+    expect(back.oobScore).toBe(a.oobScore);
+    const regBack = loadModel(saveModel(f)) as ExtraTreesRegressor;
+    expect(regBack.kind).toBe('ExtraTreesRegressor');
+    expect(Array.from(regBack.predictSync(X))).toEqual(Array.from(f.predictSync(X)));
+    expect(regBack.getParams()).toEqual(f.getParams());
+  });
+
+  test('importances rank the noise column last; it fits in a grid search and with sample weights', async () => {
+    const f = new ExtraTreesClassifier({ nEstimators: 40, seed: 3 }).fitSync(X, labels);
+    expect(f.featureImportances.reduce((s, v) => s + v, 0)).toBeCloseTo(1, 12);
+    expect(f.featureImportances[2]).toBeLessThan(Math.min(f.featureImportances[0]!, f.featureImportances[1]!));
+    const g = await new GridSearchCV(new ExtraTreesRegressor({ nEstimators: 5, seed: 0 }), { maxDepth: [1, 4] }, { cv: new KFold({ nSplits: 3 }) }).fit(X, y);
+    expect(g.bestParams.maxDepth).toBe(4);
+    const w = X.map((_, i) => (i < 20 ? 0 : 1 + (i % 3)));
+    const weighted = new ExtraTreesRegressor({ nEstimators: 5, seed: 6 }).fitSync(X, y, { sampleWeight: w });
+    // Rows of weight 0 take no part.
+    for (const t of weighted.estimators) expect(t.tree.nSamples[0]).toBe(100);
+  });
+
+  test('the errors', () => {
+    expect(code(() => new DecisionTreeRegressor({ splitter: 'worst' as never }))).toBe('ML_PARAM');
+    expect(code(() => new ExtraTreesRegressor({ oobScore: true }))).toBe('ML_PARAM');
+    expect(code(() => new ExtraTreesRegressor({ maxSamples: 0.5 }))).toBe('ML_PARAM');
+    expect(code(() => new ExtraTreesClassifier({ classWeight: 'balanced_subsample' as never }))).toBe('ML_PARAM');
+    expect(code(() => new ExtraTreesRegressor().predictSync(X))).toBe('ML_NOT_FITTED');
   });
 });

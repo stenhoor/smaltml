@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { gram, xtv, xw } from '../src/core/kernels.js';
 import { Matrix } from '../src/core/matrix.js';
 import { Random } from '../src/core/random.js';
-import { ElasticNet, Lasso, LinearRegression, LogisticRegression, RandomForestClassifier, RandomForestRegressor, Ridge, StandardScaler, configureThreads, pipeline, stopThreads } from '../src/index.js';
+import { ElasticNet, ExtraTreesClassifier, ExtraTreesRegressor, Lasso, LinearRegression, LogisticRegression, RandomForestClassifier, RandomForestRegressor, Ridge, StandardScaler, configureThreads, pipeline, stopThreads } from '../src/index.js';
 import { gramParallel, threadPool, xtvParallel, xwParallel } from '../src/parallel/index.js';
 import { growOnThreads } from '../src/ensemble/threads.js';
 import { asPrepared, prepareX } from '../src/tree/cart.js';
@@ -157,6 +157,17 @@ describe('forests grown on several threads equal fitSync, bit for bit (ADR 0039,
     expect(three.toJSON()).toEqual(one.toJSON());
     expect(Array.from(three.predictProbaSync(cols).data)).toEqual(Array.from(one.predictProbaSync(cols).data));
     expect(Array.from(three.oobDecisionFunction.data)).toEqual(Array.from(one.oobDecisionFunction.data));
+  }, FITS_TIMEOUT);
+
+  test.each([
+    ['extra trees regressor, defaults', () => new ExtraTreesRegressor({ nEstimators: 9, seed: 5 }), yr, undefined],
+    ['extra trees regressor, bootstrap, out of bag, weights', () => new ExtraTreesRegressor({ nEstimators: 9, bootstrap: true, oobScore: true, seed: 5 }), yr, weights],
+    ['extra trees classifier, defaults', () => new ExtraTreesClassifier({ nEstimators: 7, seed: 5 }), yc, undefined],
+  ] as const)('%s', async (_name, make, target, sampleWeight) => {
+    const opts = sampleWeight ? { sampleWeight } : {};
+    const one = (make() as ExtraTreesRegressor).fitSync(cols, target as number[], opts);
+    const three = await (make() as ExtraTreesRegressor).fit(cols, target as number[], { ...opts, threads: 3 });
+    expect(three.toJSON()).toEqual(one.toJSON());
   }, FITS_TIMEOUT);
 
   test('the pool grows the trees, not this thread', async () => {

@@ -31,6 +31,8 @@ import {
   DecisionTreeClassifier,
   RandomForestRegressor,
   RandomForestClassifier,
+  ExtraTreesRegressor,
+  ExtraTreesClassifier,
   accuracyScore,
   logLoss,
   meanSquaredError,
@@ -179,23 +181,27 @@ function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol:
     }
     case 'forest-score': {
       // smaltml's own seeded draws: the mean score over the seeds, against scikit-learn's mean, within the margin.
+      // `model`: a random forest (the default), extra trees, or a single tree (splitter 'random').
       const params = camel(inp.params);
+      const fit = inp.sampleWeight ? { sampleWeight: inp.sampleWeight } : {};
+      const Classifier = { forest: RandomForestClassifier, extra: ExtraTreesClassifier, tree: DecisionTreeClassifier }[(inp.model ?? 'forest') as 'forest'];
+      const Regressor = { forest: RandomForestRegressor, extra: ExtraTreesRegressor, tree: DecisionTreeRegressor }[(inp.model ?? 'forest') as 'forest'];
       let test = 0;
       let oob = 0;
       for (const seed of inp.seeds as number[]) {
         if (inp.classifier) {
-          const m = new RandomForestClassifier({ ...params, seed }).fitSync(inp.X, inp.y, inp.sampleWeight ? { sampleWeight: inp.sampleWeight } : {});
+          const m = new Classifier({ ...params, seed }).fitSync(inp.X, inp.y, fit);
           const p = m.predictSync(inp.Xnew);
           test += p.filter((l, i) => l === inp.ynew[i]).length / p.length;
-          oob += m.oobScore;
+          if (exp.oob !== null) oob += (m as RandomForestClassifier).oobScore;
         } else {
-          const m = new RandomForestRegressor({ ...params, seed }).fitSync(inp.X, inp.y, inp.sampleWeight ? { sampleWeight: inp.sampleWeight } : {});
+          const m = new Regressor({ ...params, seed }).fitSync(inp.X, inp.y, fit);
           test += r2Score(inp.ynew, m.predictSync(inp.Xnew));
-          oob += m.oobScore;
+          if (exp.oob !== null) oob += (m as RandomForestRegressor).oobScore;
         }
       }
       close(test / inp.seeds.length, exp.test, tol, 'mean test score');
-      close(oob / inp.seeds.length, exp.oob, tol, 'mean out-of-bag score');
+      if (exp.oob !== null) close(oob / inp.seeds.length, exp.oob, tol, 'mean out-of-bag score');
       return;
     }
     case 'MultiOutputRegressor': {

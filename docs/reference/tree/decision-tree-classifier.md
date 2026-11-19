@@ -15,6 +15,7 @@ class DecisionTreeClassifier implements Classifier {
     minSamplesLeaf?: number;
     minWeightFractionLeaf?: number;
     maxFeatures?: number | 'sqrt' | 'log2' | null;
+    splitter?: 'best' | 'random';
     maxLeafNodes?: number | null;
     minImpurityDecrease?: number;
     seed?: number;
@@ -45,7 +46,7 @@ grown by CART ([ADR 0039](../../adr/0039-trees-and-forests)). From `@smaltworks/
   `'log_loss'`, the same).
 - `classWeight`: weights for the classes. `'balanced'` gives each class n / (classes × its rows), counting rows (not
   their sample weights), as scikit-learn's trees do; an object gives a class's weight by its label.
-- `maxDepth`, `minSamplesSplit`, `minSamplesLeaf`, `minWeightFractionLeaf`, `maxFeatures`, `maxLeafNodes`,
+- `maxDepth`, `minSamplesSplit`, `minSamplesLeaf`, `minWeightFractionLeaf`, `maxFeatures`, `splitter`, `maxLeafNodes`,
   `minImpurityDecrease`, `seed`: as for [`DecisionTreeRegressor`](./decision-tree-regressor#parameters).
 
 `fit` and `fitSync` take `sampleWeight`, one weight per row, multiplied by its class's `classWeight`.

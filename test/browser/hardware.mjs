@@ -115,6 +115,8 @@ window.results = (async () => {
   for (const [what, make, target] of [
     ['RandomForestRegressor', () => new ml.RandomForestRegressor({ nEstimators: 8, oobScore: true, seed: 3 }), fY],
     ['RandomForestClassifier', () => new ml.RandomForestClassifier({ nEstimators: 8, oobScore: true, seed: 3 }), fLabels],
+    ['ExtraTreesRegressor', () => new ml.ExtraTreesRegressor({ nEstimators: 8, seed: 3 }), fY],
+    ['ExtraTreesClassifier', () => new ml.ExtraTreesClassifier({ nEstimators: 8, seed: 3 }), fLabels],
   ]) {
     const many = await make().fit(F, target, { threads: 4 });
     const one = make().fitSync(F, target);

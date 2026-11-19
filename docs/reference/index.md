@@ -36,6 +36,8 @@ From `@smaltworks/smaltml/preprocessing`:
   CART decision trees. `@smaltworks/smaltml/tree`
 - [`RandomForestRegressor`](./ensemble/random-forest-regressor), [`RandomForestClassifier`](./ensemble/random-forest-classifier):
   random forests of those trees. `@smaltworks/smaltml/ensemble`
+- [`ExtraTreesRegressor`](./ensemble/extra-trees-regressor), [`ExtraTreesClassifier`](./ensemble/extra-trees-classifier):
+  extra trees, whose thresholds are drawn at random. `@smaltworks/smaltml/ensemble`
 
 ## Model selection
 

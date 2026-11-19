@@ -260,12 +260,27 @@ export function grow(X: Matrix, t: Targets, weights: Float64Array, params: GrowP
   // Rows of weight 0 take no part, as in scikit-learn: not in a node's sample count, and not a threshold's neighbour.
   // Each column's order and values, of the rows kept: written whether kept or not, and the cursor moves only for a
   // kept row (one slot to spare for the last write).
-  const presorted = sorted ?? PREPARED.get(X) ?? presort(X);
+  // splitter 'random' has two ways. Where a split looks at fewer than half the columns, it never sorts: it reads each
+  // column it looks at over the node's rows (randomSplit). Otherwise it takes the presort's way, as 'best' does: a
+  // column's values in the node are sorted, so its smallest, largest and the rows at or below a threshold come from
+  // its ends and a binary search, while every column is partitioned at each split. Measured on 200,000 × 50 (ten trees
+  // of depth 10, 2026-11-19): the first was faster up to 17 columns of 50, the second at 50; at 25 the regressor was
+  // faster the first way and the classifier the second.
+  const sortFree = params.splitter === 'random' && params.maxFeatures * 2 < p;
+  // The presort is made by the first tree that needs it and kept with X for the others (asPrepared).
+  let presorted: Presorted | null = null;
+  if (!sortFree) {
+    presorted = sorted ?? PREPARED.get(X) ?? null;
+    if (!presorted) {
+      presorted = presort(X);
+      if (PREPARED.has(X)) PREPARED.set(X, presorted);
+    }
+  }
   const keep = new Uint8Array(n);
   for (let i = 0; i < n; i++) keep[i] = weights[i]! > 0 ? 1 : 0;
   const cols: Uint32Array[] = [];
   const vals: Float32Array[] = [];
-  for (let f = 0; f < p; f++) {
+  for (let f = 0; presorted && f < p; f++) {
     const order = presorted.order[f]!;
     const v = presorted.values[f]!;
     if (kept === n) {
@@ -322,6 +337,7 @@ export function grow(X: Matrix, t: Targets, weights: Float64Array, params: GrowP
     if (depth >= params.maxDepth || m < params.minSamplesSplit || m < 2 * params.minSamplesLeaf || w < 2 * params.minWeightLeaf || nodeImpurity <= EPSILON) {
       return null;
     }
+    if (sortFree) return randomSplit(start, end, s);
     // Columns in a random order: it decides only between splits that score exactly the same, and which columns
     // maxFeatures looks at. Constant columns don't count towards maxFeatures.
     const order = rng.permutation(p);
@@ -406,6 +422,97 @@ export function grow(X: Matrix, t: Targets, weights: Float64Array, params: GrowP
     return best;
   };
 
+  /**
+   * splitter 'random', sort-free (`sortFree`): the node's rows are `all`'s range `start` to `end`, in row order. Each
+   * column looked at is read over them once for its smallest and largest value; one threshold is drawn uniformly
+   * between them (one at the largest is the smallest, so both sides keep a row), and the rows at or below it are
+   * summed in a second read. The best split's rows are then partitioned in place, each side kept in row order, so the
+   * children are ranges too.
+   */
+  const randomSplit = (start: number, end: number, s: Float64Array): Split | null => {
+    const m = end - start;
+    const order = rng.permutation(p);
+    let best: Split | null = null;
+    let bestScore = -Infinity;
+    let visited = 0;
+    for (const f of order) {
+      if (visited >= params.maxFeatures) break;
+      const col = X.column(f);
+      let lo = Infinity;
+      let hi = -Infinity;
+      for (let k = start; k < end; k++) {
+        const x = col[all[k]!]!;
+        if (x < lo) lo = x;
+        if (x > hi) hi = x;
+      }
+      if (lo === hi) continue;
+      visited++;
+      let th = lo + (hi - lo) * rng.next();
+      if (th === hi) th = lo;
+      // The left rows' sums; the right's are the node's less them. A random threshold makes `x ≤ th` a coin toss, so
+      // each row adds its terms times g (1 at or below the threshold, 0 above): no branch to mispredict, and adding 0
+      // leaves a sum as it was.
+      l.fill(0);
+      let nl = 0;
+      if (labels) {
+        for (let k = start; k < end; k++) {
+          const i = all[k]!;
+          const g = col[i]! <= th ? 1 : 0;
+          const wi = g * weights[i]!;
+          l[0]! += wi;
+          l[1 + labels[i]!]! += wi;
+          nl += g;
+        }
+      } else {
+        const y = (t as { y: Float64Array }).y;
+        let s0 = 0;
+        let s1 = 0;
+        let s2 = 0;
+        for (let k = start; k < end; k++) {
+          const i = all[k]!;
+          const g = col[i]! <= th ? 1 : 0;
+          const wi = g * weights[i]!;
+          const v = y[i]!;
+          s0 += wi;
+          s1 += wi * v;
+          s2 += wi * v * v;
+          nl += g;
+        }
+        l[0] = s0;
+        l[1] = s1;
+        l[2] = s2;
+      }
+      if (nl < params.minSamplesLeaf || m - nl < params.minSamplesLeaf) continue;
+      for (let q = 0; q < S; q++) r[q] = s[q]! - l[q]!;
+      if (l[0]! < params.minWeightLeaf || r[0]! < params.minWeightLeaf) continue;
+      const score = gini ? -(l[0]! * giniOf(l) + r[0]! * giniOf(r)) : proxy(l, r, params.criterion);
+      if (score > bestScore) {
+        bestScore = score;
+        best = { feature: f, threshold: th, start, pos: nl, improvement: 0, ls: l, rs: r };
+      }
+    }
+    if (!best) return null;
+    const col = X.column(best.feature);
+    const th = best.threshold;
+    let a = start;
+    let b = 0;
+    // Each row is written to both places and only one cursor moves, as partition() does.
+    for (let k = start; k < end; k++) {
+      const i = all[k]!;
+      const g = col[i]! <= th ? 1 : 0;
+      all[a] = i;
+      scratch[b] = i;
+      a += g;
+      b += 1 - g;
+    }
+    all.set(scratch.subarray(0, b), a);
+    best.ls = statsOf(all, start, start + best.pos);
+    best.rs = statsOf(all, start + best.pos, end);
+    best.improvement = improvement(s, best.ls, best.rs, params.criterion, total);
+    if (best.improvement + EPSILON < params.minImpurityDecrease) return null;
+    return best;
+  };
+
   const inLeft = new Uint8Array(n);
   const scratch = new Uint32Array(kept);
   const scratchValues = new Float32Array(kept);
@@ -414,6 +521,8 @@ export function grow(X: Matrix, t: Targets, weights: Float64Array, params: GrowP
    * then those that go right, each in the order they were. The split column's order is already so.
    */
   const partition = (split: Split, end: number): void => {
+    // A sort-free random split partitioned its rows when it was found.
+    if (sortFree) return;
     const { start, pos } = split;
     const goes = cols[split.feature]!;
     for (let k = start; k < end; k++) inLeft[goes[k]!] = k < start + pos ? 1 : 0;

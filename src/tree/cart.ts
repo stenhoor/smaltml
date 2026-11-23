@@ -1,4 +1,5 @@
 import { fail } from '../core/errors.js';
+import { treeSplits, type TreeSplits } from '../core/kernels.js';
 import { assertFinite, Matrix, type MatrixInput } from '../core/matrix.js';
 import { Random } from '../core/random.js';
 
@@ -533,6 +534,15 @@ function growSorted(X: Matrix, t: Targets, weights: Float64Array, params: GrowPa
  * order, so the children are ranges too. A function of its own, apart from growSorted(): V8 compiled growSorted's
  * partition about a tenth slower with this split's code beside it (measured on 200,000 × 50, 2026-11-19).
  */
+/** The treeSplits kernel kept for a forest's X (prepared, asPrepared), so its trees share the kernel's copy of X. */
+const SPLITS = new WeakMap<Matrix, TreeSplits | null>();
+
+/** Frees what the treeSplits kernel kept for X, once a forest's trees are grown. */
+export function releaseTrees(X: Matrix): void {
+  SPLITS.get(X)?.release();
+  SPLITS.delete(X);
+}
+
 function growSortFree(X: Matrix, t: Targets, weights: Float64Array, params: GrowParams): TreeArrays {
   const n = X.rows;
   const p = X.cols;
@@ -556,8 +566,18 @@ function growSortFree(X: Matrix, t: Targets, weights: Float64Array, params: Grow
   const value: number[] = [];
 
   // Rows of weight 0 take no part, as in scikit-learn: not in a node's sample count, and not a threshold's neighbour.
-  const all = new Uint32Array(kept);
-  for (let i = 0, a = 0; i < n; i++) if (weights[i]! > 0) all[a++] = i;
+  const kept0 = new Uint32Array(kept);
+  for (let i = 0, a = 0; i < n; i++) if (weights[i]! > 0) kept0[a++] = i;
+  // The treeSplits kernel, where one is in use and takes X: shared by a forest's trees (released by the forest), or
+  // this tree's own (released below). It holds the row list the passes read; the tree partitions it in place.
+  const shared = PREPARED.has(X);
+  let ks = shared ? SPLITS.get(X) : undefined;
+  if (ks === undefined) {
+    ks = treeSplits(X);
+    if (shared) SPLITS.set(X, ks);
+  }
+  const all = ks ? ks.begin(weights, t.kind === 'classes' ? { classes: t.y, K: t.K } : { values: t.y }, kept0) : kept0;
+  const mm = new Float64Array(2);
 
   const statsOf = (rows: Uint32Array, a: number, b: number) => {
     const s = new Float64Array(S);
@@ -611,10 +631,16 @@ function growSortFree(X: Matrix, t: Targets, weights: Float64Array, params: Grow
       const col = X.column(f);
       let lo = Infinity;
       let hi = -Infinity;
-      for (let k = start; k < end; k++) {
-        const x = col[all[k]!]!;
-        if (x < lo) lo = x;
-        if (x > hi) hi = x;
+      if (ks) {
+        ks.minMax(f, start, end, mm);
+        lo = mm[0]!;
+        hi = mm[1]!;
+      } else {
+        for (let k = start; k < end; k++) {
+          const x = col[all[k]!]!;
+          if (x < lo) lo = x;
+          if (x > hi) hi = x;
+        }
       }
       if (lo === hi) continue;
       varying++;
@@ -625,7 +651,9 @@ function growSortFree(X: Matrix, t: Targets, weights: Float64Array, params: Grow
       // leaves a sum as it was.
       l.fill(0);
       let nl = 0;
-      if (labels) {
+      if (ks) {
+        nl = ks.leftSums(f, start, end, th, l);
+      } else if (labels) {
         for (let k = start; k < end; k++) {
           const i = all[k]!;
           const g = col[i]! <= th ? 1 : 0;
@@ -739,6 +767,9 @@ function growSortFree(X: Matrix, t: Targets, weights: Float64Array, params: Grow
       leaves++;
     }
   }
+
+  // This tree's own kernel (a single tree's fit): freed now.
+  if (ks && !shared) ks.release();
 
   return {
     left: Int32Array.from(left),

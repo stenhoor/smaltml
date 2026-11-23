@@ -4,7 +4,7 @@
  * one such set, which kernelsReady() turns on where the engine has WebAssembly SIMD; a plugin could give another.
  */
 import { fail } from './errors.js';
-import { binaryLogisticPart, multinomialLogisticPart, ownBinaryLogisticRows, ownColumnSums, ownGramPart, ownMatMul, ownMultinomialLogisticRows, ownXtvPart, replaced, type Kernels } from './kernels.js';
+import { binaryLogisticPart, multinomialLogisticPart, ownBinaryLogisticRows, ownColumnSums, ownGramPart, ownMatMul, ownMultinomialLogisticRows, ownTreeSplits, ownXtvPart, replaced, type Kernels } from './kernels.js';
 import { Matrix } from './matrix.js';
 import { Random } from './random.js';
 
@@ -18,7 +18,7 @@ export const KERNELS_VERSION = 1;
 
 /** The names of the kernels a set can replace. */
 export type KernelName = keyof Kernels;
-const NAMES: readonly KernelName[] = ['gramPart', 'matMul', 'binaryLogisticRows', 'multinomialLogisticRows', 'logisticProducts', 'xtvPart', 'columnSums'];
+const NAMES: readonly KernelName[] = ['gramPart', 'matMul', 'binaryLogisticRows', 'multinomialLogisticRows', 'logisticProducts', 'xtvPart', 'columnSums', 'treeSplits'];
 
 /** A set of kernels to use in place of smaltml's own: what smaltml's SIMD entry, or a plugin, gives useKernels(). */
 export interface KernelSet {
@@ -161,6 +161,8 @@ function passes(name: KernelName, k: NonNullable<Kernels[KernelName]>): boolean 
         return xtvPasses(k as NonNullable<Kernels['xtvPart']>);
       case 'columnSums':
         return sumsPass(k as NonNullable<Kernels['columnSums']>);
+      case 'treeSplits':
+        return splitsPass(k as NonNullable<Kernels['treeSplits']>);
     }
   } catch {
     return false;
@@ -246,6 +248,57 @@ function sumsPass(k: NonNullable<Kernels['columnSums']>): boolean {
     }
   }
   return true;
+}
+
+/**
+ * treeSplits on 37 rows of 9 columns (odd sizes), for classes and for values: a row list in scrambled order, ranges of
+ * it that start and end anywhere, thresholds below, inside and above a column's values. Its sums equal smaltml's own
+ * exactly, as the loops are the same: they add the same terms in the same order.
+ */
+function splitsPass(k: NonNullable<Kernels['treeSplits']>): boolean {
+  const r = new Random(41);
+  const n = 37;
+  const cols = 9;
+  const X = new Matrix(n, cols, Float64Array.from({ length: n * cols }, () => Math.fround((r.next() - 0.5) * 8)));
+  const before = X.data.slice();
+  const weights = Float64Array.from({ length: n }, (_, i) => (i % 5 === 0 ? 0 : r.next() * 3));
+  const rows = Uint32Array.from({ length: n }, (_, i) => i).sort((a, b) => ((a * 7 + 3) % n) - ((b * 7 + 3) % n));
+  const classes = Int32Array.from({ length: n }, () => Math.floor(r.next() * 3));
+  const values = values37(r, n);
+  const kernel = k(X);
+  if (kernel === null) return true;
+  const own = ownTreeSplits(X);
+  try {
+    for (const targets of [{ classes, K: 3 }, { values }]) {
+      const S = 'classes' in targets ? 4 : 3;
+      const mine = kernel.begin(weights, targets, rows);
+      const ours = own.begin(weights, targets, rows);
+      if (mine.length !== ours.length || mine.some((v, i) => v !== ours[i])) return false;
+      for (const [start, end] of [[0, n], [5, 30], [36, 37]] as const) {
+        for (let f = 0; f < cols; f++) {
+          const a = new Float64Array(2);
+          const b = new Float64Array(2);
+          kernel.minMax(f, start, end, a);
+          own.minMax(f, start, end, b);
+          if (a[0] !== b[0] || a[1] !== b[1]) return false;
+          for (const th of [b[0]! - 1, (b[0]! + b[1]!) / 2, b[1]!]) {
+            const la = new Float64Array(S);
+            const lb = new Float64Array(S);
+            if (kernel.leftSums(f, start, end, th, la) !== own.leftSums(f, start, end, th, lb)) return false;
+            if (la.some((v, i) => v !== lb[i])) return false;
+          }
+        }
+      }
+    }
+  } finally {
+    kernel.release();
+  }
+  // A kernel reads X; it never writes it.
+  return X.data.every((v, i) => v === before[i]);
+}
+
+function values37(r: Random, n: number): Float64Array {
+  return Float64Array.from({ length: n }, () => (r.next() - 0.5) * 20);
 }
 
 /** matMul on 13 × 7 by 7 × 3, and on a product with an empty inner size. */

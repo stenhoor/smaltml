@@ -228,6 +228,7 @@ export default defineConfig({
               { text: '0037 Several targets', link: '/adr/0037-several-targets' },
               { text: '0039 Trees and forests', link: '/adr/0039-trees-and-forests' },
               { text: '0040 SIMD in smaltml', link: '/adr/0040-simd-kernels-in-smaltml' },
+              { text: '0044 Boosted trees', link: '/adr/0044-phase-3-boosted-trees' },
             ],
           },
         ],

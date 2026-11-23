@@ -117,7 +117,7 @@
     "@types/node": "^22.20.5",
     "esbuild": "^0.28.2",
     "playwright": "1.64.1",
-    "smaltkit": "github:stenhoor/smaltkit#a90b57ae84db2b193ed6750c6433ee0a3040e6e0",
+    "smaltkit": "github:stenhoor/smaltkit#d0637bd76c2c796309bf26277f7926ef3876da9b",
     "smaltty": "github:stenhoor/smaltty#v0.15.0",
     "typescript": "~6.0.3",
     "typescript7": "npm:typescript@~7.0.2",

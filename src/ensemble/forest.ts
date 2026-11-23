@@ -18,7 +18,7 @@ import {
   type DecisionTreeRegressorParams,
 } from '../tree/index.js';
 import type { ThreadOptions } from '../parallel/index.js';
-import { asPrepared, prepareX } from '../tree/cart.js';
+import { asPrepared, prepareX, releaseTrees } from '../tree/cart.js';
 import { cumulativeWeights, growTree, type Grown, type GrowJob } from './grow.js';
 import { growOnThreads } from './threads.js';
 
@@ -221,7 +221,12 @@ abstract class Forest<T extends DecisionTreeRegressor | DecisionTreeClassifier> 
 
   protected growSync(job: GrowJob, p: Plan): Grown<T>[] {
     const cumulative = job.bootstrap ? cumulativeWeights(job.weights) : null;
-    return p.streams.map((s) => growTree(job, cumulative, s) as Grown<T>);
+    try {
+      return p.streams.map((s) => growTree(job, cumulative, s) as Grown<T>);
+    } finally {
+      // The trees are grown: what a kernel kept of X for them is freed.
+      releaseTrees(job.X);
+    }
   }
 
   protected forestParams(): ForestParams {

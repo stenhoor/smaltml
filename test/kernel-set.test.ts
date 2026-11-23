@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
 import { KERNELS_VERSION, kernelsInUse, useKernels, type KernelSet } from '../src/core/kernel-set.js';
-import { gram, ownColumnSums, ownGramPart, ownXtvPart, xw } from '../src/core/kernels.js';
+import { gram, ownColumnSums, ownGramPart, ownTreeSplits, ownXtvPart, xw } from '../src/core/kernels.js';
 import { Matrix } from '../src/core/matrix.js';
 import { Random } from '../src/core/random.js';
 import {
@@ -183,6 +183,23 @@ describe('useKernels', () => {
       kernels: { xtvPart: (X, v, m, a, b) => nudge(ownXtvPart(X, v, m, a, b), 1e-6), columnSums: (X) => ownColumnSums(X).subarray(1) },
     };
     expect(useKernels(wrong)).toEqual({ name: 'wrong', kernels: [], rejected: ['xtvPart', 'columnSums'] });
+  });
+  test('treeSplits is checked at start: smaltml\'s own passes, one whose sums are off by a little is rejected', () => {
+    const own: KernelSet = { name: 'own', version: KERNELS_VERSION, kernels: { treeSplits: (X) => ownTreeSplits(X) } };
+    expect(useKernels(own)).toEqual({ name: 'own', kernels: ['treeSplits'], rejected: [] });
+    const off: KernelSet = {
+      name: 'off',
+      version: KERNELS_VERSION,
+      kernels: {
+        treeSplits: (X) => {
+          const k = ownTreeSplits(X);
+          return { ...k, leftSums: (f, a, b, th, l) => { const nl = k.leftSums(f, a, b, th, l); l[0] = l[0]! * (1 + 1e-15); return nl; } };
+        },
+      },
+    };
+    expect(useKernels(off).rejected).toEqual(['treeSplits']);
+    const none: KernelSet = { name: 'none', version: KERNELS_VERSION, kernels: { treeSplits: () => null } };
+    expect(useKernels(none).kernels).toEqual(['treeSplits']);
   });
 
   test('a set for another contract version, or with kernels smaltml doesn\'t have, fails with ML_PARAM', () => {

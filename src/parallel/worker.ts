@@ -5,7 +5,7 @@ import { binaryLogisticPart, binaryLogisticRows, gramPart, multinomialLogisticPa
 import { useKernels, type KernelSet } from '../core/kernel-set.js';
 import { Matrix } from '../core/matrix.js';
 import { cumulativeWeights, growTree } from '../ensemble/grow.js';
-import { asPrepared } from '../tree/cart.js';
+import { asPrepared, releaseTrees } from '../tree/cart.js';
 import type { Request, Response, SharedMatrix } from './protocol.js';
 
 const nodeModule = (name: string): Promise<unknown> => import(/* @vite-ignore */ name);
@@ -54,10 +54,16 @@ function handle(req: Request): Response | Promise<Response> {
     const X = asPrepared(new Matrix(t.X.rows, t.X.cols, new Float64Array(t.X.buffer), t.names ?? undefined), false);
     const job = { classifier: t.classifier, X, y: t.y, weights: t.weights, params: t.params, bootstrap: t.bootstrap, draws: t.draws, oob: t.oob };
     const cumulative = t.bootstrap ? cumulativeWeights(t.weights) : null;
-    const trees = t.streams.map((s) => {
-      const g = growTree(job, cumulative, s);
-      return { doc: g.tree.toJSON(), outOfBag: g.outOfBag, oob: g.oob };
-    });
+    let trees;
+    try {
+      trees = t.streams.map((s) => {
+        const g = growTree(job, cumulative, s);
+        return { doc: g.tree.toJSON(), outOfBag: g.outOfBag, oob: g.oob };
+      });
+    } finally {
+      // This worker's trees are grown: what a kernel kept of X for them is freed.
+      releaseTrees(X);
+    }
     return { id: req.id, ok: true, parts: [], trees };
   }
   const X = matrix(t.X);

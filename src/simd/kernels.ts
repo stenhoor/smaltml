@@ -9,6 +9,7 @@ import { gramModule, SimdGram } from './gram.js';
 import { logisticModule, SimdLogistic } from './logistic.js';
 import { matMulModule, SimdMatMul } from './matmul.js';
 import { productsModule, SimdProducts } from './products.js';
+import { SimdSplits, splitsModule } from './splits.js';
 import { simdSupport } from 'smaltkit/simd';
 
 /** How the SIMD kernels run. */
@@ -42,8 +43,9 @@ export function setName(fused: boolean): string {
 }
 
 /**
- * The kernel set: gramPart (XᵀX), matMul (A · B), xtvPart (Xᵀv), columnSums, the logistic products and, unless `logistic` is false, the
- * logistic objectives' row steps, on WebAssembly SIMD, compiled here. Fused multiply-add only when asked for and the engine
+ * The kernel set: gramPart (XᵀX), matMul (A · B), xtvPart (Xᵀv), columnSums, treeSplits (extra trees' random
+ * splits), the logistic products and, unless `logistic` is false, the logistic objectives' row steps, on WebAssembly
+ * SIMD, compiled here. Fused multiply-add only when asked for and the engine
  * has relaxed SIMD. Fails where the engine has no WebAssembly SIMD; useSimd() checks that first.
  */
 export default async function kernelSet(options: SimdOptions = {}): Promise<KernelSet> {
@@ -53,6 +55,7 @@ export default async function kernelSet(options: SimdOptions = {}): Promise<Kern
   const [gramMod, matMulMod, productsMod, columnsMod] = await Promise.all([gramModule, matMulModule, productsModule, columnsModule].map((m) => WebAssembly.compile(m(fused))));
   const gram = new SimdGram(gramMod!);
   const columns = new SimdColumns(columnsMod!);
+  const splits = new SimdSplits(await WebAssembly.compile(splitsModule()));
   const product = new SimdMatMul(matMulMod!);
   const products = new SimdProducts(productsMod!);
   const logistic = (options.logistic ?? true) ? new SimdLogistic(await WebAssembly.compile(logisticModule(fused))) : undefined;
@@ -65,6 +68,7 @@ export default async function kernelSet(options: SimdOptions = {}): Promise<Kern
       logisticProducts: (X) => products.prepare(X),
       xtvPart: (X, v, mean, from, to) => columns.xtvPart(X, v, mean, from, to),
       columnSums: (X) => columns.columnSums(X),
+      treeSplits: (X) => splits.prepare(X),
       ...(logistic && {
         binaryLogisticRows: (z, y, weights, at, m, loss) => loss + logistic.binaryRows(z, y, weights, at, m),
         multinomialLogisticRows: (z, stride, K, y, weights, at, m, loss) => loss + logistic.multinomialRows(z, stride, K, y, weights, at, m),

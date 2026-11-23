@@ -27,7 +27,101 @@ export interface Kernels {
   xtvPart?: (X: Matrix, v: ArrayLike<number>, mean: ArrayLike<number> | undefined, from: number, to: number) => Float64Array;
   /** Each column's sum, over every row: {@link ownColumnSums}'s signature and result. */
   columnSums?: (X: Matrix) => Float64Array;
+  /**
+   * The sort-free random split's two passes over a node's rows (extra trees, src/tree/cart.ts): X kept by the kernel
+   * for a fit, read on every split; `null` where it won't take this X. See {@link TreeSplits}; {@link ownTreeSplits}
+   * gives smaltml's own results.
+   */
+  treeSplits?: (X: Matrix) => TreeSplits | null;
 }
+
+/**
+ * One fit's random-split passes, from the `treeSplits` kernel, over the X it was given. A tree calls begin() with its
+ * rows; then, for each column a node looks at, minMax() and, where the column isn't constant, leftSums(). The row list
+ * begin() returns is the one the passes read: the tree partitions it in place between splits.
+ */
+export interface TreeSplits {
+  /**
+   * One tree's weights (one per row of X), its targets (class numbers 0 to K − 1, or values) and the rows it grows on
+   * (row numbers): returns those rows as the kernel holds them, a list the tree partitions in place. Valid until the
+   * next begin() or release().
+   */
+  begin(weights: Float64Array, targets: { classes: Int32Array; K: number } | { values: Float64Array }, rows: Uint32Array): Uint32Array;
+  /** Column f's smallest and largest value over the row list's entries `start` to `end − 1`: into out[0] and out[1]. */
+  minMax(f: number, start: number, end: number, out: Float64Array): void;
+  /**
+   * The rows of entries `start` to `end − 1` whose value in column f is at most `th`: returns how many, and writes
+   * their sums into `l`, each row's terms added in the list's order: [Σw, Σw of class 0, …, of class K − 1] for classes,
+   * [Σw, Σwy, Σwy²] for values.
+   */
+  leftSums(f: number, start: number, end: number, th: number, l: Float64Array): number;
+  /** Frees what the kernel kept. */
+  release(): void;
+}
+
+/** The treeSplits kernel for this X, or `null` where none is in use or it won't take X. */
+export function treeSplits(X: Matrix): TreeSplits | null {
+  const k = replaced.treeSplits;
+  return k ? k(X) : null;
+}
+
+/**
+ * smaltml's own treeSplits(), in TypeScript: the loops the sort-free random split runs where no kernel replaces them
+ * (written out there, in src/tree/cart.ts), and what useKernels() checks a kernel against.
+ */
+export function ownTreeSplits(X: Matrix): TreeSplits {
+  const n = X.rows;
+  let w: Float64Array = new Float64Array(0);
+  let classes: Int32Array | null = null;
+  let values: Float64Array | null = null;
+  let rows = new Uint32Array(0);
+  return {
+    begin(weights, targets, list) {
+      w = weights;
+      classes = 'classes' in targets ? targets.classes : null;
+      values = 'values' in targets ? targets.values : null;
+      rows = list.slice();
+      return rows;
+    },
+    minMax(f, start, end, out) {
+      const col = X.data.subarray(f * n, (f + 1) * n);
+      let lo = Infinity;
+      let hi = -Infinity;
+      for (let k = start; k < end; k++) {
+        const x = col[rows[k]!]!;
+        if (x < lo) lo = x;
+        if (x > hi) hi = x;
+      }
+      out[0] = lo;
+      out[1] = hi;
+    },
+    leftSums(f, start, end, th, l) {
+      const col = X.data.subarray(f * n, (f + 1) * n);
+      l.fill(0);
+      let nl = 0;
+      for (let k = start; k < end; k++) {
+        const i = rows[k]!;
+        const g = col[i]! <= th ? 1 : 0;
+        const wi = g * w[i]!;
+        if (classes) {
+          l[0]! += wi;
+          l[1 + classes[i]!]! += wi;
+        } else {
+          const v = values![i]!;
+          l[0]! += wi;
+          l[1]! += wi * v;
+          l[2]! += wi * v * v;
+        }
+        nl += g;
+      }
+      return nl;
+    },
+    release() {
+      rows = new Uint32Array(0);
+    },
+  };
+}
+
 
 /** The binary row step's signature: {@link binaryLogisticRows}. */
 export type BinaryRows = (z: Float64Array, y: Int32Array, weights: ArrayLike<number> | undefined, at: number, m: number, loss: number) => number;

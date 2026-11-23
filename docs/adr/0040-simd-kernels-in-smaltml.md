@@ -77,6 +77,19 @@ Gram is (`src/simd/columns.ts`: each block's columns copied into the WebAssembly
 f64x2). Adding kernels leaves `KERNELS_VERSION` at 1. The same day, the Gram's centring and √weight moved from a
 TypeScript loop into WebAssembly (`center`, `scale`), with the same values bit for bit.
 
+## Extra trees' random splits (the owner, 2026-11-23)
+
+Extra trees' sort-free random split (ADR 0039) spends most of its time in two passes over a node's rows for each column
+it looks at: the column's smallest and largest value, then the rows at or below the threshold drawn. A probe with
+those passes in WebAssembly, over X copied into the module's memory, cut an ExtraTreesClassifier fit on 200,000 × 50
+from 3.70–4.00 s to 2.57–2.87 s, with the same trees; the owner asked for it. `treeSplits` joins the contract
+(`src/core/kernels.ts`, `ownTreeSplits` its TypeScript): X is copied once per fit (a forest's trees, and each worker's,
+share the copy, released when they are grown), each tree copies in its weights, targets and row list, and partitions
+the row list in place. The loops are scalar, as a node's rows are scattered and WebAssembly SIMD has no gather, and add
+the same terms in the same order as smaltml's own, so their results are smaltml's own to the last bit; the check at
+start compares them exactly. They needed scalar instructions smaltkit's writer didn't have (`i32.load`, `i32.shl`,
+`select`, `f64.mul`, `f64.min`, `f64.max`, `f64.le`, `f64.const`), added in smaltkit first.
+
 ## Consequences
 
 - One repository and one release for smaltml and its kernels: no pins between them, no plugin site, no second CI.

@@ -68,6 +68,13 @@ models and solvers don't change; only the kernels they call do.
     - `xtvPart`: (X − mean)ᵀ v over rows `from` to `to`, one value per column. It is behind LinearRegression, Ridge,
       Lasso and ElasticNet.
     - `columnSums`: each column's sum over every row, one value per column: the means those fits centre X with.
+    - `treeSplits`: the random split's two passes over a node's rows, for a fit. Given X, it returns `null` (smaltml's
+      own loops then) or an object whose `begin(weights, targets, rows)` takes a tree's weights, targets (class
+      numbers and their count, or values) and rows, and returns the row list the tree partitions in place;
+      `minMax(f, start, end, out)` gives column f's smallest and largest value over entries `start` to `end − 1` of
+      that list; `leftSums(f, start, end, th, l)` gives how many of those rows are at most `th` in column f, and their
+      sums ([Σw, then Σw by class] or [Σw, Σwy, Σwy²]), added in the list's order; `release()` frees what it kept. It
+      is behind ExtraTreesRegressor, ExtraTreesClassifier and trees with `splitter: 'random'` below half the columns.
   - `threads`: how the thread pool's workers load the same kernels: each imports `module`, and calls its default
     export with `options` for the set. Without it, fits run on one thread while the set is in use.
 

@@ -832,6 +832,37 @@ for name, model, data, params, classifier, weights, margin, seeds in [
         inputs["sampleWeight"] = tolist(weights)
     case(name, "forest-score", inputs, {"test": float(np.mean(test_scores)), "oob": float(np.mean(oob_scores)) if oob_scores else None}, {"rtol": 0, "atol": margin})
 
+# Columns constant in a node (appended, ADR 0039): scikit-learn counts a drawn column that is constant in the node
+# towards max_features, and goes on only until it has looked at one that isn't. Sparse binary columns are constant in
+# many nodes, so the scores show whether the columns looked at are counted the same way (2026-11-23: before smaltml
+# counted them so, its mean scores here were 0.009 to 0.025 above scikit-learn's). The margin, 0.01, is at least three
+# standard errors of the difference of the two means, from scikit-learn's spread over 30 seeds (0.0059 to 0.0068).
+r = np.random.default_rng(21)
+C = r.normal(size=(3300, 3))
+B = (r.random(size=(3300, 9)) < 0.12).astype(float)
+X = np.hstack([C, B])
+f = 1.5 * C[:, 0] - C[:, 1] + 2.0 * B[:, 0] - 1.5 * B[:, 1] + B[:, 2] * C[:, 2] + 1.2 * B[:, 3]
+y = f + r.normal(scale=0.6, size=3300)
+lab = np.where(f > 0.8, "high", np.where(f > -0.8, "mid", "low"))
+flags = (X[:300], X[300:], y[:300], y[300:], lab[:300], lab[300:])
+for name, model, params, classifier in [
+    ("random forest classifier, sparse binary columns: √columns", "forest", {"n_estimators": 50}, True),
+    ("random forest regressor, sparse binary columns: a quarter of the columns", "forest", {"n_estimators": 50, "max_features": 0.25}, False),
+    ("extra trees classifier, sparse binary columns: √columns", "extra", {"n_estimators": 50}, True),
+]:
+    Xa, Xb, ya, yb, la, lb = flags
+    seeds = list(range(20))
+    scores = []
+    for s in seeds:
+        if classifier:
+            M = ExtraTreesClassifier if model == "extra" else RandomForestClassifier
+            scores.append(accuracy_score(lb, M(random_state=s, **params).fit(Xa, la).predict(Xb)))
+        else:
+            scores.append(r2_score(yb, RandomForestRegressor(random_state=s, **params).fit(Xa, ya).predict(Xb)))
+    inputs = {"X": tolist(Xa), "y": tolist(la if classifier else ya), "Xnew": tolist(Xb), "ynew": tolist(lb if classifier else yb),
+              "params": params, "classifier": classifier, "seeds": seeds, "model": model}
+    case(name, "forest-score", inputs, {"test": float(np.mean(scores)), "oob": None}, {"rtol": 0, "atol": 0.01})
+
 out = {
     "comment": "Written by compare/run.py (npm run compare); don't edit by hand.",
     "reference": {"scikit-learn": sklearn.__version__, "numpy": np.__version__},

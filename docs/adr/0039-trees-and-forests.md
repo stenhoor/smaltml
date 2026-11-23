@@ -159,6 +159,17 @@ over 5 to 50 seeds within a margin of at least three standard errors of the diff
 over 30 seeds. scikit-learn's single `ExtraTreeRegressor` and `ExtraTreeClassifier` aren't separate classes here: a
 tree with `splitter: 'random'` is one.
 
+## Columns constant in a node (2026-11-23)
+
+scikit-learn's splitters draw the columns a split looks at in a random order, and count every column drawn towards
+`max_features`, one constant in the node too, as long as at least one drawn isn't; then they stop. smaltml's trees
+skipped constant columns without counting them, so with `maxFeatures` below every column they looked at more varying
+columns than scikit-learn. The owner asked to count them as scikit-learn does (`src/tree/cart.ts`, in both growers).
+On continuous columns a column is almost never constant in a node, and every saved tree and forest of the existing
+tests is the same as before. On sparse binary columns, constant in many nodes, smaltml's mean scores had been 0.009 to
+0.025 above scikit-learn's (random forest classifier and regressor, extra trees classifier, 20 seeds), and are now
+within 0.0015; three compare cases on such data hold them within 0.01, at least three standard errors.
+
 ## Consequences
 
 - Forests don't match scikit-learn tree for tree; users comparing with Python see the same quality, not the same

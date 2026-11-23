@@ -102,6 +102,26 @@ What XGBoost 3.4.1 does by default, read from the installed package on 2026-11-2
 4. **Loss-guided growth** (`grow_policy` `lossguide`, `max_leaves`), the `dart` booster, monotone and interaction
    constraints, contributions (`pred_contribs`, SHAP values) and XGBoost's binary model format (UBJSON).
 
+## Step 1, the regressor (2026-11-23)
+
+`BoostedTreesRegressor`, squared error, in `src/boost/` (the `boost` entry point, importing only `core`). What XGBoost
+3.4.1 does, read from its saved trees (`get_dump` with stats) and checked against the paper's formulas:
+
+- The base score is the weighted mean of y; a row's gradient is its weight times (prediction − y), its Hessian its
+  weight.
+- A split's gain, as XGBoost reports it, is T(G_L)²/(H_L + λ) + T(G_R)²/(H_R + λ) − T(G)²/(H + λ), with no factor of ½,
+  where T shrinks a sum towards 0 by alpha; a leaf is −T(G)/(H + λ) times the learning rate.
+- A split is made where its gain reaches `gamma` (checked as the tree grows, not pruned after: a weak split above a
+  strong one stays a leaf) and each child's Hessian sum reaches `min_child_weight`.
+- Of splits with the same gain, the lower column wins. Splits that send the same rows each way have the same gain, but
+  64-bit sums in another order differ in the last bits, so gains within 1e-12 of each other, relatively, count as one.
+- `feature_importances_` is each column's mean gain per split, normalized to sum to 1.
+- A cut at 0 is +0 (−0 in the data is the same value).
+
+Four compare cases, on columns of 3 to 41 distinct values: XGBoost's trees split for split (3,147 splits in the
+defaults' 100 trees), and leaves, predictions, importances and base score within 1e-5; the differences measured were
+below 1e-6, XGBoost's 32-bit arithmetic.
+
 ## Consequences
 
 - `compare/requirements.txt` gains `xgboost-cpu==3.4.1` (the owner's yes, 2026-11-23: Apache-2.0, a 5.8 MB wheel for

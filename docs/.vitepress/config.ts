@@ -137,6 +137,7 @@ export default defineConfig({
               { text: 'RandomForestClassifier', link: '/reference/ensemble/random-forest-classifier' },
               { text: 'ExtraTreesRegressor', link: '/reference/ensemble/extra-trees-regressor' },
               { text: 'ExtraTreesClassifier', link: '/reference/ensemble/extra-trees-classifier' },
+              { text: 'BoostedTreesRegressor', link: '/reference/boost/boosted-trees-regressor' },
             ],
           },
           {

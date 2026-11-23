@@ -122,6 +122,30 @@ Four compare cases, on columns of 3 to 41 distinct values: XGBoost's trees split
 defaults' 100 trees), and leaves, predictions, importances and base score within 1e-5; the differences measured were
 below 1e-6, XGBoost's 32-bit arithmetic.
 
+## Step 2, the classifier (2026-11-23)
+
+`BoostedTreesClassifier`, `binary:logistic` and `multi:softprob`. What XGBoost 3.4.1 does, read from its saved trees,
+its `save_config()` and its predictions:
+
+- **Two classes:** `binary:logistic`, one tree a round on the second class's log odds. The base score is the second
+  class's weighted share, kept as a probability; the trees start from its log odds. A row's gradient is w(p − y), its
+  Hessian wp(1 − p) (a root's cover is Σw·p(1 − p) at the base score).
+- **More classes:** `multi:softprob`, a tree per class a round, in XGBoost's order (round by round, class by class);
+  every class's probabilities come from the round's starting margins. The base scores are each class's log weighted
+  share less the mean of those logs, so they sum to 0. The Hessian is 2wp(1 − p): a root's cover is twice
+  Σw·p(1 − p).
+- **The objective:** `binary:logistic`, the default, becomes `multi:softprob` with more than two classes;
+  `multi:softprob` with two classes is an error.
+- **Labels:** XGBoost takes 0, 1, …, K − 1; smaltml takes any labels, sorted, as its other classifiers do
+  (`Classifier` in `src/core/model.ts`), so class k is XGBoost's class k.
+- **Not followed, failing instead** (the rule "Unsupported fails, never answers differently"): y with one class
+  (`ML_LABELS`, as `LogisticRegression`; XGBoost fits it from a clamped base score), a class whose rows all weigh 0
+  (XGBoost clamps its share at 1e-6) and a given `baseScore` with more than two classes.
+
+Five compare cases, two to four classes: XGBoost's trees split for split (3,488 splits), the same predicted classes,
+and probabilities, importances and base scores within 1e-5; the differences measured were below 3e-7 for the
+probabilities and 2e-6 for the base scores (XGBoost keeps them as 32-bit floats).
+
 ## Consequences
 
 - `compare/requirements.txt` gains `xgboost-cpu==3.4.1` (the owner's yes, 2026-11-23: Apache-2.0, a 5.8 MB wheel for

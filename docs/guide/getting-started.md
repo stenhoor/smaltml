@@ -25,7 +25,7 @@ uses:
 | `@smaltworks/smaltml/linear` | `LinearRegression`, `Ridge`, `Lasso`, `ElasticNet`, `LogisticRegression` |
 | `@smaltworks/smaltml/tree` | `DecisionTreeRegressor`, `DecisionTreeClassifier` |
 | `@smaltworks/smaltml/ensemble` | `RandomForestRegressor`, `RandomForestClassifier`, `ExtraTreesRegressor`, `ExtraTreesClassifier` |
-| `@smaltworks/smaltml/boost` | `BoostedTreesRegressor`: gradient-boosted trees with XGBoost's semantics |
+| `@smaltworks/smaltml/boost` | `BoostedTreesRegressor`, `BoostedTreesClassifier`: gradient-boosted trees with XGBoost's semantics |
 | `@smaltworks/smaltml/simd` | `useSimd`, `simdSupport`: the WebAssembly SIMD kernels, which smaltml turns on by itself where it can |
 | `@smaltworks/smaltml/metrics` | `meanSquaredError`, `meanAbsoluteError`, `r2Score`, `accuracyScore`, `precisionScore`, `recallScore`, `f1Score`, `rocAucScore`, `confusionMatrix`, `logLoss` |
 | `@smaltworks/smaltml/selection` | `trainTestSplit`, `KFold`, `StratifiedKFold`, `GroupKFold`, `crossValScore`, `crossValidate`, `cloneModel`, `GridSearchCV` |

@@ -29,6 +29,7 @@ import {
   MultiOutputRegressor,
   DecisionTreeRegressor,
   BoostedTreesRegressor,
+  BoostedTreesClassifier,
   DecisionTreeClassifier,
   RandomForestRegressor,
   RandomForestClassifier,
@@ -40,6 +41,7 @@ import {
   pipeline,
   r2Score,
   trainTestSplit,
+  type BoostTree,
   type Label,
 } from '../src/index.js';
 
@@ -77,6 +79,32 @@ function camel(params: Record<string, unknown>): Record<string, unknown> {
     // Each part of a step__param name on its own: ridge__alpha stays ridge__alpha, fit_intercept becomes fitIntercept.
     Object.entries(params).map(([k, v]) => [k.split('__').map((part) => part.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase())).join('__'), v === 'Infinity' ? Infinity : v]),
   );
+}
+
+/** XGBoost's trees, as compare/run.py nests them: [column, cut, left, right] at a split, the value at a leaf. */
+type XgbNode = number | [number, number, XgbNode, XgbNode];
+
+/** The same trees as XGBoost's: each split's column and cut exactly (as 32-bit floats), the leaves within tol. */
+function sameTrees(trees: readonly BoostTree[], expected: XgbNode[], tol: Case['tol']): void {
+  expect(trees.length).toBe(expected.length);
+  const leaves: number[] = [];
+  const want: number[] = [];
+  trees.forEach((t, k) => {
+    const walk = (x: XgbNode, node: number, path: string): void => {
+      if (typeof x === 'number') {
+        expect(t.left[node], `tree ${k} ${path}: XGBoost has a leaf`).toBe(-1);
+        leaves.push(t.value[node]!);
+        want.push(x);
+        return;
+      }
+      const [f, cut, yes, no] = x;
+      expect([t.feature[node], Math.fround(t.threshold[node]!)], `tree ${k} ${path}: XGBoost splits f${f} < ${cut}`).toEqual([f, Math.fround(cut)]);
+      walk(yes, t.left[node]!, path + 'L');
+      walk(no, t.right[node]!, path + 'R');
+    };
+    walk(expected[k]!, 0, 'root');
+  });
+  close(leaves, want, tol, 'leaf values');
 }
 
 function close(actual: ArrayLike<number> | number, expected: any, tol: Case['tol'], what: string): void {
@@ -185,27 +213,21 @@ function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol:
       // predictions, importances and base score within its 32-bit arithmetic.
       const m = new BoostedTreesRegressor(camel(inp.params)).fitSync(inp.X, inp.y, inp.sampleWeight ? { sampleWeight: inp.sampleWeight } : {});
       close([m.baseScore], [exp.baseScore], tol, 'base score');
-      expect(m.trees.length).toBe(exp.trees.length);
-      type XgbNode = number | [number, number, XgbNode, XgbNode];
-      const leaves: number[] = [];
-      const want: number[] = [];
-      m.trees.forEach((t, k) => {
-        const walk = (x: XgbNode, node: number, path: string): void => {
-          if (typeof x === 'number') {
-            expect(t.left[node], `tree ${k} ${path}: XGBoost has a leaf`).toBe(-1);
-            leaves.push(t.value[node]!);
-            want.push(x);
-            return;
-          }
-          const [f, cut, yes, no] = x;
-          expect([t.feature[node], Math.fround(t.threshold[node]!)], `tree ${k} ${path}: XGBoost splits f${f} < ${cut}`).toEqual([f, Math.fround(cut)]);
-          walk(yes, t.left[node]!, path + 'L');
-          walk(no, t.right[node]!, path + 'R');
-        };
-        walk(exp.trees[k] as XgbNode, 0, 'root');
-      });
-      close(leaves, want, tol, 'leaf values');
+      sameTrees(m.trees, exp.trees, tol);
       close(m.predictSync(inp.Xnew), exp.predict, tol, 'predict');
+      close(m.featureImportances, exp.importances, tol, 'importances');
+      return;
+    }
+    case 'BoostedTreesClassifier': {
+      // XGBoost's XGBClassifier: the same trees in the same order, and probabilities, importances and base scores within
+      // its 32-bit arithmetic; the same predicted labels.
+      const m = new BoostedTreesClassifier(camel(inp.params)).fitSync(inp.X, inp.y, inp.sampleWeight ? { sampleWeight: inp.sampleWeight } : {});
+      close(m.baseScore, exp.baseScore, tol, 'base score');
+      sameTrees(m.trees, exp.trees, tol);
+      const P = m.predictProbaSync(inp.Xnew);
+      const rows: number[][] = Array.from({ length: P.rows }, (_, i) => Array.from({ length: P.cols }, (_, k) => P.data[k * P.rows + i]!));
+      close(rows.flat(), exp.proba, tol, 'predictProba');
+      expect(m.predictSync(inp.Xnew)).toEqual(exp.predict);
       close(m.featureImportances, exp.importances, tol, 'importances');
       return;
     }

@@ -4,7 +4,7 @@ import { VERSION } from '../version.js';
 
 /** The format name and version of a saved model (ADR 0024, section 6). */
 export const MODEL_FORMAT = 'smaltml';
-export const MODEL_FORMAT_VERSION = 5;
+export const MODEL_FORMAT_VERSION = 6;
 
 /**
  * A saved model: plain JSON, kept as a file or as a row in a table, that loadModel() turns back into the model.

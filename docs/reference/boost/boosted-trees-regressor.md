@@ -63,8 +63,9 @@ it, and the base score is the weighted mean.
 ## Returns
 
 - `predict`: each row's prediction, the base score plus each tree's leaf for the row.
-- `trees`: the trees, one per round, as arrays: children (−1 at a leaf), column, cut (`x < cut` goes left), leaf value,
-  gain and cover (the Hessian sum), as XGBoost's model holds them.
+- `trees`: the trees, one per round, as arrays: children (−1 at a leaf), column, cut (`x < cut` goes left), the side
+  for missing values (`defaultLeft`, 1 for left), leaf value, gain and cover (the Hessian sum), as XGBoost's model
+  holds them.
 - `baseScore`: the starting prediction.
 - `featureImportances`: each column's mean gain over the splits on it, normalized to sum to 1: XGBoost's
   `feature_importances_`.
@@ -73,11 +74,14 @@ it, and the base score is the weighted mean.
 
 - `ML_PARAM`: a parameter outside its range; an `objective` other than squared error, or sampling below 1, which
   aren't supported yet.
-- `ML_VALUE`: a missing value (`NaN`) in X, which isn't supported yet; a column with more distinct values than
-  `maxBin`; a negative `sampleWeight`, or every row of weight 0.
+- `ML_VALUE`: an infinite value in X (as in XGBoost); a column with more distinct values than `maxBin`; a negative `sampleWeight`, or every row of weight 0.
 - `ML_SHAPE`, `ML_NOT_FITTED`: as for every model.
 
 ## Notes
+
+A missing value (`NaN`, or `null` in a named column) needs no filling: each split learns which side its missing values
+take, the one that gains more, as XGBoost's does (and right where the node has none). A column can also split its
+missing values from its present ones. Prediction sends a missing value down the side each split learned.
 
 X is read as 32-bit floats, as XGBoost reads it, so the cuts and comparisons are XGBoost's. smaltml then computes in
 64-bit floats, where XGBoost keeps some values in 32-bit ones. The compare tests hold smaltml to XGBoost 3.4.1 on data
@@ -100,6 +104,19 @@ boosted.predictSync([[2, 1], [7, 0]])
 | --- |
 | 2.30664 |
 | 7.19521 |
+
+With missing values: each split learns where they go.
+
+```ts
+const gaps = [[1, 0], [2, NaN], [3, 0], [NaN, 1], [5, 0], [6, NaN], [7, 0], [NaN, 1]];
+const fromGaps = new BoostedTreesRegressor({ nEstimators: 30, maxDepth: 2, minChildWeight: 0 }).fitSync(gaps, y);
+fromGaps.predictSync([[NaN, 1], [7, NaN]])
+```
+
+| value |
+| --- |
+| 6.04558 |
+| 7.17848 |
 
 ## Working demo
 

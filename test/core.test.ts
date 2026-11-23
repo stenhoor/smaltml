@@ -237,7 +237,7 @@ describe('saving and loading', () => {
 
   test('a document says its format and version; others are refused', () => {
     const doc = new LinearRegression().toJSON();
-    expect(doc).toEqual({ format: 'smaltml', version: 5, model: 'LinearRegression', smaltml: VERSION, params: { fitIntercept: true }, state: null });
+    expect(doc).toEqual({ format: 'smaltml', version: 6, model: 'LinearRegression', smaltml: VERSION, params: { fitIntercept: true }, state: null });
     expect(code(() => loadModel('{"format":"other"}'))).toBe('ML_FORMAT');
     expect(code(() => loadModel({ ...doc, version: 99 }))).toBe('ML_FORMAT');
     expect(code(() => loadModel({ ...doc, model: 'Mystery' }))).toBe('ML_FORMAT');
@@ -1007,7 +1007,7 @@ describe('boosted trees (ADR 0044)', () => {
     expect(code(() => new BoostedTreesRegressor({ objective: 'reg:logistic' as never }))).toBe('ML_PARAM');
     expect(code(() => new BoostedTreesRegressor({ subsample: 0.5 }))).toBe('ML_PARAM');
     expect(code(() => new BoostedTreesRegressor({ colsampleBytree: 0.5 }))).toBe('ML_PARAM');
-    expect(code(() => new BoostedTreesRegressor().fitSync([[1], [Number.NaN]], [1, 2]))).toBe('ML_VALUE');
+    expect(code(() => new BoostedTreesRegressor().fitSync([[1], [Infinity]], [1, 2]))).toBe('ML_VALUE');
     // More distinct values than maxBin: XGBoost's quantile sketch isn't here yet.
     expect(code(() => new BoostedTreesRegressor({ maxBin: 4 }).fitSync(X, y))).toBe('ML_VALUE');
     expect(code(() => new BoostedTreesRegressor().fitSync(X, y, { sampleWeight: X.map(() => 0) }))).toBe('ML_VALUE');
@@ -1086,8 +1086,59 @@ describe('boosted trees classifier (ADR 0044, step 2)', () => {
     expect(code(() => new BoostedTreesClassifier().fitSync(X, X.map(() => 1)))).toBe('ML_LABELS');
     // A class whose rows all weigh 0.
     expect(code(() => new BoostedTreesClassifier().fitSync(X, three, { sampleWeight: three.map((v) => (v === 2 ? 0 : 1)) }))).toBe('ML_VALUE');
-    expect(code(() => new BoostedTreesClassifier().fitSync([[1], [Number.NaN]], [0, 1]))).toBe('ML_VALUE');
+    expect(code(() => new BoostedTreesClassifier().fitSync([[1], [-Infinity]], [0, 1]))).toBe('ML_VALUE');
     expect(code(() => new BoostedTreesClassifier().predictProbaSync(X))).toBe('ML_NOT_FITTED');
+  });
+});
+
+describe('boosted trees with missing values (ADR 0044, step 3)', () => {
+  const r = new Random(23);
+  const X = Array.from({ length: 200 }, () => [Math.floor(r.next() * 6), Math.round(r.next() * 10) / 10]);
+  // Column 0 missing in a fifth of the rows, where y is high: the split learns to send missing values with the high side.
+  const y = X.map((x) => (x[0]! >= 3 ? 10 : 0) + x[1]!);
+  for (let i = 0; i < X.length; i++) if (i % 5 === 0) {
+    X[i]![0] = Number.NaN;
+    y[i] = 10 + X[i]![1]!;
+  }
+
+  test('a split learns the side for missing values; prediction sends them there', () => {
+    const m = new BoostedTreesRegressor({ nEstimators: 1, maxDepth: 1, learningRate: 1, regLambda: 0 }).fitSync(X, y);
+    const t = m.trees[0]!;
+    expect(t.feature[0]).toBe(0);
+    expect(t.threshold[0]).toBe(3);
+    // The high side is the right: missing values go right, with x ≥ 3.
+    expect(t.defaultLeft[0]).toBe(0);
+    const [missing, high] = m.predictSync([[Number.NaN, 0.5], [4, 0.5]]);
+    expect(missing).toBe(high);
+    // Flipped, the high side is the left, and missing values go left.
+    const flipped = new BoostedTreesRegressor({ nEstimators: 1, maxDepth: 1, learningRate: 1, regLambda: 0 }).fitSync(X.map((x) => [Number.isNaN(x[0]!) ? Number.NaN : -x[0]!, x[1]!]), y);
+    expect(flipped.trees[0]!.defaultLeft[0]).toBe(1);
+  });
+
+  test('missing against present: a column whose present values are all the same', () => {
+    const Xc = X.map((x) => [Number.isNaN(x[0]!) ? Number.NaN : 1]);
+    const m = new BoostedTreesRegressor({ nEstimators: 1, maxDepth: 1 }).fitSync(Xc, y);
+    // The cut past the largest value, as XGBoost's: 1 + 1 + 1e-5, in 32-bit floats.
+    expect(m.trees[0]!.threshold[0]).toBe(Math.fround(2.00001));
+    expect(m.trees[0]!.defaultLeft[0]).toBe(0);
+  });
+
+  test('saved with the sides, loaded back; a version 5 document loads with missing values right', () => {
+    const m = new BoostedTreesClassifier({ nEstimators: 5, maxDepth: 2 }).fitSync(X, y.map((v) => (v > 5 ? 'high' : 'low')));
+    const back = loadModel(JSON.parse(JSON.stringify(saveModel(m)))) as BoostedTreesClassifier;
+    expect(Array.from(back.predictProbaSync(X).data)).toEqual(Array.from(m.predictProbaSync(X).data));
+    const old = JSON.parse(saveModel(new BoostedTreesRegressor({ nEstimators: 3 }).fitSync([[1], [2], [3], [4]], [1, 2, 3, 4])));
+    old.version = 5;
+    for (const t of old.state.trees) delete t.defaultLeft;
+    const loaded = loadModel(old) as BoostedTreesRegressor;
+    expect(Array.from(loaded.trees[0]!.defaultLeft).every((v) => v === 0)).toBe(true);
+    expect(loaded.predictSync([[Number.NaN]])[0]).toBe(loaded.predictSync([[100]])[0]);
+  });
+
+  test('a column missing everywhere is never split on; Infinity fails', () => {
+    const m = new BoostedTreesRegressor({ nEstimators: 3 }).fitSync(X.map((x) => [Number.NaN, x[1]!]), y);
+    for (const t of m.trees) for (let k = 0; k < t.left.length; k++) if (t.left[k] !== -1) expect(t.feature[k]).toBe(1);
+    expect(code(() => m.predictSync([[Infinity, 1]]))).toBe('ML_VALUE');
   });
 });
 

@@ -870,11 +870,11 @@ for name, model, params, classifier in [
 import xgboost
 from xgboost import XGBRegressor
 def xgb_tree(t):
-    """An XGBoost tree as nested splits and leaves: [column, cut, left, right], or the leaf value."""
+    """An XGBoost tree as nested splits and leaves: [column, cut, left, right, missing left], or the leaf value."""
     if "leaf" in t:
         return t["leaf"]
     kids = {c["nodeid"]: c for c in t["children"]}
-    return [int(t["split"][1:]), t["split_condition"], xgb_tree(kids[t["yes"]]), xgb_tree(kids[t["no"]])]
+    return [int(t["split"][1:]), t["split_condition"], xgb_tree(kids[t["yes"]]), xgb_tree(kids[t["no"]]), t["missing"] == t["yes"]]
 r = np.random.default_rng(7)
 def boost_data(m):
     return np.column_stack([r.integers(0, 12, m), np.round(r.normal(size=m), 1), r.integers(0, 3, m), np.round(r.uniform(-2, 2, m), 2)]).astype(float)
@@ -922,6 +922,48 @@ for name, params, labels, weights in [
         inputs["sampleWeight"] = tolist(weights)
     case(name, "BoostedTreesClassifier", inputs,
          {"proba": tolist(m.predict_proba(Xn).astype(float)), "predict": tolist(m.predict(Xn)), "importances": tolist(m.feature_importances_.astype(float)), "baseScore": base, "trees": trees},
+         {"rtol": 1e-5, "atol": 1e-5})
+
+# Missing values (ADR 0044, step 3): NaN in X, sent down the side each split learns. Some columns' missing values carry
+# a signal of their own, one column is missing on its own in a few rows, and Xnew has missing values too.
+def with_missing(Xa, rate, seed):
+    g = np.random.default_rng(seed)
+    Xm = Xa.copy()
+    Xm[g.random(Xm.shape) < rate] = np.nan
+    return Xm
+Xm = with_missing(X, 0.15, 11)
+ym = np.where(np.isnan(Xm[:, 0]), 25.0, y)
+Xmn = with_missing(Xn, 0.15, 12)
+Xm2 = X.copy()
+Xm2[r.random(300) < 0.03, 2] = np.nan
+for name, params, Xa, ya, weights in [
+    # 90 rounds, not the default 100: in round 98, a split's gain is within 1% of XGBoost's floor (1e-6), which it
+    # reaches from XGBoost's 32-bit predictions (1.0089e-6) and not from smaltml's 64-bit ones (0.9994e-6), so one makes
+    # the split and the other doesn't (ADR 0044, decision 4). No other split of the case comes within 60% of the floor.
+    ("boosted trees regressor: missing values, 90 rounds", {"n_estimators": 90}, Xm, ym, None),
+    ("boosted trees regressor: missing values, weights, gamma, alpha, depth 3", {"max_depth": 3, "n_estimators": 30, "gamma": 1.0, "reg_alpha": 0.5}, Xm, ym, w),
+    ("boosted trees regressor: a few missing values in one column", {"n_estimators": 20}, Xm2, y, None),
+]:
+    m = XGBRegressor(**params).fit(Xa, ya, sample_weight=weights)
+    b = m.get_booster()
+    base = float(json.loads(b.save_config())["learner"]["learner_model_param"]["base_score"].strip("[]"))
+    trees = [xgb_tree(json.loads(t)) for t in b.get_dump(dump_format="json")]
+    inputs = {"X": tolist(Xa), "y": tolist(ya), "Xnew": tolist(Xmn), "params": params}
+    if weights is not None:
+        inputs["sampleWeight"] = tolist(weights)
+    case(name, "BoostedTreesRegressor", inputs,
+         {"predict": tolist(m.predict(Xmn).astype(float)), "importances": tolist(m.feature_importances_.astype(float)), "baseScore": base, "trees": trees},
+         {"rtol": 1e-5, "atol": 1e-5})
+for name, params, labels in [
+    ("boosted trees classifier: two classes, missing values", {"n_estimators": 30, "max_depth": 4}, np.where(np.isnan(Xm[:, 1]), 1, yb)),
+    ("boosted trees classifier: three classes, missing values", {"n_estimators": 20}, y3),
+]:
+    m = XGBClassifier(**params).fit(Xm, labels)
+    b = m.get_booster()
+    base = [float(v) for v in json.loads(b.save_config())["learner"]["learner_model_param"]["base_score"].strip("[]").split(",")]
+    trees = [xgb_tree(json.loads(t)) for t in b.get_dump(dump_format="json")]
+    case(name, "BoostedTreesClassifier", {"X": tolist(Xm), "y": tolist(labels), "Xnew": tolist(Xmn), "params": params},
+         {"proba": tolist(m.predict_proba(Xmn).astype(float)), "predict": tolist(m.predict(Xmn)), "importances": tolist(m.feature_importances_.astype(float)), "baseScore": base, "trees": trees},
          {"rtol": 1e-5, "atol": 1e-5})
 
 out = {

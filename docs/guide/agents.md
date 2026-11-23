@@ -45,7 +45,7 @@ try {
 - **`X` is rows of numbers, an object of named columns, or a `Matrix`.** Text columns are for `OneHotEncoder`,
   `OrdinalEncoder` and `ColumnTransformer` (`[['num', new StandardScaler(), ['age']], ['cat', new OneHotEncoder(), ['city']]]`),
   which give numbers. `y` is numbers (regression) or labels,
-  numbers or strings (classification). `NaN` is a missing value; most models reject it with `ML_VALUE`.
+  numbers or strings (classification). `NaN` is a missing value; most models reject it with `ML_VALUE`; boosted trees send it down a side each split learns.
 - **Calls are asynchronous** (`await model.fit(X, y)`); `fitSync`, `predictSync` and the others are the synchronous
   twins. `predict` and `predictProba` take `{ device: 'auto' | 'cpu' | 'gpu' }`: `'gpu'` computes in 32-bit floats, and
   `'auto'` (the default) and `'cpu'` give exactly the synchronous result. `startWorker()` (from `@smaltworks/smaltml/worker`) fits and predicts in

@@ -81,10 +81,16 @@ function camel(params: Record<string, unknown>): Record<string, unknown> {
   );
 }
 
-/** XGBoost's trees, as compare/run.py nests them: [column, cut, left, right] at a split, the value at a leaf. */
-type XgbNode = number | [number, number, XgbNode, XgbNode];
+/**
+ * XGBoost's trees, as compare/run.py nests them: [column, cut, left, right, missing values left] at a split, the value at
+ * a leaf.
+ */
+type XgbNode = number | [number, number, XgbNode, XgbNode, boolean];
 
-/** The same trees as XGBoost's: each split's column and cut exactly (as 32-bit floats), the leaves within tol. */
+/**
+ * The same trees as XGBoost's: each split's column, cut (as 32-bit floats) and side for missing values exactly, the leaves
+ * within tol.
+ */
 function sameTrees(trees: readonly BoostTree[], expected: XgbNode[], tol: Case['tol']): void {
   expect(trees.length).toBe(expected.length);
   const leaves: number[] = [];
@@ -97,8 +103,8 @@ function sameTrees(trees: readonly BoostTree[], expected: XgbNode[], tol: Case['
         want.push(x);
         return;
       }
-      const [f, cut, yes, no] = x;
-      expect([t.feature[node], Math.fround(t.threshold[node]!)], `tree ${k} ${path}: XGBoost splits f${f} < ${cut}`).toEqual([f, Math.fround(cut)]);
+      const [f, cut, yes, no, missingLeft] = x;
+      expect([t.feature[node], Math.fround(t.threshold[node]!), t.defaultLeft[node] === 1], `tree ${k} ${path}: XGBoost splits f${f} < ${cut}, missing ${missingLeft ? 'left' : 'right'}`).toEqual([f, Math.fround(cut), missingLeft]);
       walk(yes, t.left[node]!, path + 'L');
       walk(no, t.right[node]!, path + 'R');
     };

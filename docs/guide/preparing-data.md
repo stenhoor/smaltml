@@ -53,7 +53,9 @@ import { LinearRegression } from '@smaltworks/smaltml';
 await new LinearRegression().fit({ age: [23, NaN, 47], visits: [2, 6, 9] }, [20, 64, 88])
 ```
 
-`SimpleImputer` fills them with each column's mean, median or most frequent value, or a constant:
+Boosted trees ([`BoostedTreesRegressor`](../reference/boost/boosted-trees-regressor), 
+[`BoostedTreesClassifier`](../reference/boost/boosted-trees-classifier)) take them as they are: each split learns which
+side its missing values go, as XGBoost's do. For the other models, `SimpleImputer` fills them with each column's mean, median or most frequent value, or a constant:
 
 ```ts
 import { SimpleImputer } from '@smaltworks/smaltml';

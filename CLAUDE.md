@@ -71,7 +71,8 @@ Playwright is a dev dependency, pinned to CI's version (1.64.1). Its Chromium is
   the documentation and the papers; never copy or translate scikit-learn's, XGBoost's, PyTorch's or TensorFlow's.
 - **Compare tests** (section 7): a new model or option gets cases in `compare/run.py`, with their tolerance; run
   `npm run compare` and commit `fixtures/compare.json`. CI checks the fixtures without Python. The Python packages are
-  pinned in `compare/requirements.txt` (scikit-learn and NumPy, approved 2026-11-14); adding one is outside code: ask.
+  pinned in `compare/requirements.txt` (scikit-learn and NumPy, approved 2026-11-14; xgboost-cpu, phase 3's reference,
+  approved 2026-11-23); adding one is outside code: ask.
 - **Unsupported fails, never answers differently.** A parameter or case smaltml doesn't support yet fails with a
   `SmaltmlError` and a code; list it in `docs/reference/divergences.md`. A deliberate difference is a `DIVERGES` entry
   in `test/compare.test.ts` too.

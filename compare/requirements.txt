@@ -1,4 +1,6 @@
 # The compare tests' reference (ADR 0024, section 7): development only, never part of the package.
-# Approved by the owner, 2026-11-14. `npm run compare` runs compare/run.py with these.
+# Approved by the owner, 2026-11-14 (scikit-learn, NumPy) and 2026-11-23 (xgboost-cpu, phase 3's reference, ADR 0044).
+# `npm run compare` runs compare/run.py with these.
 scikit-learn==1.9.1
 numpy==2.5.4
+xgboost-cpu==3.4.1

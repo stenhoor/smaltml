@@ -26,6 +26,7 @@ import {
   ExtraTreesRegressor,
   RandomForestClassifier,
   RandomForestRegressor,
+  BoostedTreesRegressor,
   cloneModel,
   crossValScore,
   crossValidate,
@@ -942,6 +943,74 @@ describe('random forests', () => {
     expect(code(() => f.oobScore)).toBe('ML_PARAM');
     expect(code(() => f.oobPrediction)).toBe('ML_PARAM');
     expect(code(() => f.predictSync([[1, 2]]))).toBe('ML_SHAPE');
+  });
+});
+
+describe('boosted trees (ADR 0044)', () => {
+  const r = new Random(13);
+  const X = Array.from({ length: 150 }, () => [Math.floor(r.next() * 8), Math.round(r.next() * 20) / 10, Math.floor(r.next() * 3)]);
+  const y = X.map((x) => 3 * x[0]! - 2 * x[1]! + (x[2] === 1 ? 4 : 0) + r.next());
+
+  test('fit equals fitSync; it saves and loads, to the last bit', async () => {
+    const a = await new BoostedTreesRegressor({ nEstimators: 15, maxDepth: 3 }).fit(X, y);
+    const b = new BoostedTreesRegressor({ nEstimators: 15, maxDepth: 3 }).fitSync(X, y);
+    expect(a.toJSON()).toEqual(b.toJSON());
+    const back = loadModel(JSON.parse(JSON.stringify(saveModel(a)))) as BoostedTreesRegressor;
+    expect(back.kind).toBe('BoostedTreesRegressor');
+    expect(Array.from(back.predictSync(X))).toEqual(Array.from(a.predictSync(X)));
+    expect(back.baseScore).toBe(a.baseScore);
+    expect(Array.from(back.featureImportances)).toEqual(Array.from(a.featureImportances));
+    expect(back.getParams()).toEqual(a.getParams());
+    expect(await a.predict(X)).toEqual(a.predictSync(X));
+  });
+
+  test('the base score is the weighted mean of y; each round brings the training error down', () => {
+    const w = X.map((_, i) => 1 + (i % 4));
+    const m = new BoostedTreesRegressor({ nEstimators: 1, learningRate: 0 }).fitSync(X, y, { sampleWeight: w });
+    const mean = y.reduce((s, v, i) => s + v * w[i]!, 0) / w.reduce((s, v) => s + v, 0);
+    expect(m.baseScore).toBeCloseTo(mean, 12);
+    // A learning rate of 0: every leaf is 0, so every prediction is the base score.
+    expect(Array.from(m.predictSync(X)).every((v) => v === m.baseScore)).toBe(true);
+    const mse = (k: number) => {
+      const p = new BoostedTreesRegressor({ nEstimators: k, maxDepth: 2 }).fitSync(X, y).predictSync(X);
+      return y.reduce((s, v, i) => s + (v - p[i]!) ** 2, 0) / y.length;
+    };
+    expect(mse(10)).toBeLessThan(mse(3));
+    expect(mse(3)).toBeLessThan(mse(1));
+  });
+
+  test('importances: the mean gain per split, summing to 1; the noise column ranks last', () => {
+    const noisy = X.map((x) => [...x, r.next() > 0.5 ? 1 : 0]);
+    const m = new BoostedTreesRegressor({ nEstimators: 20, maxDepth: 2, gamma: 1 }).fitSync(noisy, y);
+    const imp = m.featureImportances;
+    expect(imp.reduce((s, v) => s + v, 0)).toBeCloseTo(1, 12);
+    expect(imp[3]).toBeLessThan(Math.min(imp[0]!, imp[1]!, imp[2]!));
+  });
+
+  test('named columns; in a pipeline with sample weights; in a grid search', async () => {
+    const cols = { a: X.map((x) => x[0]!), b: X.map((x) => x[1]!), c: X.map((x) => x[2]!) };
+    const m = new BoostedTreesRegressor({ nEstimators: 5 }).fitSync(cols, y);
+    expect(m.featureNamesIn).toEqual(['a', 'b', 'c']);
+    expect(code(() => m.predictSync([[1, 2]]))).toBe('ML_SHAPE');
+    const p = pipeline(new StandardScaler(), new BoostedTreesRegressor({ nEstimators: 5 })).fitSync(X, y, { sampleWeight: X.map(() => 2) });
+    expect(p.predictSync(X)).toHaveLength(150);
+    const g = await new GridSearchCV(new BoostedTreesRegressor({ nEstimators: 10 }), { maxDepth: [1, 3] }, { cv: new KFold({ nSplits: 3 }) }).fit(X, y);
+    expect(g.bestParams.maxDepth).toBe(3);
+  });
+
+  test('the errors, and what isn\'t supported yet', () => {
+    expect(code(() => new BoostedTreesRegressor({ nEstimators: 0 }))).toBe('ML_PARAM');
+    expect(code(() => new BoostedTreesRegressor({ maxDepth: 0 }))).toBe('ML_PARAM');
+    expect(code(() => new BoostedTreesRegressor({ regLambda: -1 }))).toBe('ML_PARAM');
+    expect(code(() => new BoostedTreesRegressor({ maxBin: 1 }))).toBe('ML_PARAM');
+    expect(code(() => new BoostedTreesRegressor({ objective: 'reg:logistic' as never }))).toBe('ML_PARAM');
+    expect(code(() => new BoostedTreesRegressor({ subsample: 0.5 }))).toBe('ML_PARAM');
+    expect(code(() => new BoostedTreesRegressor({ colsampleBytree: 0.5 }))).toBe('ML_PARAM');
+    expect(code(() => new BoostedTreesRegressor().fitSync([[1], [Number.NaN]], [1, 2]))).toBe('ML_VALUE');
+    // More distinct values than maxBin: XGBoost's quantile sketch isn't here yet.
+    expect(code(() => new BoostedTreesRegressor({ maxBin: 4 }).fitSync(X, y))).toBe('ML_VALUE');
+    expect(code(() => new BoostedTreesRegressor().fitSync(X, y, { sampleWeight: X.map(() => 0) }))).toBe('ML_VALUE');
+    expect(code(() => new BoostedTreesRegressor().predictSync(X))).toBe('ML_NOT_FITTED');
   });
 });
 

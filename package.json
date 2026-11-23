@@ -70,6 +70,10 @@
       "types": "./dist/types/ensemble/index.d.ts",
       "default": "./dist/ensemble.js"
     },
+    "./boost": {
+      "types": "./dist/types/boost/index.d.ts",
+      "default": "./dist/boost.js"
+    },
     "./simd": {
       "types": "./dist/types/simd/index.d.ts",
       "default": "./dist/simd.js"

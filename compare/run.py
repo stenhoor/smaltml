@@ -863,11 +863,47 @@ for name, model, params, classifier in [
               "params": params, "classifier": classifier, "seeds": seeds, "model": model}
     case(name, "forest-score", inputs, {"test": float(np.mean(scores)), "oob": None}, {"rtol": 0, "atol": 0.01})
 
+# Boosted trees (ADR 0044), against XGBoost's XGBRegressor. Exact where the cuts are the columns' values: every column
+# here has at most max_bin (256) distinct values, so each split's column and cut must be XGBoost's, and the leaves,
+# predictions, importances and base score agree within XGBoost's 32-bit arithmetic (1e-5; measured differences up to
+# about 1e-6).
+import xgboost
+from xgboost import XGBRegressor
+def xgb_tree(t):
+    """An XGBoost tree as nested splits and leaves: [column, cut, left, right], or the leaf value."""
+    if "leaf" in t:
+        return t["leaf"]
+    kids = {c["nodeid"]: c for c in t["children"]}
+    return [int(t["split"][1:]), t["split_condition"], xgb_tree(kids[t["yes"]]), xgb_tree(kids[t["no"]])]
+r = np.random.default_rng(7)
+def boost_data(m):
+    return np.column_stack([r.integers(0, 12, m), np.round(r.normal(size=m), 1), r.integers(0, 3, m), np.round(r.uniform(-2, 2, m), 2)]).astype(float)
+X = boost_data(300)
+y = 2 * X[:, 0] - 3 * X[:, 1] + X[:, 2] * X[:, 3] + r.normal(size=300)
+w = r.uniform(0.2, 3, 300)
+Xn = boost_data(100)
+for name, params, weights in [
+    ("boosted trees regressor: defaults", {}, None),
+    ("boosted trees regressor: sample weights, depth 3, 20 rounds", {"max_depth": 3, "n_estimators": 20}, w),
+    ("boosted trees regressor: lambda, alpha, gamma, min_child_weight, learning rate", {"reg_lambda": 2.5, "reg_alpha": 1.5, "gamma": 3.0, "min_child_weight": 4, "n_estimators": 30, "learning_rate": 0.1}, None),
+    ("boosted trees regressor: a base score given", {"base_score": 1.5, "n_estimators": 10, "max_depth": 2}, None),
+]:
+    m = XGBRegressor(**params).fit(X, y, sample_weight=weights)
+    b = m.get_booster()
+    base = float(json.loads(b.save_config())["learner"]["learner_model_param"]["base_score"].strip("[]"))
+    trees = [xgb_tree(json.loads(t)) for t in b.get_dump(dump_format="json")]
+    inputs = {"X": tolist(X), "y": tolist(y), "Xnew": tolist(Xn), "params": params}
+    if weights is not None:
+        inputs["sampleWeight"] = tolist(weights)
+    case(name, "BoostedTreesRegressor", inputs,
+         {"predict": tolist(m.predict(Xn).astype(float)), "importances": tolist(m.feature_importances_.astype(float)), "baseScore": base, "trees": trees},
+         {"rtol": 1e-5, "atol": 1e-5})
+
 out = {
     "comment": "Written by compare/run.py (npm run compare); don't edit by hand.",
-    "reference": {"scikit-learn": sklearn.__version__, "numpy": np.__version__},
+    "reference": {"scikit-learn": sklearn.__version__, "numpy": np.__version__, "xgboost": xgboost.__version__},
     "cases": cases,
 }
 path = ROOT / "fixtures" / "compare.json"
 path.write_text(json.dumps(out, separators=(",", ":"), allow_nan=False) + "\n")
-print(f"{len(cases)} cases written to {path.relative_to(ROOT)} (scikit-learn {sklearn.__version__})")
+print(f"{len(cases)} cases written to {path.relative_to(ROOT)} (scikit-learn {sklearn.__version__}, XGBoost {xgboost.__version__})")

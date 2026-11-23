@@ -19,6 +19,7 @@ export const entries = {
   multioutput: 'src/multioutput/index.ts',
   tree: 'src/tree/index.ts',
   ensemble: 'src/ensemble/index.ts',
+  boost: 'src/boost/index.ts',
   simd: 'src/simd/index.ts',
   io: 'src/io/index.ts',
   gpu: 'src/gpu/index.ts',

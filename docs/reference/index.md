@@ -38,6 +38,8 @@ From `@smaltworks/smaltml/preprocessing`:
   random forests of those trees. `@smaltworks/smaltml/ensemble`
 - [`ExtraTreesRegressor`](./ensemble/extra-trees-regressor), [`ExtraTreesClassifier`](./ensemble/extra-trees-classifier):
   extra trees, whose thresholds are drawn at random. `@smaltworks/smaltml/ensemble`
+- [`BoostedTreesRegressor`](./boost/boosted-trees-regressor): gradient-boosted trees, as XGBoost grows them.
+  `@smaltworks/smaltml/boost`
 
 ## Model selection
 

@@ -40,12 +40,14 @@ What XGBoost 3.4.1 does by default, read from the installed package on 2026-11-2
 1. **An area of its own:** `@smaltworks/smaltml/boost`, an entry point beside `tree` and `ensemble`; it imports
    `core` and `parallel`, not phase 2's trees, whose exact splits over sorted values aren't histogram splits.
 
-2. **The models,** with XGBoost's scikit-learn parameters and defaults in camelCase (`nEstimators`, `learningRate`,
+2. **The models, `BoostedTreesRegressor` and `BoostedTreesClassifier`** (the owner, 2026-11-23: smaltml's own names,
+   documented as XGBoost's `XGBRegressor` and `XGBClassifier`, rather than another project's), with XGBoost's
+   scikit-learn parameters and defaults in camelCase (`nEstimators`, `learningRate`,
    `maxDepth`, `minChildWeight`, `gamma`, `regLambda`, `regAlpha`, `maxBin`, `subsample`, `colsampleBytree`,
    `colsampleBylevel`, `colsampleBynode`, `baseScore`, `objective`, `seed`), `sampleWeight`, `fit`/`fitSync`,
    `predict`, `predictProba` for the classifier, `featureImportances` (XGBoost's `importance_type`: gain by default,
    weight, cover, total gain, total cover), early stopping (`earlyStoppingRounds` with an evaluation set and
-   `evalMetric`), saved as JSON. Their names are still to decide (below).
+   `evalMetric`), saved as JSON.
 
 3. **The algorithm, XGBoost's histogram method:** each column bucketed once by its cuts; each round, the objective's
    gradients and Hessians; trees grown depth first from per-node histograms of gradient and Hessian sums (a child's
@@ -91,9 +93,8 @@ What XGBoost 3.4.1 does by default, read from the installed package on 2026-11-2
 
 ## Still to decide
 
-1. **The names:** XGBoost's own class names (`XGBRegressor`, `XGBClassifier`) say whose semantics they follow, but
-   carry another project's name; or smaltml's own (`BoostedTreesRegressor`, `BoostedTreesClassifier`), documented as
-   XGBoost's equivalents.
+1. ~~**The names:** XGBoost's own (`XGBRegressor`, `XGBClassifier`), or smaltml's own.~~ Decided 2026-11-23 (the
+   owner): `BoostedTreesRegressor` and `BoostedTreesClassifier` (item 2).
 2. **More objectives:** `reg:logistic`, `count:poisson`, `reg:absoluteerror`, `reg:pseudohubererror`, `reg:gamma`,
    `reg:tweedie`, `rank:*`, `survival:*`: which, and when.
 3. **Categorical columns,** which XGBoost's scikit-learn interface takes by default from pandas categories: whether

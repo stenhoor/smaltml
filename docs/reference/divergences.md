@@ -29,7 +29,8 @@ have something yet, it fails with an error rather than give a different answer. 
 | Decision trees where two splits tie | `random_state`'s column order picks one | `seed`'s order picks one: the same seed repeats smaltml's tree, not scikit-learn's ([ADR 0039](../adr/0039-trees-and-forests)) |
 | Random forests with bootstrap, `maxFeatures` below every column, or both | `random_state`'s samples and columns | smaltml's own, from `seed`: the same seed repeats smaltml's forest, not scikit-learn's. The compare tests hold the mean score over several seeds to scikit-learn's ([ADR 0039](../adr/0039-trees-and-forests)) |
 | Extra trees, and trees with `splitter: 'random'` | `random_state`'s thresholds, columns and samples | smaltml's own, from `seed`, as for random forests: the compare tests hold the mean score over several seeds to scikit-learn's ([ADR 0039](../adr/0039-trees-and-forests)) |
-| `BoostedTreesRegressor`'s numbers, against XGBoost's `XGBRegressor` | XGBoost keeps some values in 32-bit floats | 64-bit floats: the same trees, and leaves and predictions within 1e-5 on the compare data ([ADR 0044](../adr/0044-phase-3-boosted-trees)) |
+| `BoostedTreesRegressor`'s and `BoostedTreesClassifier`'s numbers, against XGBoost's `XGBRegressor` and `XGBClassifier` | XGBoost keeps some values in 32-bit floats | 64-bit floats: the same trees, and leaves, predictions and probabilities within 1e-5 on the compare data ([ADR 0044](../adr/0044-phase-3-boosted-trees)) |
+| `BoostedTreesClassifier`'s labels | `XGBClassifier` takes the classes 0, 1, …, K − 1 only | Any labels, numbers or strings, sorted into `classes`, as every smaltml classifier: class k is XGBoost's class k |
 | `maxSamples` of 1 | A `float` 1.0 is every row's worth; an `int` 1 is one row | One kind of number: 1 is one row; `null` is every row's worth |
 | A fit that stops before it converges | A `ConvergenceWarning` | A console warning, `ML_CONVERGENCE`, and `converged` `false`: an attribute scikit-learn doesn't have |
 
@@ -63,12 +64,15 @@ Each of these fails with `ML_PARAM` or isn't a parameter yet:
 - `ExtraTreeRegressor` and `ExtraTreeClassifier`, the single extra trees: a `DecisionTreeRegressor` or
   `DecisionTreeClassifier` with `splitter: 'random'` is one (with `maxFeatures: 'sqrt'` for the classifier, as
   scikit-learn's default).
-- `BoostedTreesRegressor`, against XGBoost's `XGBRegressor` ([ADR 0044](../adr/0044-phase-3-boosted-trees), each in
+- `BoostedTreesRegressor` and `BoostedTreesClassifier`, against XGBoost's `XGBRegressor` and `XGBClassifier` ([ADR 0044](../adr/0044-phase-3-boosted-trees), each in
   its own step): missing values in X (`NaN`, sent down a learned side); columns with more distinct values than
   `maxBin` (XGBoost's quantile sketch); objectives other than `reg:squarederror`; `subsample` and the `colsample_*`
   below 1; early stopping and evaluation sets; XGBoost's own model files; categorical columns; `grow_policy`
   `lossguide`, `max_leaves`, `max_delta_step`, the `dart` booster, monotone and interaction constraints, and
-  `pred_contribs`. The classifier, `BoostedTreesClassifier`, comes next.
+  `pred_contribs`. For the classifier also: y with one class only (`ML_LABELS`; XGBoost fits it); a class whose
+  rows all weigh 0, and `baseScore` with more than two classes (XGBoost clamps a class's share, and takes a margin
+  per class); objectives other than `binary:logistic` and `multi:softprob` (`multi:softmax`, `binary:logitraw`,
+  `binary:hinge`), and `output_margin`.
 - `MultiOutputRegressor`: `n_jobs`; `crossValScore` and `GridSearchCV` on it (scikit-learn averages R² over the
   targets), and a `pipeline` that ends in it.
 - `LogisticRegression`: the solvers `liblinear`, `newton-cg` and `sag` (`lbfgs`, `newton-cholesky` and `saga` are

@@ -9,7 +9,7 @@ import { LogisticRegression } from '../linear/logistic-regression.js';
 import { ElasticNet, Lasso, Ridge } from '../linear/penalized.js';
 import { DecisionTreeClassifier, DecisionTreeRegressor } from '../tree/index.js';
 import { ExtraTreesClassifier, ExtraTreesRegressor, RandomForestClassifier, RandomForestRegressor } from '../ensemble/index.js';
-import { BoostedTreesRegressor } from '../boost/index.js';
+import { BoostedTreesClassifier, BoostedTreesRegressor } from '../boost/index.js';
 import { ColumnTransformer, Pipeline } from '../pipeline/index.js';
 import { MinMaxScaler, OneHotEncoder, OrdinalEncoder, RobustScaler, SimpleImputer, StandardScaler } from '../preprocessing/index.js';
 
@@ -34,6 +34,7 @@ const LOADERS: Record<string, (doc: ModelDocument) => Model> = {
   ExtraTreesRegressor: (d) => ExtraTreesRegressor.fromJSON(d),
   ExtraTreesClassifier: (d) => ExtraTreesClassifier.fromJSON(d),
   BoostedTreesRegressor: (d) => BoostedTreesRegressor.fromJSON(d),
+  BoostedTreesClassifier: (d) => BoostedTreesClassifier.fromJSON(d),
   Pipeline: (d) => Pipeline.fromJSON(d, loadDocument),
   ColumnTransformer: (d) => ColumnTransformer.fromJSON(d, loadDocument),
 };

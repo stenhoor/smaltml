@@ -899,6 +899,31 @@ for name, params, weights in [
          {"predict": tolist(m.predict(Xn).astype(float)), "importances": tolist(m.feature_importances_.astype(float)), "baseScore": base, "trees": trees},
          {"rtol": 1e-5, "atol": 1e-5})
 
+# XGBoost's XGBClassifier: binary:logistic with two classes, multi:softprob with more. The same trees, in XGBoost's
+# order (round by round, a tree per class in each round), and probabilities, importances and base scores within 1e-5.
+from xgboost import XGBClassifier
+margin = 2 * X[:, 0] - 3 * X[:, 1] + X[:, 2] * X[:, 3] - 11 + r.normal(size=300)
+yb = (margin > 0).astype(int)
+y3 = np.digitize(margin + r.normal(size=300), [-6, 4])
+y4 = np.digitize(margin, [-8, -1, 6])
+for name, params, labels, weights in [
+    ("boosted trees classifier: two classes, defaults", {}, yb, None),
+    ("boosted trees classifier: two classes, sample weights, depth 3, 20 rounds", {"max_depth": 3, "n_estimators": 20}, yb, w),
+    ("boosted trees classifier: two classes, a base score given", {"base_score": 0.3, "n_estimators": 10, "max_depth": 2}, yb, None),
+    ("boosted trees classifier: three classes, defaults", {}, y3, None),
+    ("boosted trees classifier: four classes, lambda, alpha, gamma, min_child_weight, weights", {"reg_lambda": 2.5, "reg_alpha": 0.5, "gamma": 0.5, "min_child_weight": 2, "n_estimators": 25, "learning_rate": 0.2, "max_depth": 4}, y4, w),
+]:
+    m = XGBClassifier(**params).fit(X, labels, sample_weight=weights)
+    b = m.get_booster()
+    base = [float(v) for v in json.loads(b.save_config())["learner"]["learner_model_param"]["base_score"].strip("[]").split(",")]
+    trees = [xgb_tree(json.loads(t)) for t in b.get_dump(dump_format="json")]
+    inputs = {"X": tolist(X), "y": tolist(labels), "Xnew": tolist(Xn), "params": params}
+    if weights is not None:
+        inputs["sampleWeight"] = tolist(weights)
+    case(name, "BoostedTreesClassifier", inputs,
+         {"proba": tolist(m.predict_proba(Xn).astype(float)), "predict": tolist(m.predict(Xn)), "importances": tolist(m.feature_importances_.astype(float)), "baseScore": base, "trees": trees},
+         {"rtol": 1e-5, "atol": 1e-5})
+
 out = {
     "comment": "Written by compare/run.py (npm run compare); don't edit by hand.",
     "reference": {"scikit-learn": sklearn.__version__, "numpy": np.__version__, "xgboost": xgboost.__version__},

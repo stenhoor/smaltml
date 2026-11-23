@@ -27,6 +27,7 @@ import {
   RandomForestClassifier,
   RandomForestRegressor,
   BoostedTreesRegressor,
+  BoostedTreesClassifier,
   cloneModel,
   crossValScore,
   crossValidate,
@@ -1011,6 +1012,82 @@ describe('boosted trees (ADR 0044)', () => {
     expect(code(() => new BoostedTreesRegressor({ maxBin: 4 }).fitSync(X, y))).toBe('ML_VALUE');
     expect(code(() => new BoostedTreesRegressor().fitSync(X, y, { sampleWeight: X.map(() => 0) }))).toBe('ML_VALUE');
     expect(code(() => new BoostedTreesRegressor().predictSync(X))).toBe('ML_NOT_FITTED');
+  });
+});
+
+describe('boosted trees classifier (ADR 0044, step 2)', () => {
+  const r = new Random(17);
+  const X = Array.from({ length: 160 }, () => [Math.floor(r.next() * 8), Math.round(r.next() * 20) / 10, Math.floor(r.next() * 3)]);
+  const score = X.map((x) => x[0]! - 2 * x[1]! + (x[2] === 1 ? 2 : 0) + r.next());
+  const two = score.map((v) => (v > 2 ? 'yes' : 'no'));
+  const three = score.map((v) => (v < 0 ? 0 : v < 4 ? 1 : 2));
+
+  test.each([
+    ['two classes', two],
+    ['three classes', three],
+  ] as const)('%s: fit equals fitSync; it saves and loads, to the last bit', async (_name, y) => {
+    const a = await new BoostedTreesClassifier({ nEstimators: 10, maxDepth: 3 }).fit(X, y);
+    const b = new BoostedTreesClassifier({ nEstimators: 10, maxDepth: 3 }).fitSync(X, y);
+    expect(a.toJSON()).toEqual(b.toJSON());
+    const back = loadModel(JSON.parse(JSON.stringify(saveModel(a)))) as BoostedTreesClassifier;
+    expect(back.kind).toBe('BoostedTreesClassifier');
+    expect(Array.from(back.predictProbaSync(X).data)).toEqual(Array.from(a.predictProbaSync(X).data));
+    expect(back.predictSync(X)).toEqual(a.predictSync(X));
+    expect(back.classes).toEqual(a.classes);
+    expect(back.objective).toBe(a.objective);
+    expect(Array.from(back.baseScore)).toEqual(Array.from(a.baseScore));
+    expect(back.getParams()).toEqual(a.getParams());
+    expect(await a.predict(X)).toEqual(a.predictSync(X));
+    expect((await a.predictProba(X)).data).toEqual(a.predictProbaSync(X).data);
+  });
+
+  test('two classes: binary:logistic, one tree a round, the base score the second class\'s weighted share', () => {
+    const w = X.map((_, i) => 1 + (i % 3));
+    const m = new BoostedTreesClassifier({ nEstimators: 4, learningRate: 0 }).fitSync(X, two, { sampleWeight: w });
+    expect(m.classes).toEqual(['no', 'yes']);
+    expect(m.objective).toBe('binary:logistic');
+    expect(m.trees).toHaveLength(4);
+    const share = two.reduce((s, v, i) => s + (v === 'yes' ? w[i]! : 0), 0) / w.reduce((s, v) => s + v, 0);
+    expect(m.baseScore[0]).toBeCloseTo(share, 12);
+    // A learning rate of 0: every row's probability is the base score.
+    const P = m.predictProbaSync(X);
+    for (let i = 0; i < P.rows; i++) expect(P.data[P.rows + i]).toBeCloseTo(share, 12);
+  });
+
+  test('more classes: multi:softprob, a tree per class a round; base scores sum to 0; probabilities sum to 1', () => {
+    const m = new BoostedTreesClassifier({ nEstimators: 5, maxDepth: 2 }).fitSync(X, three);
+    expect(m.objective).toBe('multi:softprob');
+    expect(m.trees).toHaveLength(15);
+    expect(Array.from(m.baseScore).reduce((s, v) => s + v, 0)).toBeCloseTo(0, 12);
+    const P = m.predictProbaSync(X);
+    expect(P.cols).toBe(3);
+    for (let i = 0; i < P.rows; i++) expect(P.data[i]! + P.data[P.rows + i]! + P.data[2 * P.rows + i]!).toBeCloseTo(1, 12);
+    const acc = (k: number) => {
+      const p = new BoostedTreesClassifier({ nEstimators: k, maxDepth: 2 }).fitSync(X, three).predictSync(X);
+      return p.filter((v, i) => v === three[i]).length;
+    };
+    expect(acc(20)).toBeGreaterThan(acc(1));
+  });
+
+  test('in a pipeline with sample weights; in a grid search', async () => {
+    const p = pipeline(new StandardScaler(), new BoostedTreesClassifier({ nEstimators: 5 })).fitSync(X, two, { sampleWeight: X.map(() => 2) });
+    expect(p.predictSync(X)).toHaveLength(160);
+    const g = await new GridSearchCV(new BoostedTreesClassifier({ nEstimators: 10 }), { maxDepth: [1, 3] }, { cv: new KFold({ nSplits: 3 }) }).fit(X, three);
+    expect([1, 3]).toContain(g.bestParams.maxDepth);
+  });
+
+  test('the errors, and what isn\'t supported yet', () => {
+    expect(code(() => new BoostedTreesClassifier({ baseScore: 1 }))).toBe('ML_PARAM');
+    expect(code(() => new BoostedTreesClassifier({ objective: 'reg:squarederror' as never }))).toBe('ML_PARAM');
+    expect(code(() => new BoostedTreesClassifier({ subsample: 0.5 }))).toBe('ML_PARAM');
+    // multi:softprob with two classes, as XGBoost refuses it; a base score with three, not supported yet.
+    expect(code(() => new BoostedTreesClassifier({ objective: 'multi:softprob' }).fitSync(X, two))).toBe('ML_PARAM');
+    expect(code(() => new BoostedTreesClassifier({ baseScore: 0.4 }).fitSync(X, three))).toBe('ML_PARAM');
+    expect(code(() => new BoostedTreesClassifier().fitSync(X, X.map(() => 1)))).toBe('ML_LABELS');
+    // A class whose rows all weigh 0.
+    expect(code(() => new BoostedTreesClassifier().fitSync(X, three, { sampleWeight: three.map((v) => (v === 2 ? 0 : 1)) }))).toBe('ML_VALUE');
+    expect(code(() => new BoostedTreesClassifier().fitSync([[1], [Number.NaN]], [0, 1]))).toBe('ML_VALUE');
+    expect(code(() => new BoostedTreesClassifier().predictProbaSync(X))).toBe('ML_NOT_FITTED');
   });
 });
 

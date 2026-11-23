@@ -46,7 +46,8 @@ grown by CART ([ADR 0039](../../adr/0039-trees-and-forests)). From `@smaltworks/
 - `minSamplesLeaf` (default `1`): the fewest rows each leaf keeps: a whole number, or a share of the rows (below 1).
 - `minWeightFractionLeaf` (default `0`): the smallest share of the total weight each leaf keeps, up to 0.5.
 - `maxFeatures` (default every column): how many columns each split looks at: a whole number, a share of the columns
-  (below 1), `'sqrt'` or `'log2'`. Which ones is drawn from `seed`.
+  (below 1), `'sqrt'` or `'log2'`. Which ones is drawn from `seed`. As in scikit-learn, a column drawn that is
+  constant in the node counts towards them, and the split goes on drawing only until it has one that isn't.
 - `maxLeafNodes` (default no limit): the most leaves. The tree then grows best first: the split that improves most,
   next.
 - `minImpurityDecrease` (default `0`): a split must decrease the weighted impurity by at least this much.

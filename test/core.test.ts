@@ -945,6 +945,52 @@ describe('random forests', () => {
   });
 });
 
+describe('maxFeatures and columns constant in a node, as scikit-learn counts them', () => {
+  // Column 0 is constant everywhere, column 1 is noise, and y follows column 2 alone.
+  const r = new Random(31);
+  const X = Array.from({ length: 200 }, () => [4, r.next(), r.next()]);
+  const y = X.map((x) => (x[2]! > 0.5 ? 10 : 0) + 0.01 * r.next());
+
+  test.each([
+    ['best', 'best'],
+    ['random, with the presort', 'random'],
+  ] as const)('%s: a constant column drawn counts towards maxFeatures, so the root sometimes looks at noise alone', (_name, splitter) => {
+    const roots = new Set<number>();
+    for (let seed = 0; seed < 40; seed++) {
+      // maxFeatures 2 of 3 columns: half or more, so 'random' takes the presort's way.
+      const t = new DecisionTreeRegressor({ maxFeatures: 2, maxDepth: 1, splitter, seed }).fitSync(X, y);
+      roots.add(t.tree.feature[0]!);
+    }
+    // Never the constant column; the informative one where it was drawn; the noise where the constant took a draw.
+    expect([...roots].sort()).toEqual([1, 2]);
+  });
+
+  test('random, sort-free: constant columns drawn take draws from the varying ones', () => {
+    // Nine columns, six constant, and the label follows column 8: maxFeatures 2 is below half, so 'random' never
+    // sorts. Not counting the constants, a split would look at 2 of the 3 varying columns, and the root picked column
+    // 8 in 38 of these 60 seeds; counting them, as scikit-learn does, it often looks at just one, and picks column 8 in
+    // 18 (both measured 2026-11-23). Fewer than 28, the midpoint, holds the count.
+    const r9 = new Random(33);
+    const X9 = Array.from({ length: 200 }, () => [4, -1, 7, 0, 2, 9, r9.next(), r9.next(), r9.next()]);
+    const y9 = X9.map((x) => (x[8]! > 0.5 ? 'a' : 'b'));
+    let informative = 0;
+    for (let seed = 0; seed < 60; seed++) {
+      const f = new DecisionTreeClassifier({ maxFeatures: 2, maxDepth: 1, splitter: 'random', seed }).fitSync(X9, y9).tree.feature[0]!;
+      expect(f).toBeGreaterThan(5);
+      if (f === 8) informative++;
+    }
+    expect(informative).toBeLessThan(28);
+    expect(informative).toBeGreaterThan(0);
+  });
+
+  test('every column constant: a single leaf; a constant column never splits', () => {
+    const flat = new DecisionTreeRegressor({ maxFeatures: 1, seed: 0 }).fitSync([[1, 2], [1, 2], [1, 2]], [1, 2, 3]);
+    expect(flat.getNLeaves()).toBe(1);
+    const t = new DecisionTreeRegressor({ maxFeatures: 1, seed: 3 }).fitSync(X, y);
+    expect(Array.from(t.tree.feature).filter((f) => f >= 0).every((f) => f !== 0)).toBe(true);
+  });
+});
+
 describe('extra trees, and trees with splitter: random', () => {
   const r = new Random(9);
   const X = Array.from({ length: 120 }, () => [r.next() * 4, r.next() * 2 - 1, r.next()]);

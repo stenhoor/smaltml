@@ -339,17 +339,20 @@ function growSorted(X: Matrix, t: Targets, weights: Float64Array, params: GrowPa
       return null;
     }
     // Columns in a random order: it decides only between splits that score exactly the same, and which columns
-    // maxFeatures looks at. Constant columns don't count towards maxFeatures.
+    // maxFeatures looks at. As in scikit-learn, a column constant in the node counts towards maxFeatures, but the
+    // search goes on until it has looked at one that isn't (or at every column).
     const order = rng.permutation(p);
     let best: Split | null = null;
     let bestScore = -Infinity;
     let visited = 0;
+    let varying = 0;
     for (const f of order) {
-      if (visited >= params.maxFeatures) break;
+      if (visited >= params.maxFeatures && varying > 0) break;
+      visited++;
       const sortedRows = cols[f]!;
       const values = vals[f]!.subarray(start, end);
       if (values[0] === values[m - 1]) continue;
-      visited++;
+      varying++;
       if (params.splitter === 'random') {
         // One threshold, drawn uniformly between the node's smallest and largest value (one at the largest is the
         // smallest, so both sides keep a row); the rows at or below it go left, a binary search in the sorted values.
@@ -598,9 +601,13 @@ function growSortFree(X: Matrix, t: Targets, weights: Float64Array, params: Grow
     const order = rng.permutation(p);
     let best: Split | null = null;
     let bestScore = -Infinity;
+    // As growSorted's: a column constant in the node counts towards maxFeatures, but the search goes on until it has
+    // looked at one that isn't (or at every column).
     let visited = 0;
+    let varying = 0;
     for (const f of order) {
-      if (visited >= params.maxFeatures) break;
+      if (visited >= params.maxFeatures && varying > 0) break;
+      visited++;
       const col = X.column(f);
       let lo = Infinity;
       let hi = -Infinity;
@@ -610,7 +617,7 @@ function growSortFree(X: Matrix, t: Targets, weights: Float64Array, params: Grow
         if (x > hi) hi = x;
       }
       if (lo === hi) continue;
-      visited++;
+      varying++;
       let th = lo + (hi - lo) * rng.next();
       if (th === hi) th = lo;
       // The left rows' sums; the right's are the node's less them. A random threshold makes `x ≤ th` a coin toss, so

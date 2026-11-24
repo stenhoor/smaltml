@@ -146,6 +146,28 @@ Five compare cases, two to four classes: XGBoost's trees split for split (3,488 
 and probabilities, importances and base scores within 1e-5; the differences measured were below 3e-7 for the
 probabilities and 2e-6 for the base scores (XGBoost keeps them as 32-bit floats).
 
+## Step 3, missing values (2026-11-23)
+
+A missing value (`NaN`) is in no bin; each node's histogram keeps each column's missing values' sums apart. What
+XGBoost 3.4.1 does, read from its trees on data made to show each case:
+
+- **The side:** each column's cuts are tried with the missing values right, the cuts ascending, then left, the cuts
+  descending, as the paper's Algorithm 3 enumerates them. The left side wins only where it gains more, so missing
+  values go right where the node has none, or where both sides gain the same. Of cuts with the same gain (no row of the
+  node between them), the first met wins: the lowest with missing values right, the highest with them left.
+- **Missing against present:** a column can send every present value left and its missing values right, by the cut
+  past its largest value. That cut is twice the largest value if positive, 0 if not, plus 1e-5, in 32-bit floats:
+  XGBoost's last cut (`get_quantile_cut()`).
+- **Infinity** fails, as in XGBoost.
+- **Saved models** keep each split's side (`defaultLeft`): format version 6. A tree saved before it loads with
+  missing values right, which is where those trees, fitted without missing values, would have sent them.
+
+Five compare cases with missing values, regression and classification: XGBoost's trees split for split, each split's
+side for missing values too (5,075 splits; 1,439 send them left, 117 split missing against present). One case stops at
+90 rounds: in round 98 a split's gain is within 1% of the 1e-6 floor, reached from XGBoost's 32-bit predictions
+(1.0089e-6) and not from smaltml's 64-bit ones (0.9994e-6), so one makes the split and the other doesn't (decision 4).
+No other split of the case comes within 60% of the floor.
+
 ## Consequences
 
 - `compare/requirements.txt` gains `xgboost-cpu==3.4.1` (the owner's yes, 2026-11-23: Apache-2.0, a 5.8 MB wheel for

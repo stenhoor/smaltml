@@ -18,7 +18,7 @@ const doc = JSON.parse(json);
 
 | format | version | model | params | names |
 | --- | --- | --- | --- | --- |
-| smaltml | 5 | LinearRegression | \{"fitIntercept":true\} | [area, rooms] |
+| smaltml | 6 | LinearRegression | \{"fitIntercept":true\} | [area, rooms] |
 
 `loadModel` turns the JSON (or the parsed document) back into the model, ready to predict:
 
@@ -42,6 +42,8 @@ await loaded.predict([[80, 3]])
   encoders' `minFrequency` and `maxCategories` to their parameters and `infrequent` to their state. Version 5
   (2026-11-17) lets `GridSearchCV` save several scorers (`scoring` a list or a record of names, and `cvResults.scores`
   by name), a `refit` that names one, and `returnTrainScore` with its `meanTrainScore` and `stdTrainScore`.
+  Version 6 (2026-11-23) adds each boosted tree split's side for missing values (`defaultLeft`); a tree saved
+  before it loads with missing values right.
 - `model`: the class, such as `LinearRegression` or `Pipeline`. A pipeline holds each step's document.
 - `smaltml`: the version that saved it.
 - `params`: the parameters, as the constructor takes them.

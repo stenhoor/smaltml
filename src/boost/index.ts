@@ -4,7 +4,7 @@
  * @module
  */
 import { fail } from '../core/errors.js';
-import { assertFinite, Matrix, toVector, type MatrixInput, type VectorInput } from '../core/matrix.js';
+import { Matrix, toVector, type MatrixInput, type VectorInput } from '../core/matrix.js';
 import { checkColumns, checkDocument, document, floats, notFitted, numbers, toLabels, uniqueLabels, type Label, type Labels, type ModelDocument } from '../core/model.js';
 import { binColumns, growTree, MAX_BIN_LIMIT, treeValue, type BoostTree } from './hist.js';
 
@@ -164,6 +164,7 @@ function treesToJSON(trees: readonly BoostTree[]) {
     feature: [...t.feature],
     // A leaf's threshold is NaN, which JSON can't hold: saved as null.
     threshold: Array.from(t.threshold, (v) => (Number.isNaN(v) ? null : v)),
+    defaultLeft: [...t.defaultLeft],
     value: numbers(t.value),
     gain: numbers(t.gain),
     cover: numbers(t.cover),
@@ -178,6 +179,8 @@ function treesFromJSON(trees: unknown, kind: string): BoostTree[] {
     right: ints(t.right, 'a tree\'s right'),
     feature: ints(t.feature, 'a tree\'s feature'),
     threshold: Float64Array.from(t.threshold as (number | null)[], (v) => (v === null ? Number.NaN : v)),
+    // Saved before format version 6, a tree had no missing values: they go right, as XGBoost's do where none was seen.
+    defaultLeft: Array.isArray(t.defaultLeft) ? Uint8Array.from(floats(t.defaultLeft, 'a tree\'s defaultLeft')) : new Uint8Array((t.left as unknown[]).length),
     value: floats(t.value, 'a tree\'s value'),
     gain: floats(t.gain, 'a tree\'s gain'),
     cover: floats(t.cover, 'a tree\'s cover'),
@@ -186,14 +189,17 @@ function treesFromJSON(trees: unknown, kind: string): BoostTree[] {
 
 /**
  * X as the trees read it, checked: XGBoost reads X as 32-bit floats and cuts between those values, so smaltml does too.
- * Missing values (NaN) aren't supported yet.
+ * A missing value (NaN) goes down the side each split learned; an infinite one fails, as in XGBoost.
  */
 function prepareX(X: MatrixInput): Matrix {
   const m = Matrix.from(X);
   for (let k = 0; k < m.data.length; k++) {
-    if (Number.isNaN(m.data[k]!)) fail('ML_VALUE', `X column ${m.columnName(Math.floor(k / m.rows))} has a missing value (NaN): boosted trees don't take missing values yet; fill them first (SimpleImputer)`);
+    const v = m.data[k]!;
+    if (v === Infinity || v === -Infinity) {
+      const j = Math.floor(k / m.rows);
+      fail('ML_VALUE', `X column ${m.columnName(j)}, row ${k - j * m.rows}, is ${v}: boosted trees take finite values, and NaN for missing`);
+    }
   }
-  assertFinite(m);
   const data = new Float64Array(m.data.length);
   for (let k = 0; k < data.length; k++) data[k] = Math.fround(m.data[k]!);
   return new Matrix(m.rows, m.cols, data, m.names);

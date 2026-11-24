@@ -74,7 +74,7 @@ y is any labels, numbers or strings, as for every smaltml classifier: `classes` 
 - `ML_PARAM`: a parameter outside its range; `'multi:softprob'` with two classes; a `baseScore` with more than two
   classes, or sampling below 1, which aren't supported yet.
 - `ML_LABELS`: y has one class only.
-- `ML_VALUE`: an infinite value in X (as in XGBoost); a column with more distinct values than `maxBin`; a negative `sampleWeight`; a class whose rows all weigh 0, which isn't supported yet.
+- `ML_VALUE`: an infinite value in X (as in XGBoost); a negative `sampleWeight`; a class whose rows all weigh 0, which isn't supported yet.
 - `ML_SHAPE`, `ML_NOT_FITTED`: as for every model.
 
 ## Notes
@@ -86,7 +86,8 @@ The gradients are log loss's: p − y, with Hessian p(1 − p) for two classes a
 row's weight; with more than two classes, every class's probabilities come from the round's starting margins, before
 any of its trees grows. The compare tests hold smaltml to XGBoost 3.4.1 on data whose columns have at most `maxBin`
 distinct values: the same trees, split for split and in the same order, the same predicted classes, and probabilities,
-importances and base scores within 1e-5.
+importances and base scores within 1e-5. With more distinct values than `maxBin`, the mean held-out accuracy over three
+draws of the data within 0.02 of XGBoost's.
 
 ## Examples
 

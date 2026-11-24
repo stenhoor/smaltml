@@ -262,6 +262,23 @@ function check(c: Case, inp: Record<string, any>, exp: Record<string, any>, tol:
       if (exp.oob !== null) close(oob / inp.seeds.length, exp.oob, tol, 'mean out-of-bag score');
       return;
     }
+    case 'boost-score': {
+      // Columns with more distinct values than maxBin: smaltml's exact quantile cuts, XGBoost's sketch's, so the trees
+      // differ. The mean held-out score over the draws, against XGBoost's mean, within the margin.
+      const params = camel(inp.params);
+      const fit = inp.sampleWeight ? { sampleWeight: inp.sampleWeight } : {};
+      let test = 0;
+      for (const d of inp.draws as Record<string, any>[]) {
+        if (inp.classifier) {
+          const p = new BoostedTreesClassifier(params).fitSync(d.X, d.y, fit).predictSync(d.Xnew);
+          test += p.filter((l, i) => l === d.ynew[i]).length / p.length;
+        } else {
+          test += r2Score(d.ynew, new BoostedTreesRegressor(params).fitSync(d.X, d.y, fit).predictSync(d.Xnew));
+        }
+      }
+      close(test / inp.draws.length, exp.test, tol, 'mean test score');
+      return;
+    }
     case 'MultiOutputRegressor': {
       const models = { LinearRegression: (p: object) => new LinearRegression(p), Ridge: (p: object) => new Ridge(p), Lasso: (p: object) => new Lasso(p), ElasticNet: (p: object) => new ElasticNet(p) };
       const m = new MultiOutputRegressor(models[inp.model as keyof typeof models](camel(inp.params))).fitSync(inp.X, inp.Y, inp.sampleWeight ? { sampleWeight: inp.sampleWeight } : {});

@@ -966,6 +966,50 @@ for name, params, labels in [
          {"proba": tolist(m.predict_proba(Xmn).astype(float)), "predict": tolist(m.predict(Xmn)), "importances": tolist(m.feature_importances_.astype(float)), "baseScore": base, "trees": trees},
          {"rtol": 1e-5, "atol": 1e-5})
 
+# Columns with more distinct values than max_bin (ADR 0044, step 4): XGBoost cuts them where its quantile sketch puts
+# them, smaltml at the exact weighted quantiles (the owner's choice, 2026-11-24), so the trees differ. As for the
+# forests, the cases compare held-out scores: the mean over three draws of the data (R² for the regressor, accuracy for
+# the classifier), within a margin. The margin, 0.02, is at least three standard errors of the mean of three draws'
+# differences: over 20 other draws (measured 2026-11-24), smaltml's score less XGBoost's averaged −0.0017 to +0.0054
+# per case, with standard deviations 0.009 to 0.011.
+BOOST_MARGIN = 0.02
+from sklearn.metrics import accuracy_score as _acc, r2_score as _r2
+def boost_draws(k):
+    draws = []
+    for s in range(k):
+        Xd, yd, labd = forest_data(1000 + 500, 40 + s)
+        Xd = np.round(Xd, 4)
+        draws.append((Xd[:1000], Xd[1000:], yd[:1000], yd[1000:], labd[:1000], labd[1000:]))
+    return draws
+boost_data_draws = boost_draws(3)
+sw_boost = np.random.default_rng(14).uniform(0.2, 3.0, size=1000)
+for name, params, classifier, weights, missing, margin in [
+    ("boosted trees regressor: more distinct values than max_bin, defaults", {}, "", None, False, BOOST_MARGIN),
+    ("boosted trees regressor: max_bin 32, sample weights", {"max_bin": 32, "n_estimators": 50, "max_depth": 4}, "", sw_boost, False, BOOST_MARGIN),
+    ("boosted trees classifier: three classes, more distinct values than max_bin", {"n_estimators": 50}, "three", None, False, BOOST_MARGIN),
+    ("boosted trees classifier: two classes, max_bin 64, missing values", {"max_bin": 64, "n_estimators": 50}, "two", None, True, BOOST_MARGIN),
+]:
+    draws, scores = [], []
+    for i, (Xa, Xb, ya, yb_, la, lb) in enumerate(boost_data_draws):
+        if missing:
+            Xa = with_missing(Xa, 0.1, 50 + i)
+            Xb = with_missing(Xb, 0.1, 60 + i)
+        if classifier:
+            classes = {"three": ["high", "low", "mid"], "two": ["high", "low"]}[classifier]
+            ta = np.array([classes.index(l) if l in classes else len(classes) - 1 for l in la])
+            tb = np.array([classes.index(l) if l in classes else len(classes) - 1 for l in lb])
+            m = XGBClassifier(**params).fit(Xa, ta, sample_weight=weights)
+            scores.append(_acc(tb, m.predict(Xb)))
+            draws.append({"X": tolist(Xa), "y": tolist(ta), "Xnew": tolist(Xb), "ynew": tolist(tb)})
+        else:
+            m = XGBRegressor(**params).fit(Xa, ya, sample_weight=weights)
+            scores.append(_r2(yb_, m.predict(Xb)))
+            draws.append({"X": tolist(Xa), "y": tolist(ya), "Xnew": tolist(Xb), "ynew": tolist(yb_)})
+    inputs = {"draws": draws, "params": params, "classifier": bool(classifier)}
+    if weights is not None:
+        inputs["sampleWeight"] = tolist(weights)
+    case(name, "boost-score", inputs, {"test": float(np.mean(scores)), "each": [float(v) for v in scores]}, {"rtol": 0, "atol": margin})
+
 out = {
     "comment": "Written by compare/run.py (npm run compare); don't edit by hand.",
     "reference": {"scikit-learn": sklearn.__version__, "numpy": np.__version__, "xgboost": xgboost.__version__},

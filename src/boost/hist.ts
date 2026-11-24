@@ -9,7 +9,6 @@
  * children numbered as they are made. A missing value (NaN) is in no bin: each split learns which side its missing
  * values take, as the paper's sparsity-aware split finding does.
  */
-import { fail } from '../core/errors.js';
 import type { Matrix } from '../core/matrix.js';
 
 /** A matrix's columns bucketed: each row's bin per column, row by row, and each column's distinct values. */
@@ -43,10 +42,40 @@ function cutPast(max: number): number {
 }
 
 /**
- * X's columns bucketed by their distinct values. X holds 32-bit floats (the trees read X so, as XGBoost does). A column
- * with more than maxBin distinct values isn't supported yet: XGBoost cuts it by a quantile sketch (ADR 0044, step 4).
+ * A column's cuts where it has more distinct values than maxBin: its smallest value, then, for each j from 1 to
+ * maxBin − 1, the first value with at least j/maxBin of the column's weight below it (once each), then the cut past its
+ * largest value. These are the exact weighted quantiles that XGBoost's sketch approximates, weighted as XGBoost weighs
+ * them, by the rows' sample weights (ADR 0044, step 4: the owner chose exact quantiles, 2026-11-24). `order` is the
+ * present rows, by value.
  */
-export function binColumns(X: Matrix, maxBin: number): Binned {
+function quantileEdges(col: Float64Array, order: Uint32Array, weights: Float64Array | undefined, maxBin: number): Float64Array {
+  let W = 0;
+  if (weights) for (const i of order) W += weights[i]!;
+  // Rows that all weigh 0 have no quantiles by weight: they are counted instead.
+  const wt = weights && W > 0 ? weights : null;
+  if (!wt) W = order.length;
+  const out: number[] = [];
+  let below = 0;
+  let j = 1;
+  for (let k = 0; k < order.length; ) {
+    const v = col[order[k]!]!;
+    if (out.length === 0) out.push(v + 0);
+    else if (j < maxBin && below >= (j * W) / maxBin) {
+      out.push(v + 0);
+      while (j < maxBin && below >= (j * W) / maxBin) j++;
+    }
+    // Every row of this value is below the next one. (−0 and +0 are one value.)
+    for (; k < order.length && col[order[k]!] === v; k++) below += wt ? wt[order[k]!]! : 1;
+  }
+  out.push(cutPast(col[order[order.length - 1]!]!));
+  return Float64Array.from(out);
+}
+
+/**
+ * X's columns bucketed. X holds 32-bit floats (the trees read X so, as XGBoost does). A column with at most maxBin
+ * distinct values is cut at each of them, as XGBoost's is; one with more, at its weighted quantiles (quantileEdges).
+ */
+export function binColumns(X: Matrix, maxBin: number, weights?: Float64Array): Binned {
   const n = X.rows;
   const p = X.cols;
   const codes = new Uint16Array(n * p);
@@ -62,31 +91,38 @@ export function binColumns(X: Matrix, maxBin: number): Binned {
     let k = 0;
     // −0 and +0 are one value (−0 < 0 is false); kept as +0, as XGBoost's cuts are.
     for (let i = 0; i < present; i++) if (i === 0 || sorted[i] !== sorted[i - 1]) sorted[k++] = sorted[i]! + 0;
-    if (k > maxBin) {
-      fail('ML_VALUE', `column ${X.columnName(f)} has ${k} distinct values, more than maxBin (${maxBin}): columns with more aren't supported yet; raise maxBin to at least ${k}`);
+    let e: Float64Array;
+    if (k <= maxBin) {
+      e = new Float64Array(k + 1);
+      e.set(sorted.subarray(0, k));
+      e[k] = k > 0 ? cutPast(e[k - 1]!) : Number.NaN;
+    } else {
+      const order = new Uint32Array(present);
+      for (let i = 0, at = 0; i < n; i++) if (!Number.isNaN(col[i]!)) order[at++] = i;
+      order.sort((a, b) => col[a]! - col[b]!);
+      e = quantileEdges(col, order, weights, maxBin);
     }
-    const e = new Float64Array(k + 1);
-    e.set(sorted.subarray(0, k));
-    e[k] = k > 0 ? cutPast(e[k - 1]!) : Number.NaN;
     edges.push(e);
+    // The column's bins: one before each cut but the last.
+    const bins = e.length - 1;
     for (let i = 0; i < n; i++) {
-      // The value's rank: a binary search in the distinct values.
       const x = col[i]!;
       if (Number.isNaN(x)) {
         missing ??= new Uint8Array(n * p);
         missing[i * p + f] = 1;
         continue;
       }
+      // The value's bin: the last cut at or below it, by binary search.
       let a = 0;
-      let b = k - 1;
+      let b = bins - 1;
       while (a < b) {
-        const mid = (a + b) >>> 1;
-        if (e[mid]! < x) a = mid + 1;
-        else b = mid;
+        const mid = (a + b + 1) >>> 1;
+        if (e[mid]! <= x) a = mid;
+        else b = mid - 1;
       }
       codes[i * p + f] = a;
     }
-    offsets[f + 1] = offsets[f]! + k;
+    offsets[f + 1] = offsets[f]! + Math.max(bins, 0);
   }
   return { rows: n, cols: p, codes, edges, missing, offsets, bins: offsets[p]! };
 }

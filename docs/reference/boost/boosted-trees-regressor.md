@@ -49,8 +49,10 @@ parameters and defaults ([ADR 0044](../../adr/0044-phase-3-boosted-trees)). From
   weights.
 - `gamma` (default `0`): the smallest gain a split must reach (XGBoost's `min_split_loss`), checked as the tree grows.
 - `regLambda` (default `1`), `regAlpha` (default `0`): L2 and L1 regularization of the leaf values.
-- `maxBin` (default `256`): the most bins a column is cut into. Each column's distinct values are its cuts, as
-  XGBoost's are while a column has at most `maxBin` of them; a column with more fails, for now.
+- `maxBin` (default `256`): the most bins a column is cut into. A column with at most `maxBin` distinct values is cut
+  at each of them, as XGBoost's is; one with more, at its exact quantiles, weighted by `sampleWeight`: the first value
+  with at least 1/`maxBin`, 2/`maxBin`, … of the column's weight below it. XGBoost cuts such a column where its quantile
+  sketch puts them, close to these but not the same.
 - `baseScore` (default: fitted): every row's starting prediction; fitted, it is the weighted mean of y.
 - `objective` (default `'reg:squarederror'`): the loss; squared error only, so far.
 - `subsample`, `colsampleBytree`, `colsampleBylevel`, `colsampleBynode` (default `1`): sampling of rows and columns;
@@ -74,7 +76,7 @@ it, and the base score is the weighted mean.
 
 - `ML_PARAM`: a parameter outside its range; an `objective` other than squared error, or sampling below 1, which
   aren't supported yet.
-- `ML_VALUE`: an infinite value in X (as in XGBoost); a column with more distinct values than `maxBin`; a negative `sampleWeight`, or every row of weight 0.
+- `ML_VALUE`: an infinite value in X (as in XGBoost); a negative `sampleWeight`, or every row of weight 0.
 - `ML_SHAPE`, `ML_NOT_FITTED`: as for every model.
 
 ## Notes
@@ -87,7 +89,9 @@ X is read as 32-bit floats, as XGBoost reads it, so the cuts and comparisons are
 64-bit floats, where XGBoost keeps some values in 32-bit ones. The compare tests hold smaltml to XGBoost 3.4.1 on data
 whose columns have at most `maxBin` distinct values: the same trees, split for split, and leaves, predictions,
 importances and base score within 1e-5. Two splits of a node that send the same rows each way have the same gain; the
-lower column wins, then the lower cut, as in XGBoost.
+lower column wins, then the lower cut, as in XGBoost. Where a column has more distinct values than `maxBin`, the cuts
+differ from XGBoost's sketch's, and so do the trees: the compare tests hold the mean held-out R² over three draws of
+the data within 0.02 of XGBoost's.
 
 ## Examples
 

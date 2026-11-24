@@ -168,6 +168,34 @@ side for missing values too (5,075 splits; 1,439 send them left, 117 split missi
 (1.0089e-6) and not from smaltml's 64-bit ones (0.9994e-6), so one makes the split and the other doesn't (decision 4).
 No other split of the case comes within 60% of the floor.
 
+## Step 4, columns with more distinct values than `maxBin` (2026-11-24)
+
+Decided by the owner, 2026-11-24:
+
+1. **Exact quantiles,** not a streaming sketch. smaltml holds X in memory, so a column with more distinct values than
+   `maxBin` is cut at its exact weighted quantiles, the values the paper's sketch approximates: its smallest value, then
+   for each j from 1 to `maxBin` − 1 the first value with at least j/`maxBin` of the column's weight below it (each
+   once), then the cut past its largest value (step 3). This is decision 3's "weighted quantile sketch" with no
+   approximation.
+2. **xgboost-cpu in the benchmarks:** `bench/reference.py` may time XGBoost (the pinned 3.4.1, one thread), as
+   decision 7 says, beside scikit-learn.
+3. **Histogram subtraction** (decision 3) comes in its own pull request after this step, measured on that benchmark and
+   kept only if faster.
+4. **32-bit edges in the compare tests:** where a compare case meets a split whose gain is within 32-bit rounding of
+   XGBoost's floor, the case is shortened or changed for that measured edge only, with the numbers in `compare/run.py`
+   and a row in the divergences, as in step 3.
+
+What XGBoost 3.4.1 does, read from `get_quantile_cut()`: its cuts are data values, close to every 1/`max_bin` of the
+rows (steps of 378 to 399 rows where the exact quantile's are 390, on 100,000 rows), and weighted by the sample weights,
+not the Hessians: a logistic fit's cuts equal a squared-error fit's, and weighting the positive values ten times over
+moves the cuts towards them.
+
+The trees differ from XGBoost's where the cuts do, so these compare cases are statistical (decision 5): the mean
+held-out score (R² for the regressor, accuracy for the classifier) over three draws of the data, within 0.02 of
+XGBoost's. Over 20 other draws, smaltml's score less XGBoost's averaged −0.0017 to +0.0054 per case, with standard
+deviations 0.009 to 0.011; 0.02 is at least three standard errors of a three-draw mean, as the forests' margins are
+(ADR 0039).
+
 ## Consequences
 
 - `compare/requirements.txt` gains `xgboost-cpu==3.4.1` (the owner's yes, 2026-11-23: Apache-2.0, a 5.8 MB wheel for

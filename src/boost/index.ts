@@ -274,7 +274,7 @@ export class BoostedTreesRegressor {
     if (!(wsum > 0)) fail('ML_VALUE', 'sampleWeight is 0 for every row: at least one row needs weight');
     // XGBoost's base score for squared error, fitted from the data: the weighted mean of y.
     const baseScore = c.baseScore ?? wy / wsum;
-    const binned = binColumns(m, c.maxBin);
+    const binned = binColumns(m, c.maxBin, w);
     const pred = new Float64Array(n).fill(baseScore);
     const g = new Float64Array(n);
     const h = new Float64Array(n);
@@ -445,7 +445,7 @@ export class BoostedTreesClassifier {
       if (!(share[k]! > 0)) fail('ML_VALUE', `class ${String(classes[k])} has no weight (its rows' sampleWeight is 0): such a class isn't supported yet`);
       share[k]! /= wsum;
     }
-    const binned = binColumns(m, c.maxBin);
+    const binned = binColumns(m, c.maxBin, w);
     const g = new Float64Array(n);
     const h = new Float64Array(n);
     const trees: BoostTree[] = [];

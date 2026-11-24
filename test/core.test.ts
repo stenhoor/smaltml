@@ -1008,8 +1008,6 @@ describe('boosted trees (ADR 0044)', () => {
     expect(code(() => new BoostedTreesRegressor({ subsample: 0.5 }))).toBe('ML_PARAM');
     expect(code(() => new BoostedTreesRegressor({ colsampleBytree: 0.5 }))).toBe('ML_PARAM');
     expect(code(() => new BoostedTreesRegressor().fitSync([[1], [Infinity]], [1, 2]))).toBe('ML_VALUE');
-    // More distinct values than maxBin: XGBoost's quantile sketch isn't here yet.
-    expect(code(() => new BoostedTreesRegressor({ maxBin: 4 }).fitSync(X, y))).toBe('ML_VALUE');
     expect(code(() => new BoostedTreesRegressor().fitSync(X, y, { sampleWeight: X.map(() => 0) }))).toBe('ML_VALUE');
     expect(code(() => new BoostedTreesRegressor().predictSync(X))).toBe('ML_NOT_FITTED');
   });
@@ -1139,6 +1137,34 @@ describe('boosted trees with missing values (ADR 0044, step 3)', () => {
     const m = new BoostedTreesRegressor({ nEstimators: 3 }).fitSync(X.map((x) => [Number.NaN, x[1]!]), y);
     for (const t of m.trees) for (let k = 0; k < t.left.length; k++) if (t.left[k] !== -1) expect(t.feature[k]).toBe(1);
     expect(code(() => m.predictSync([[Infinity, 1]]))).toBe('ML_VALUE');
+  });
+});
+
+describe('boosted trees on columns with more distinct values than maxBin (ADR 0044, step 4)', () => {
+  const X = Array.from({ length: 1000 }, (_, i) => [i]);
+  const y = X.map((x) => x[0]!);
+  /** Every cut the trees split at, but the one past the largest value. */
+  const cutsOf = (m: BoostedTreesRegressor) => {
+    const cuts = new Set<number>();
+    for (const t of m.trees) for (let k = 0; k < t.left.length; k++) if (t.left[k] !== -1 && t.threshold[k]! < 1000) cuts.add(t.threshold[k]!);
+    return [...cuts].sort((a, b) => a - b);
+  };
+
+  test('the cuts are the exact quantiles: maxBin 4 cuts 0 … 999 at 250, 500 and 750', () => {
+    const m = new BoostedTreesRegressor({ maxBin: 4, nEstimators: 20, maxDepth: 3 }).fitSync(X, y);
+    expect(cutsOf(m)).toEqual([250, 500, 750]);
+  });
+
+  test('weighted by the sample weights: the upper half three times over moves them to 500, 667 and 834', () => {
+    const w = X.map((x) => (x[0]! >= 500 ? 3 : 1));
+    const m = new BoostedTreesRegressor({ maxBin: 4, nEstimators: 20, maxDepth: 3 }).fitSync(X, y, { sampleWeight: w });
+    expect(cutsOf(m)).toEqual([500, 667, 834]);
+  });
+
+  test('a column with as many distinct values as maxBin keeps each as a cut', () => {
+    const few = X.slice(0, 8);
+    const m = new BoostedTreesRegressor({ maxBin: 8, nEstimators: 20, maxDepth: 3, minChildWeight: 0 }).fitSync(few, y.slice(0, 8));
+    expect(cutsOf(m)).toEqual([1, 2, 3, 4, 5, 6, 7]);
   });
 });
 

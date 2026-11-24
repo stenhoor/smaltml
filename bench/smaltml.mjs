@@ -73,6 +73,11 @@ for (const { name, key, n, p } of SIZES) {
     'ExtraTreesRegressor fit, 10 trees, depth 10': await median(() => fit(new ml.ExtraTreesRegressor({ nEstimators: 10, maxDepth: 10, seed: 0 }), X, y), reps),
     'ExtraTreesClassifier fit, 3 classes, 10 trees, depth 10': await median(() => fit(new ml.ExtraTreesClassifier({ nEstimators: 10, maxDepth: 10, seed: 0 }), X, y3), reps),
   };
+  // Boosted trees (ADR 0044) against XGBoost, XGBoost's defaults: on one thread only, as they have no threaded fit yet.
+  if (threads === 1) {
+    results[name]['BoostedTreesRegressor fit, 100 trees, depth 6 (XGBoost)'] = await median(() => new ml.BoostedTreesRegressor().fitSync(X, y), reps);
+    results[name]['BoostedTreesClassifier fit, 3 classes, 100 trees, depth 6 (XGBoost)'] = await median(() => new ml.BoostedTreesClassifier().fitSync(X, y3), reps);
+  }
   results[name].iterations = {
     lasso: new ml.Lasso({ alpha: 0.1 }).fitSync(X, y).nIter,
     logistic2: new ml.LogisticRegression().fitSync(X, y2).nIter,

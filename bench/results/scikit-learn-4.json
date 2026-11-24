@@ -4,43 +4,52 @@
   "threads": 4,
   "blas": "openblas 0.3.31.dev, openblas 0.3.34.106.0, openmp",
   "cpu": "4 cores",
-  "date": "2026-11-18",
+  "date": "2026-11-24",
   "milliseconds": {
-    "10k \u00d7 20": {
-      "StandardScaler fit + transform": 1.5698629999860714,
-      "LinearRegression fit": 4.625054999905842,
-      "LinearRegression predict": 0.19009599998298654,
-      "Ridge fit": 1.4314820000436157,
-      "Lasso fit (alpha 0.1)": 1.5247630000203571,
-      "LogisticRegression fit, 2 classes": 51.61109200003011,
-      "LogisticRegression fit, 2 classes, newton-cholesky": 18.902324000009685,
-      "LogisticRegression fit, 3 classes": 123.78190900005848,
-      "LogisticRegression predictProba, 3 classes": 1.015590999941196,
-      "DecisionTreeRegressor fit, depth 10": 131.3504729999977,
-      "DecisionTreeClassifier fit, 3 classes, depth 10": 142.26246600003378,
+    "10k × 20": {
+      "StandardScaler fit + transform": 2.1368050001910888,
+      "LinearRegression fit": 5.342579999705777,
+      "LinearRegression predict": 0.22780000108468812,
+      "Ridge fit": 1.630067001315183,
+      "Lasso fit (alpha 0.1)": 1.8407019997539464,
+      "LogisticRegression fit, 2 classes": 63.2114370000636,
+      "LogisticRegression fit, 2 classes, newton-cholesky": 15.067367000028753,
+      "LogisticRegression fit, 3 classes": 152.82802200090373,
+      "LogisticRegression predictProba, 3 classes": 1.339425999958621,
+      "DecisionTreeRegressor fit, depth 10": 121.86917999997604,
+      "DecisionTreeClassifier fit, 3 classes, depth 10": 142.54104199972062,
+      "RandomForestRegressor fit, 10 trees, depth 10": 783.9241260007839,
+      "RandomForestClassifier fit, 3 classes, 10 trees, depth 10": 204.62915999996767,
+      "ExtraTreesRegressor fit, 10 trees, depth 10": 139.1996699999254,
+      "ExtraTreesClassifier fit, 3 classes, 10 trees, depth 10": 41.22538699994038,
       "iterations": {
         "lasso": 5,
         "logistic2": 100,
         "logistic3": 100
       }
     },
-    "200k \u00d7 50": {
-      "StandardScaler fit + transform": 130.34418600000208,
-      "LinearRegression fit": 248.45822899999348,
-      "LinearRegression predict": 8.627176999993935,
-      "Ridge fit": 72.3860960000593,
-      "Lasso fit (alpha 0.1)": 46.815423999987615,
-      "LogisticRegression fit, 2 classes": 2912.148411999965,
-      "LogisticRegression fit, 2 classes, newton-cholesky": 581.7889270000478,
-      "LogisticRegression fit, 3 classes": 7292.334686999993,
-      "LogisticRegression predictProba, 3 classes": 30.989945000101216,
-      "DecisionTreeRegressor fit, depth 10": 9516.24429100002,
-      "DecisionTreeClassifier fit, 3 classes, depth 10": 10272.761209999999,
+    "200k × 50": {
+      "StandardScaler fit + transform": 131.7752319991996,
+      "LinearRegression fit": 285.3814939999211,
+      "LinearRegression predict": 9.53290300003573,
+      "Ridge fit": 79.13111499965453,
+      "Lasso fit (alpha 0.1)": 67.01204999990296,
+      "LogisticRegression fit, 2 classes": 3361.290376999932,
+      "LogisticRegression fit, 2 classes, newton-cholesky": 653.1458500003282,
+      "LogisticRegression fit, 3 classes": 8803.96451300021,
+      "LogisticRegression predictProba, 3 classes": 29.147641000236035,
+      "DecisionTreeRegressor fit, depth 10": 9998.387204999744,
+      "DecisionTreeClassifier fit, 3 classes, depth 10": 11528.685016999589,
+      "RandomForestRegressor fit, 10 trees, depth 10": 63448.9120369999,
+      "RandomForestClassifier fit, 3 classes, 10 trees, depth 10": 10398.163467001723,
+      "ExtraTreesRegressor fit, 10 trees, depth 10": 9611.085975000606,
+      "ExtraTreesClassifier fit, 3 classes, 10 trees, depth 10": 1593.3191330004774,
       "iterations": {
         "lasso": 4,
         "logistic2": 100,
         "logistic3": 100
       }
     }
-  }
+  },
+  "rounds": 3
 }

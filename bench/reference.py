@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Times scikit-learn on the benchmark data that bench/smaltml.mjs makes (run it first): the same cases, the same
+"""Times scikit-learn (and, on one thread, XGBoost for the boosted trees) on the benchmark data that bench/smaltml.mjs makes (run it first): the same cases, the same
 parameters, the median of several runs after a warm-up. Writes bench/results/scikit-learn-<threads>.json.
 
     OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 python3 bench/reference.py   # one thread
@@ -15,6 +15,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.ensemble import ExtraTreesClassifier, ExtraTreesRegressor, RandomForestClassifier, RandomForestRegressor
 from threadpoolctl import threadpool_info
+import xgboost
+from xgboost import XGBClassifier, XGBRegressor
 
 warnings.simplefilter("ignore", ConvergenceWarning)  # both libraries stop at the same max_iter on these data
 here = Path(__file__).resolve().parent
@@ -28,6 +30,7 @@ def median(f, reps):
         t = time.perf_counter(); f(); ts.append((time.perf_counter() - t) * 1000)
     return float(sorted(ts)[len(ts) // 2])
 
+one_thread = max((i["num_threads"] for i in threadpool_info()), default=1) == 1
 results = {}
 for s in json.loads((data / "meta.json").read_text()):
     n, p, key = s["n"], s["p"], s["key"]
@@ -55,12 +58,17 @@ for s in json.loads((data / "meta.json").read_text()):
         "ExtraTreesRegressor fit, 10 trees, depth 10": median(lambda: ExtraTreesRegressor(n_estimators=10, max_depth=10, random_state=0).fit(X, y), reps),
         "ExtraTreesClassifier fit, 3 classes, 10 trees, depth 10": median(lambda: ExtraTreesClassifier(n_estimators=10, max_depth=10, random_state=0).fit(X, y3), reps),
     }
+    # Boosted trees against XGBoost (ADR 0044; the owner's yes to xgboost-cpu here, 2026-11-24), its defaults, on one
+    # thread (n_jobs 1), timed only in the one-thread run, as smaltml's are.
+    if one_thread:
+        r["BoostedTreesRegressor fit, 100 trees, depth 6 (XGBoost)"] = median(lambda: XGBRegressor(n_jobs=1).fit(X, y), reps)
+        r["BoostedTreesClassifier fit, 3 classes, 100 trees, depth 6 (XGBoost)"] = median(lambda: XGBClassifier(n_jobs=1).fit(X, y3.astype(int)), reps)
     r["iterations"] = {"lasso": int(Lasso(alpha=0.1).fit(X, y).n_iter_), "logistic2": int(LogisticRegression().fit(X, y2).n_iter_[0]), "logistic3": int(l3.n_iter_[0])}
     results[s["name"]] = r
 
 threads = max(i["num_threads"] for i in threadpool_info()) if threadpool_info() else 1
 out = {
-    "library": f"scikit-learn {sklearn.__version__}, NumPy {np.__version__}",
+    "library": f"scikit-learn {sklearn.__version__}, NumPy {np.__version__}" + (f", XGBoost {xgboost.__version__}" if one_thread else ""),
     "runtime": f"Python {platform.python_version()}",
     "threads": threads,
     "blas": ", ".join(sorted({f'{i["internal_api"]} {i["version"]}' if i.get("version") else i["internal_api"] for i in threadpool_info()})),
